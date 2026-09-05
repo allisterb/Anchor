@@ -8,11 +8,12 @@ using Microsoft.Dafny;
 
 public class DafnyTool : Runtime
 {        
-    public static async Task<ToolOutput> Resolve(string src)
+    public static async Task<string> ResolveAsync(string src)
     {        
         (var stdin, var stdout, var stderr) = ToolOutput.CreateStreams(src);
         string[] args = ["resolve", "--standard-libraries", "--stdin"];
-        var r = await DafnyBackwardsCompatibleCli.MainWithWriters(stdout, stderr, stdin, args);
-        return new ToolOutput(r, stdout, stderr);
+        var program = await ProgramParser.Parse(src, new Uri("file://text"), null);
+        var r = DafnyMain.Resolve(program.Program);
+        return r;
     }   
 }
