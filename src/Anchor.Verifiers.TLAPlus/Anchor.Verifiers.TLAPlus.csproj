@@ -10,12 +10,29 @@
     <PackageReference Include="IKVM" Version="8.15.0" />
   </ItemGroup>
 
+  <!-- The tagged v1.7.4 release (sha1 bee4a54f3ee3d4afc347c3240ec2d9e93b075104), not a master
+       snapshot: the version is in the file name so the jar the build uses is identifiable on sight,
+       and the property below keeps the two references to it from drifting apart. -->
+  <PropertyGroup Label="TLA+">
+    <TLAToolsVersion>1.7.4</TLAToolsVersion>
+    <TLAToolsJar>$(RepoRoot)lib/tla2tools-$(TLAToolsVersion).jar</TLAToolsJar>
+  </PropertyGroup>
+
   <ItemGroup>
-    <IkvmReference Include="..\..\lib\tla2tools.jar">
+    <IkvmReference Include="$(TLAToolsJar)">
       <AssemblyName>tla2tools</AssemblyName>
-      <AssemblyVersion>1.7.4</AssemblyVersion>
-      <AssemblyFileVersion>1.7.4</AssemblyFileVersion>
+      <AssemblyVersion>$(TLAToolsVersion)</AssemblyVersion>
+      <AssemblyFileVersion>$(TLAToolsVersion)</AssemblyFileVersion>
     </IkvmReference>
+  </ItemGroup>
+
+  <!-- The same jar again, this time as a plain file: TLCProcess runs it on a real JVM, because TLC
+       cannot run in-process under IKVM. The IkvmReference above stays for SANY, which can, and for
+       the tlc2.output constants TLCProcess parses the CLI output with. -->
+  <ItemGroup>
+    <Content Include="$(TLAToolsJar)" Link="tla2tools-$(TLAToolsVersion).jar">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

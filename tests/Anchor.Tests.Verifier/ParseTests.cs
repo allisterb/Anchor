@@ -1,20 +1,13 @@
-﻿namespace Anchor.Tests.TLAPlus;
+namespace Anchor.Tests.TLAPlus;
 
 using Anchor.Verifiers.TLAPlus;
 
-public class SANYTests
+public class SANYTests : TestsRuntime
 {
     [Fact]
     public void CanParse()
     {
         var s = SANY.Parse(Path.Combine("testfiles", "HourClock.tla"));
-        Assert.True(s.IsSuccess);
-    }
-
-    [Fact]
-    public void CanCheck()
-    {
-        var s = TLC.Check(Path.Combine("testfiles", "Prisoners.tla"), Path.Combine("testfiles", "Prisoners.cfg"));
-        Assert.True(s.IsSuccess);
+        Assert.True(s.IsSuccess, s.Message);
     }
 }

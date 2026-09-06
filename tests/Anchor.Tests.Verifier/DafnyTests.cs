@@ -53,4 +53,37 @@ public class DafnyToolTests : TestsRuntime
         Assert.False(r.IsSuccess);
         Assert.Contains("not assignable", r.Message!);
     }
+
+    [Fact]
+    public void CanFindSolver()
+    {
+        var r = DafnyProgram.FindSolver();
+        Assert.True(r.IsSuccess, r.Message);
+        Info("Using solver at {0}.", r.Value);
+    }
+
+    [Fact]
+    public async Task CanVerify()
+    {
+        var r = await DafnyProgram.VerifyAsync(Triple);
+        Assert.True(r.IsSuccess, r.Message);
+        Assert.True(r.Value.Verified, r.Value.Output);
+    }
+
+    [Fact]
+    public async Task DoesNotVerifyFalsePostcondition()
+    {
+        var r = await DafnyProgram.VerifyAsync(
+            """
+            method Triple(x: int) returns (r: int)
+              ensures r == 4 * x
+            {
+              var y := 2 * x;
+              r := x + y;
+            }
+            """);
+        Assert.True(r.IsSuccess, r.Message);
+        Assert.False(r.Value.Verified);
+        Assert.Contains("postcondition", r.Value.Output);
+    }
 }

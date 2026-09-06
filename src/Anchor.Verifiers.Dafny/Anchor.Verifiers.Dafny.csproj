@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -6,14 +6,43 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Z3Version must track DafnyOptions.DefaultZ3Version for the Dafny release above: the solver is
+       probed by that exact file name, and the build scripts fetch it under it. -->
+  <PropertyGroup Label="Dafny">
+    <DafnyVersion>4.11.0</DafnyVersion>
+    <Z3Version>4.12.1</Z3Version>
+    <Z3FileName Condition="'$(OS)' == 'Windows_NT'">z3-$(Z3Version).exe</Z3FileName>
+    <Z3FileName Condition="'$(OS)' != 'Windows_NT'">z3-$(Z3Version)</Z3FileName>
+  </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="DafnyLanguageServer" Version="4.11.0" />
-    <PackageReference Include="DafnyPipeline" Version="4.11.0" />
+    <PackageReference Include="DafnyLanguageServer" Version="$(DafnyVersion)" />
+    <PackageReference Include="DafnyPipeline" Version="$(DafnyVersion)" />
+  </ItemGroup>
+
+  <!-- BoogieGenerator.ReadPrelude reads DafnyPrelude.bpl from beside the executing assembly when
+       DafnyOptions.DafnyPrelude is unset, so verification needs it in the output directory. DafnyCore
+       ships it as a contentFile, but contentFiles only flow from direct PackageReferences, and DafnyCore
+       reaches us transitively through DafnyPipeline. Copy it out of the restored package instead of
+       taking a direct reference, which would still not copy it: the nuspec declares the file with
+       buildAction="Content" and no copyToOutput. -->
+  <ItemGroup>
+    <Content Include="$(NuGetPackageRoot)dafnycore/$(DafnyVersion)/content/DafnyPrelude.bpl" Link="DafnyPrelude.bpl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Dafny probes for the solver at <assembly dir>/z3/bin/z3-{DefaultZ3Version} before falling back
+       to PATH, so the name and layout are fixed by Dafny, not by us. The binary is self-contained;
+       nothing else under lib/z3 is needed at runtime. Run build.ps1 or build.sh to fetch it. -->
+  <ItemGroup>
+    <Content Include="$(RepoRoot)lib/z3/bin/$(Z3FileName)" Link="z3/bin/$(Z3FileName)" Condition="Exists('$(RepoRoot)lib/z3/bin/$(Z3FileName)')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Anchor.Runtime\Anchor.Runtime.csproj" />
   </ItemGroup>
 
-  
 </Project>
