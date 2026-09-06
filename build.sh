@@ -33,11 +33,17 @@ minimum_java_version=11
 #
 #   tlatools - the jar whose sha1 (bee4a54f3ee3d4afc347c3240ec2d9e93b075104) matches the published
 #              checksum for the v1.7.4 release. Verified.
-#   z3       - taken from a clean download of the solver-builds asset below and confirmed
-#              byte-identical to an independently obtained copy. solver-builds publishes no
-#              checksum of its own, so this pin is ours rather than upstream.
-z3_sha256="53aca6c734e7d012ec07fe626bba1e3921269777133ce58784d26c4552e3fe0b"
+#   z3       - one hash PER PLATFORM: solver-builds ships a different binary for each OS, so a
+#              single pin cannot cover them all. Only the platforms recorded below can be verified,
+#              and the script refuses to install an unverifiable binary rather than trusting it.
+#              solver-builds publishes no checksums of its own, so these pins are ours, not
+#              upstream: each is recorded from a clean download confirmed byte-identical to an
+#              independently obtained copy. To add a platform, download the asset by hand, satisfy
+#              yourself it is what it claims to be, and record its sha256 here.
 tlatools_sha256="936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+z3_sha256_windows="53aca6c734e7d012ec07fe626bba1e3921269777133ce58784d26c4552e3fe0b"
+z3_sha256_linux="22214e518eed9eec867d18b485e7b2570d09cbf1d94a47c8eec6ec4de0287eff"
+z3_sha256_macos=""
 
 configuration="Debug"
 run_tests=0
@@ -196,7 +202,16 @@ install_z3() {
     # Dafny probes for this exact name next to the executing assembly.
     local target="$lib_dir/z3/bin/z3-$z3_version$exe_suffix"
 
-    if [ "$force" -eq 0 ] && present_and_matching "$target" "$z3_sha256"; then
+    # Asset names follow the runner images in dafny-lang/dafny's own workflows. Each OS gets a
+    # different binary, so each needs its own recorded hash.
+    local asset expected
+    case "$platform" in
+        windows) asset="z3-$z3_version-x64-windows-2022-bin.zip"; expected="$z3_sha256_windows" ;;
+        macos)   asset="z3-$z3_version-x64-macos-13-bin.zip";     expected="$z3_sha256_macos"   ;;
+        linux)   asset="z3-$z3_version-x64-ubuntu-22.04-bin.zip"; expected="$z3_sha256_linux"   ;;
+    esac
+
+    if [ "$force" -eq 0 ] && present_and_matching "$target" "$expected"; then
         step "z3 $z3_version verified"
         return
     fi
@@ -205,13 +220,20 @@ install_z3() {
         return
     fi
 
-    # Asset names follow the runner images in dafny-lang/dafny's own workflows.
-    local asset
-    case "$platform" in
-        windows) asset="z3-$z3_version-x64-windows-2022-bin.zip" ;;
-        macos)   asset="z3-$z3_version-x64-macos-13-bin.zip"     ;;
-        linux)   asset="z3-$z3_version-x64-ubuntu-22.04-bin.zip" ;;
-    esac
+    if [ -z "$expected" ]; then
+        cat >&2 <<EOF
+No z3 sha256 is recorded for $platform, so $asset cannot be verified.
+
+Rather than install an unchecked solver binary, this script stops here. To proceed,
+download the asset from
+  $solver_builds/$asset
+satisfy yourself it is what it claims to be, then record the sha256 of the extracted
+z3-$z3_version binary as z3_sha256_$platform in this script and in build.ps1.
+
+Only $([ -n "$z3_sha256_windows" ] && printf windows) is pinned today.
+EOF
+        exit 1
+    fi
 
     local scratch
     scratch="$(mktemp -d)"
@@ -228,7 +250,7 @@ install_z3() {
     mkdir -p "$(dirname "$target")"
     mv "$binary" "$target"
     chmod +x "$target"
-    assert_hash "$target" "$z3_sha256" "$solver_builds/$asset"
+    assert_hash "$target" "$expected" "$solver_builds/$asset"
     step "z3 $z3_version installed at $target"
 }
 

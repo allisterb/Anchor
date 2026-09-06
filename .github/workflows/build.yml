@@ -1,0 +1,64 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report both legs. A Windows-only failure is usually a path or line-ending problem and a
+      # Linux-only one usually a solver or JVM problem, so cancelling the other leg hides the
+      # comparison that identifies which.
+      fail-fast: false
+      matrix:
+        include:
+          # Each OS runs its own script, so both get real execution coverage rather than a lint.
+          - os: windows-latest
+            shell: pwsh
+            run: ./build.ps1 -Configuration Release -Test
+          # Pinned to 22.04 to match the solver-builds asset the scripts fetch. The runner version
+          # does not change which asset is downloaded, but it does decide what the binary runs on.
+          - os: ubuntu-22.04
+            shell: bash
+            run: ./build.sh -c Release -t
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # TLC runs out-of-process on a real JVM because it cannot run under IKVM, so the tests need a
+      # JDK. The build scripts check for one and fail if it is absent; they never install it.
+      - name: Set up the JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      # lib/ is gitignored, so every run would otherwise re-download ~30 MB. Keyed on the scripts
+      # because that is where the versions and hashes live: change a pin and the cache is bypassed.
+      - name: Cache native dependencies
+        uses: actions/cache@v4
+        with:
+          path: lib
+          key: anchor-lib-${{ runner.os }}-${{ hashFiles('build.ps1', 'build.sh') }}
+
+      # CI is set by GitHub, and the scripts turn it into RestoreLockedMode=true, so a restore that
+      # would silently re-resolve a committed packages.lock.json fails instead.
+      #
+      # Expect this to be slow on a cold cache: IKVM cross-compiles tla2tools.jar into an assembly,
+      # which dominates a first build.
+      - name: Build and test
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.run }}

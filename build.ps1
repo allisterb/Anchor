@@ -173,7 +173,16 @@ function Install-Z3 {
     $exeName = "z3-$Z3Version$ExeSuffix"
     $target = Join-Path $LibDir "z3/bin/$exeName"
 
-    if (-not $Force -and (Test-Dependency $target $Hashes.Z3)) {
+    # Asset names follow the runner images in dafny-lang/dafny's own workflows. Each OS gets a
+    # different binary, so each needs its own recorded hash.
+    $asset = switch ($Platform) {
+        'windows' { "z3-$Z3Version-x64-windows-2022-bin.zip" }
+        'macos'   { "z3-$Z3Version-x64-macos-13-bin.zip" }
+        default   { "z3-$Z3Version-x64-ubuntu-22.04-bin.zip" }
+    }
+    $expected = $Hashes.Z3[$Platform]
+
+    if (-not $Force -and (Test-Dependency $target $expected)) {
         Write-Step "z3 $Z3Version verified"
         return
     }
@@ -182,11 +191,19 @@ function Install-Z3 {
         return
     }
 
-    # Asset names follow the runner images in dafny-lang/dafny's own workflows.
-    $asset = switch ($Platform) {
-        "windows" { "z3-$Z3Version-x64-windows-2022-bin.zip" }
-        "macos"   { "z3-$Z3Version-x64-macos-13-bin.zip" }
-        default   { "z3-$Z3Version-x64-ubuntu-22.04-bin.zip" }
+    if (-not $expected) {
+        $pinned = ($Hashes.Z3.GetEnumerator() | Where-Object { $_.Value } | ForEach-Object { $_.Key }) -join ', '
+        throw @"
+No z3 sha256 is recorded for $Platform, so $asset cannot be verified.
+
+Rather than install an unchecked solver binary, this script stops here. To proceed,
+download the asset from
+  $SolverBuilds/$asset
+satisfy yourself it is what it claims to be, then record the sha256 of the extracted
+z3-$Z3Version binary under Z3.$Platform in this script and as z3_sha256_$Platform in build.sh.
+
+Pinned today: $pinned.
+"@
     }
 
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
@@ -204,7 +221,7 @@ function Install-Z3 {
 
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
         Move-Item -LiteralPath $binary.FullName -Destination $target -Force
-        Assert-Hash $target $Hashes.Z3 "$SolverBuilds/$asset"
+        Assert-Hash $target $expected "$SolverBuilds/$asset"
         Write-Step "z3 $Z3Version installed at $target"
     }
     finally {
@@ -277,12 +294,20 @@ function Assert-Jdk {
 #
 #   TLATools - the jar whose sha1 (bee4a54f3ee3d4afc347c3240ec2d9e93b075104) matches the published
 #              checksum for the v1.7.4 release. Verified.
-#   Z3       - taken from a clean download of the solver-builds asset below and confirmed
-#              byte-identical to an independently obtained copy. solver-builds publishes no
-#              checksum of its own, so this pin is ours rather than upstream.
+#   Z3       - one hash PER PLATFORM: solver-builds ships a different binary for each OS, so a
+#              single pin cannot cover them all. Only the platforms recorded below can be verified,
+#              and the script refuses to install an unverifiable binary rather than trusting it.
+#              solver-builds publishes no checksums of its own, so these pins are ours, not
+#              upstream: each is recorded from a clean download confirmed byte-identical to an
+#              independently obtained copy. To add a platform, download the asset by hand, satisfy
+#              yourself it is what it claims to be, and record its sha256 here.
 $Hashes = @{
-    Z3       = '53aca6c734e7d012ec07fe626bba1e3921269777133ce58784d26c4552e3fe0b'
     TLATools = '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88'
+    Z3       = @{
+        windows = '53aca6c734e7d012ec07fe626bba1e3921269777133ce58784d26c4552e3fe0b'
+        linux   = '22214e518eed9eec867d18b485e7b2570d09cbf1d94a47c8eec6ec4de0287eff'
+        macos   = ''
+    }
 }
 
 # Verification always runs, even with -SkipDependencies: checking a file that is already there costs
