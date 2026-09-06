@@ -427,4 +427,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+**/*appsettings.json
 lib/
+reference/

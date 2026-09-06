@@ -21,5 +21,9 @@ namespace Anchor
                 return s + "_" + r;
             }
         }
+
+        public static string JoinWith(this IEnumerable<string> s, string sep) => s.Aggregate((l, r) => l + sep + r);
+
+        public static string JoinWithNewlines(this IEnumerable<string> s) => s.JoinWith(Environment.NewLine);
     }
 }
