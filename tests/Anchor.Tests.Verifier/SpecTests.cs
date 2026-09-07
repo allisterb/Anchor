@@ -29,7 +29,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task BoundedRetryVerifies()
     {
-        var run = await CheckAsync("BoundedRetry");
+        var run = await CheckAsync("BoundedRetry/BoundedRetry");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -41,7 +41,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task OvershootViolatesTheBudgetInvariant()
     {
-        var run = await CheckAsync("Bug1_Overshoot");
+        var run = await CheckAsync("BoundedRetry/Bug1_Overshoot");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("BudgetSafe", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -61,7 +61,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task FreeRetryViolatesTerminationButNotSafety()
     {
-        var run = await CheckAsync("Bug2_FreeRetry");
+        var run = await CheckAsync("BoundedRetry/Bug2_FreeRetry");
         Assert.False(run.Verified);
 
         // Liveness, not safety: no invariant is broken.
@@ -79,7 +79,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task SharedBudgetVerifies()
     {
-        var run = await CheckAsync("SharedBudget");
+        var run = await CheckAsync("SharedBudget/SharedBudget");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -92,7 +92,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task CheckThenReserveRacesOnTheSharedBudget()
     {
-        var run = await CheckAsync("Bug3_CheckThenReserve");
+        var run = await CheckAsync("SharedBudget/Bug3_CheckThenReserve");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("BudgetSafe", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -101,6 +101,100 @@ public class SpecTests : TestsRuntime
         // on an affordability decision that was true when taken and is about to stop being true.
         Assert.Contains(run.Trace, s =>
             s.Text.Contains("a1 :> \"checked\"") && s.Text.Contains("a2 :> \"checked\""));
+    }
+
+    #endregion
+
+    #region Task lifecycle
+
+    /// <summary>
+    /// The lifecycle from arXiv:2510.14133 Table 2, with TL4 weakened. Twelve properties, checked —
+    /// which the paper never does; its conclusion defers verification to future work.
+    /// </summary>
+    [Fact]
+    public async Task TaskLifecycleVerifies()
+    {
+        var run = await CheckAsync("TaskLifecycle/TaskLifecycle");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    /// <summary>
+    /// TL4 exactly as published does not hold. It says a DISPATCHING task eventually reaches
+    /// IN_PROGRESS, which forbids cancelling one mid-dispatch — and cancellation of in-flight work
+    /// is something real frameworks do, Strands included via <c>agent.cancel()</c>.
+    /// </summary>
+    [Fact]
+    public async Task PublishedTL4ForbidsCancellingADispatchingTask()
+    {
+        var r = await TLCProcess.CheckAsync(Spec("TaskLifecycle/TaskLifecycle.tla"), Spec("TaskLifecycle/TaskLifecycle_TL4Published.cfg"));
+        Assert.True(r.IsSuccess, r.Message);
+        Assert.False(r.Value.Verified);
+        Assert.Contains(r.Value.Errors, e => e.Code == TLCCodes.TemporalPropertyViolated);
+
+        // The counterexample is Dispatch then Cancel.
+        Assert.Contains(r.Value.Trace, s => s.Text.Contains("DISPATCHING"));
+        Assert.Contains(r.Value.Trace, s => s.Text.Contains("CANCELED"));
+    }
+
+    /// <summary>
+    /// TL1 is not a property of the lifecycle on its own — it is a constraint on the retry policy,
+    /// which the paper leaves unspecified ("if the retry policy permits"). Remove the budget and
+    /// the task retries forever.
+    /// </summary>
+    [Fact]
+    public async Task UnboundedRetryBreaksTermination()
+    {
+        var run = await CheckAsync("TaskLifecycle/Bug4_UnboundedRetry");
+        Assert.False(run.Verified);
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.TemporalPropertyViolated);
+
+        // A lasso, not a finite path to a bad state: the retry cycle repeats forever.
+        Assert.Contains(run.Messages, m => m.Code == TLCCodes.BackToState);
+    }
+
+    #endregion
+
+    #region Dependency DAG
+
+    /// <summary>
+    /// HP10 from arXiv:2510.14133 Table 1: a sub-task is invoked only once every dependency has
+    /// completed. Holds, together with termination — but only because the orchestrator also cancels
+    /// the subgraph orphaned by a failure.
+    /// </summary>
+    [Fact]
+    public async Task DependencyDAGVerifies()
+    {
+        var run = await CheckAsync("DependencyDAG/DependencyDAG");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    /// <summary>
+    /// HP10 and TL1 are not independent. Drop failure propagation and a task whose dependency
+    /// failed waits forever — HP10 is still satisfied, nothing unsafe happens, and the graph simply
+    /// never finishes. An orchestrator audited against HP10 alone would pass this and then hang on
+    /// the first failed sub-task.
+    /// </summary>
+    [Fact]
+    public async Task WithoutFailurePropagationTheGraphNeverFinishes()
+    {
+        var run = await CheckAsync("DependencyDAG/Bug5_NoFailurePropagation");
+        Assert.False(run.Verified);
+
+        // Liveness only. HP10 itself is never violated, which is the whole point.
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.TemporalPropertyViolated);
+        Assert.DoesNotContain(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
+
+        // The stuck shape, and nothing more specific than that: some task has FAILED while another
+        // is still BLOCKED behind it.
+        //
+        // No task is named. TLC may report any counterexample it reaches first, and this bug has
+        // several — t3 stranded behind a failed t1 or t2, or t4 stranded behind a failed t3.
+        // Successive versions of this assertion named t1, then t3, and each was flaky until the
+        // assertion described the shape instead of one instance of it.
+        Assert.Contains(run.Trace, s =>
+            s.Text.Contains("\"FAILED\"") && s.Text.Contains("\"BLOCKED\""));
     }
 
     #endregion
@@ -119,7 +213,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task BoundedRetryImplementationVerifies()
     {
-        var run = await VerifyAsync("BoundedRetry.dfy");
+        var run = await VerifyAsync("BoundedRetry/BoundedRetry.dfy");
         Assert.True(run.Verified, run.Output);
     }
 
@@ -130,7 +224,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task FreeRetryFailsTerminationButNotSafety()
     {
-        var run = await VerifyAsync("BoundedRetryFreeRetry.dfy");
+        var run = await VerifyAsync("BoundedRetry/BoundedRetryFreeRetry.dfy");
         Assert.False(run.Verified);
 
         // Termination is what fails.
@@ -146,7 +240,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task ExternVariantStillVerifies()
     {
-        var run = await VerifyAsync("BoundedRetryExtern.dfy");
+        var run = await VerifyAsync("BoundedRetry/BoundedRetryExtern.dfy");
         Assert.True(run.Verified, run.Output);
     }
 
@@ -157,7 +251,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task ExternTranslatesToAPythonCall()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -177,7 +271,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task AuditReportsExactlyTheModelBoundary()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.AuditAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -196,7 +290,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task AuditFlagsOnlyDeclarationsTheProofRelieson()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetryFreeRetry.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryFreeRetry.dfy"));
         var r = await DafnyProgram.AuditAsync(src, "BoundedRetryFreeRetry.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -218,7 +312,7 @@ public class SpecTests : TestsRuntime
         Assert.True(python is not null,
             "no Python interpreter found; looked in the repo venv and on PATH");
 
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -233,7 +327,7 @@ public class SpecTests : TestsRuntime
             }
 
             // Replace Dafny's empty placeholder with the real implementation.
-            File.Copy(Spec("anchor_model.py"), Path.Combine(dir, "anchor_model.py"), overwrite: true);
+            File.Copy(Spec("BoundedRetry/anchor_model.py"), Path.Combine(dir, "anchor_model.py"), overwrite: true);
 
             await File.WriteAllTextAsync(Path.Combine(dir, "driver.py"),
                 """

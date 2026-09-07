@@ -1,3 +1,10 @@
+
+| `DependencyDAG/` | |
+|---|---|
+| `DependencyDAG.tla` | four tasks in a DAG. HP10 holds, and so does termination. |
+| `Bug5_NoFailurePropagation.tla` | the same without orphan cancellation. HP10 still holds; the graph never finishes. |
+| `TaskLifecycle/` | the per-subtask lifecycle from arXiv:2510.14133 Table 2, checked. |
+| `DependencyDAG/` | HP10 from the same paper Table 1 — invoke a task only once its dependencies are done. |
 # Specs
 
 Models of agent workflows, one directory per subject. `SpecTests` in `tests/Anchor.Tests.Verifier`
@@ -38,6 +45,11 @@ these pin down that a specific mistake is caught and which property catches it.
 | `TaskLifecycle.tla` | the per-subtask lifecycle from arXiv:2510.14133 Table 2. Twelve properties, all hold. |
 | `TaskLifecycle_TL4Published.cfg` | TL4 exactly as published. **Expected to fail** — see below. |
 | `Bug4_UnboundedRetry.tla` | the same, with the retry budget removed. TL1 fails as a lasso. |
+
+| `DependencyDAG/` | |
+|---|---|
+| `DependencyDAG.tla` | four tasks in a DAG. HP10 holds, and so does termination. |
+| `Bug5_NoFailurePropagation.tla` | the same without orphan cancellation. HP10 **still holds**; the graph never finishes. |
 
 ## BoundedRetry
 
@@ -165,6 +177,34 @@ So TL1 only holds given a bound the paper leaves implicit. That is the same shap
 The first version let `FALLBACK_SELECTED` go straight to `ERROR`. TL3 rejected it — the paper lists
 that state's successors as DISPATCHING, CANCELED or FAILED, and ERROR is not among them. The model
 was wrong, not the property, and checking is what said so.
+
+## HP10, and why it is not independent of TL1
+
+`DependencyDAG.tla` is HP10 from the same paper's Table 1:
+
+> Every sub-task in the Task DAG is invoked only when it has no dependencies on other uncompleted
+> sub-tasks.
+> `AG(∀i ∈ D : CL.invoke(EE, prot, sub_task_i) → ∀p ∈ parents(sub_task_i) : Completed(p))`
+
+Four tasks, `t1` and `t2` feeding `t3`, which feeds `t4`. The gate is one conjunct — a task becomes
+runnable only once every parent is `COMPLETED`.
+
+**HP10 on its own is satisfied by a system that hangs.** `Bug5_NoFailurePropagation.tla` removes
+orphan cancellation and nothing else. TLC finds the counterexample in a handful of steps: one task
+fails, everything downstream of it stays `BLOCKED`, and the graph never finishes.
+
+No invariant is violated. HP10 holds throughout — nothing ran before its parents completed — and so
+does `NoOrphanRuns`. Only liveness fails. An orchestrator audited against HP10 alone would pass, and
+then hang in production on the first failed sub-task.
+
+So HP10 and TL1 are not independent: satisfying HP10 creates an obligation to cancel the orphaned
+subgraph, and Table 1 does not state it. The paper's prose gestures at the right thing — "the
+Orchestrator enforces causal isolation and failure containment ... a sub-task does not proceed if any
+dependency is FAILED" — but *not proceeding* is only half of it. Not proceeding satisfies HP10 and
+breaks TL1. The property set never asks for the other half.
+
+A cyclic dependency graph fails the same way and needs no separate check: every task in the cycle
+waits forever, which shows up as termination failing.
 
 ### A translation note
 

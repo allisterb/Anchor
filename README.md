@@ -86,7 +86,7 @@ and explain how to record a hash rather than installing an unverified solver.
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |
 | `tests/Anchor.Tests.Verifier` | tests for both verifiers |
-| `specs/` | TLA+ models and Dafny implementations of agent workflows, checked by the test suite |
+| `specs/` | models of agent workflows, one directory per subject, all checked by the test suite |
 | `requirements/` | Python dependencies, pinned and hash-locked |
 | `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |
