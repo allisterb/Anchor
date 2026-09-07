@@ -208,6 +208,11 @@ public static class TLCCodes
     public const int StatePrint = EC.TLC_STATE_PRINT2;
     public const int Statistics = EC.TLC_STATS;
     public const int Version = EC.TLC_VERSION;
+
+    /// <summary>Closes a lasso: the trace returns here, so the cycle repeats forever.</summary>
+    public const int BackToState = EC.TLC_BACK_TO_STATE;
+
+    public const int CounterExample = EC.TLC_COUNTER_EXAMPLE;
 }
 
 /// <summary>One framed TLC message. <paramref name="Severity"/> is an <c>MP</c> level.</summary>

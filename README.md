@@ -1,3 +1,5 @@
+| `tests/Anchor.Tests.Verifier` | tests for both verifiers |
+| `specs/` | TLA+ models of agent workflows, model-checked by the test suite |
 # Anchor
 
 A formal verification framework for [Amazon Strands SDK](https://strandsagents.com/) multi-agent
@@ -20,6 +22,10 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 |---|---|---|---|
 | **Dafny** | in-process | in-process | in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) |
+
+Milestone 2 has started: [specs/](specs/) holds the first agent workflow — a budget-bounded retry
+loop — verified, plus two variants each carrying one realistic mistake, so the suite proves the
+verifier catches failures and not merely that it reports success.
 
 ## Prerequisites
 
@@ -75,6 +81,7 @@ and explain how to record a hash rather than installing an unverified solver.
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |
 | `tests/Anchor.Tests.Verifier` | tests for both verifiers |
+| `specs/` | TLA+ models of agent workflows, model-checked by the test suite |
 | `requirements/` | Python dependencies, pinned and hash-locked |
 | `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |

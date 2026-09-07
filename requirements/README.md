@@ -74,6 +74,21 @@ from being gone.
   Never add `extra-index-url`.
 - **`require-virtualenv`** — never installs into the system interpreter by accident.
 
+### Note: the bootstrap is not hash-pinned
+
+After a first install the venv contains the lock **plus `pip` and `uv`**, neither of which is
+hash-verified. That is the exemption `pip.ini` describes, and it is deliberate — the tool that
+generates hashes cannot be hash-pinned before it has run once — but it means the environment is not
+purely the lock, and `pip list` will show two packages that no lock file accounts for.
+
+It is closable: a small `bootstrap.txt` pinning `pip` and `uv` with hashes, installed with
+`--require-hashes`, makes the tools exempt only for the very first install rather than for every one
+after it. The same argument applies to `pip install --upgrade pip`, which is otherwise another
+unpinned install into this venv.
+
+**Not done here, deliberately**, so that this procedure stays identical to the one it was taken from.
+If that project adopts a bootstrap lock, adopt it here too rather than diverging first.
+
 ## Upgrading
 
 Change the version in `requirements.in`, recompile, and **read the diff** before installing. That

@@ -30,6 +30,14 @@
     </None>
   </ItemGroup>
 
+  <!-- The repo's specs, checked by SpecTests. They live at the repo root rather than under
+       testfiles/ because they are the project's own models, not test fixtures. -->
+  <ItemGroup>
+    <Content Include="$(RepoRoot)specs/**/*.*" LinkBase="specs">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
   <ItemGroup>
     <None Update="testfiles\Bad.cfg">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
