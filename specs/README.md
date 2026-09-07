@@ -1,29 +1,43 @@
 # Specs
 
-TLA+ models of agent workflows. `SpecTests` in `tests/Anchor.Tests.Verifier` runs TLC over every
-one of these on each build, so a spec that stops verifying — or a bug variant that stops being
-caught — fails the suite.
+Models of agent workflows, one directory per subject. `SpecTests` in `tests/Anchor.Tests.Verifier`
+runs every one of them on each build — TLC over the TLA+, Dafny over the `.dfy` — so a spec that
+stops verifying, or a bug variant that stops being caught, fails the suite.
 
-| Model (TLA+) | |
+| | |
+|---|---|
+| `BoundedRetry/` | one agent, one budget. Modelled in TLA+ **and** implemented in Dafny, so the two tools can be compared on the same problem. |
+| `SharedBudget/` | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
+| `TaskLifecycle/` | the per-subtask lifecycle from arXiv:2510.14133, checked. |
+| `cedar/` | a differential test between a TLA+ model of Cedar and the real engine. Has its own README. |
+
+Each directory pairs a spec that verifies with variants that carry one deliberate mistake each. The
+variants are the load-bearing half: a verifier that only ever reports success proves nothing, so
+these pin down that a specific mistake is caught and which property catches it.
+
+| `BoundedRetry/` | |
 |---|---|
 | `BoundedRetry.tla` | an agent attempting a task against a model that may never succeed. Verifies. |
 | `Bug1_Overshoot.tla` | with a wrong affordability check. Violates `BudgetSafe`. |
 | `Bug2_FreeRetry.tla` | with an uncharged retry path. Violates `EventuallyTerminates`. |
 
-| Implementation (Dafny) | |
+| `BoundedRetry/` (Dafny) | |
 |---|---|
 | `BoundedRetry.dfy` | the same state machine, executable. Verifies. |
 | `BoundedRetryFreeRetry.dfy` | the same uncharged retry path. Fails `decreases`. |
 | `BoundedRetryExtern.dfy` | the model bound to real Python via `{:extern}`. Verifies, translates, runs. |
 | `anchor_model.py` | the Python behind that boundary — the one thing the proof asks of the outside world. |
 
-| Multi-agent (TLA+ only) | |
+| `SharedBudget/` (TLA+ only) | |
 |---|---|
 | `SharedBudget.tla` | several agents, one budget, atomic acquire. Verifies. |
 | `Bug3_CheckThenReserve.tla` | check and reserve as two steps. Violates `BudgetSafe`. |
 
-The two bug variants are the load-bearing half. A verifier that only ever reports success proves
-nothing; these pin down that TLC catches a specific mistake and says which.
+| `TaskLifecycle/` | |
+|---|---|
+| `TaskLifecycle.tla` | the per-subtask lifecycle from arXiv:2510.14133 Table 2. Twelve properties, all hold. |
+| `TaskLifecycle_TL4Published.cfg` | TL4 exactly as published. **Expected to fail** — see below. |
+| `Bug4_UnboundedRetry.tla` | the same, with the retry budget removed. TL1 fails as a lasso. |
 
 ## BoundedRetry
 
@@ -110,6 +124,57 @@ implementation.
 The fix is in `SharedBudget.tla`: make the check and the reservation one atomic action, so nothing
 can slip between deciding there is room and taking it.
 
+## The task lifecycle, and two things checking it found
+
+`TaskLifecycle.tla` is Table 2 of Allegrini, Shreekumar & Celik, *Formalizing the Safety, Security,
+and Functional Properties of Agentic AI Systems* (arXiv:2510.14133v2) — eleven states covering
+dependency waiting, dispatch, retry, fallback and cancellation, with TL1–TL14 over them.
+
+The paper states these properties in CTL and never checks them; its own conclusion defers that to
+future work. Running them turned up two things.
+
+### TL4 as published forbids cancelling a dispatching task
+
+> TL4: A sub-task in DISPATCHING eventually reaches the IN_PROGRESS state.
+> `AG(state = DISPATCHING → AF(state = IN_PROGRESS))`
+
+Read literally, once a task is DISPATCHING it *must* reach IN_PROGRESS — so no cancellation,
+timeout or shutdown may intervene. TLC finds the counterexample in two steps: `Dispatch`, `Cancel`.
+
+That is not a constraint any real framework satisfies. Strands exposes `agent.cancel()` and a
+`cancel_signal` precisely so in-flight work can be abandoned. The same objection applies to TL2.
+
+`TaskLifecycle.tla` therefore carries both: `TL4_AsPublished`, kept and checked by
+`TaskLifecycle_TL4Published.cfg` so the finding cannot rot into a stale comment, and a weakened
+`TL4` admitting `CANCELED`, which holds. The divergence is deliberate and recorded, not quietly
+patched.
+
+### TL1 is a constraint on the retry policy, not a property of the lifecycle
+
+> TL1: Every CREATED sub-task eventually terminates in COMPLETED, ERROR, or CANCELED.
+
+TL14 says a RETRY_SCHEDULED task dispatches "if the retry policy permits", and nothing in Table 2
+says a retry policy must be bounded. `Bug4_UnboundedRetry.tla` takes that at its word, and TL1 fails
+as a lasso: `FAILED → RETRY_SCHEDULED → DISPATCHING → IN_PROGRESS → FAILED`, forever.
+
+So TL1 only holds given a bound the paper leaves implicit. That is the same shape as
+`Bug2_FreeRetry`: termination rests on every pass through the loop consuming something finite.
+
+### One error of ours, caught the same way
+
+The first version let `FALLBACK_SELECTED` go straight to `ERROR`. TL3 rejected it — the paper lists
+that state's successors as DISPATCHING, CANCELED or FAILED, and ERROR is not among them. The model
+was wrong, not the property, and checking is what said so.
+
+### A translation note
+
+The paper's `AG`/`AF`/`AX` map onto `[]` / `<>` / `[][...]_vars`. Its two reachability properties
+(HP15, HP16) use `EF`, which has **no TLA+ form** — TLA+ is linear-time and has no existential path
+quantifier. The equivalent is to check `[]~P` and read TLC's violation trace as the witness.
+
+TL7, TL8 and TL10 are stated over "previous state", so the model carries `prev` explicitly. That is
+a real cost of phrasing properties over history rather than over actions.
+
 ## Crossing into Python
 
 `BoundedRetryExtern.dfy` is `BoundedRetry.dfy` with the model bound to real Python. The proof does
@@ -168,7 +233,8 @@ and `NeedsClarification` is not, because the latter promises nothing that a proo
 ## Running one by hand
 
 ```bash
-java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -tool -cleanup -config specs/BoundedRetry.cfg specs/BoundedRetry.tla
+java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -tool -cleanup \
+    -config specs/BoundedRetry/BoundedRetry.cfg specs/BoundedRetry/BoundedRetry.tla
 ```
 
 `CHECK_DEADLOCK FALSE` is set in each `.cfg`. `done` and `abandoned` have no successor action, which
