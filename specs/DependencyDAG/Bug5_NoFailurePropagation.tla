@@ -3,23 +3,15 @@
 (* DependencyDAG with failure propagation removed: CancelOrphan is gone    *)
 (* from Next, so a task whose dependency failed simply waits.              *)
 (*                                                                         *)
-(* This is HP10 satisfied and TL1 broken at the same time, which is the    *)
-(* point. TLC finds it in seven steps:                                     *)
+(* HP10 satisfied and TL1 broken at the same time, which is the point:     *)
+(* one task fails, everything downstream stays BLOCKED, the graph never    *)
+(* finishes. NOTHING UNSAFE HAPPENS -- HP10 holds throughout, and so does  *)
+(* NoOrphanRuns. Only liveness fails.                                      *)
 (*                                                                         *)
-(*   t1 FAILED, t2 COMPLETED                                               *)
-(*   -> t3 depends on both, so it can never be unblocked                   *)
-(*   -> t4 depends on t3, so neither can it                                *)
-(*   -> AllTerminate fails; the graph never finishes                       *)
-(*                                                                         *)
-(* NOTHING UNSAFE HAPPENS. HP10 holds throughout -- no task ran without    *)
-(* its parents completing -- and so does NoOrphanRuns. Only liveness       *)
-(* fails. An orchestrator audited against HP10 alone would pass this and   *)
-(* then hang in production on the first failed sub-task.                   *)
-(*                                                                         *)
-(* HP10 and TL1 are therefore not independent: satisfying HP10 forces an   *)
-(* obligation to cancel the orphaned subgraph, which Table 1 does not      *)
-(* state. The paper's prose gestures at "failure containment" but the      *)
-(* property set does not require it.                                       *)
+(* An orchestrator audited against HP10 alone would pass this and then     *)
+(* hang in production on the first failed sub-task. HP10 and TL1 are not   *)
+(* independent: satisfying HP10 creates an obligation to cancel the        *)
+(* orphaned subgraph, which Table 1 never states.                          *)
 (***************************************************************************)
 (* HP10 from arXiv:2510.14133v2 Table 1 — the Orchestrator invokes a       *)
 (* sub-task only once every one it depends on has completed.               *)
@@ -34,27 +26,7 @@
 (* models is a separate exercise; this one would not fit in a checkable    *)
 (* state space if each task carried the full eleven states.                *)
 (***************************************************************************)
-EXTENDS Naturals, FiniteSets
-
-(***************************************************************************)
-(* The DAG. Concrete rather than a CONSTANT because a dependency relation  *)
-(* is a function, and TLC config files express those badly.                *)
-(*                                                                         *)
-(*        t1 ──┐                                                           *)
-(*             ├──> t3 ──> t4                                              *)
-(*        t2 ──┘                                                           *)
-(*                                                                         *)
-(* Deps[t] is the set t waits on. It must be acyclic: a cycle makes every  *)
-(* task in it wait forever, which shows up below as AllTerminate failing   *)
-(* rather than as a separate check.                                        *)
-(***************************************************************************)
-Tasks == {"t1", "t2", "t3", "t4"}
-
-Deps ==
-    [t \in Tasks |->
-        CASE t = "t3" -> {"t1", "t2"}
-          [] t = "t4" -> {"t3"}
-          [] OTHER    -> {}]
+EXTENDS Naturals, FiniteSets, Workflow
 
 States == {"BLOCKED", "READY", "IN_PROGRESS", "COMPLETED", "FAILED", "CANCELED"}
 Terminal == {"COMPLETED", "FAILED", "CANCELED"}

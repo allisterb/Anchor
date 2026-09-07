@@ -13,27 +13,7 @@
 (* models is a separate exercise; this one would not fit in a checkable    *)
 (* state space if each task carried the full eleven states.                *)
 (***************************************************************************)
-EXTENDS Naturals, FiniteSets
-
-(***************************************************************************)
-(* The DAG. Concrete rather than a CONSTANT because a dependency relation  *)
-(* is a function, and TLC config files express those badly.                *)
-(*                                                                         *)
-(*        t1 ──┐                                                           *)
-(*             ├──> t3 ──> t4                                              *)
-(*        t2 ──┘                                                           *)
-(*                                                                         *)
-(* Deps[t] is the set t waits on. It must be acyclic: a cycle makes every  *)
-(* task in it wait forever, which shows up below as AllTerminate failing   *)
-(* rather than as a separate check.                                        *)
-(***************************************************************************)
-Tasks == {"t1", "t2", "t3", "t4"}
-
-Deps ==
-    [t \in Tasks |->
-        CASE t = "t3" -> {"t1", "t2"}
-          [] t = "t4" -> {"t3"}
-          [] OTHER    -> {}]
+EXTENDS Naturals, FiniteSets, Workflow
 
 States == {"BLOCKED", "READY", "IN_PROGRESS", "COMPLETED", "FAILED", "CANCELED"}
 Terminal == {"COMPLETED", "FAILED", "CANCELED"}
