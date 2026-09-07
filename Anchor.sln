@@ -23,6 +23,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Core", "Core", "{F0069B9E-0
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Base", "Base", "{25EF9753-7ED1-46AF-9710-108BC6F8D8CB}"
 EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "strands", "tests\strands\strands.pyproj", "{07318915-327C-451F-8A99-9232160B40A3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,6 +47,8 @@ Global
 		{CFC8345C-1D6C-F07B-40F9-D6EDC92CC0C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CFC8345C-1D6C-F07B-40F9-D6EDC92CC0C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CFC8345C-1D6C-F07B-40F9-D6EDC92CC0C6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{07318915-327C-451F-8A99-9232160B40A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{07318915-327C-451F-8A99-9232160B40A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -54,6 +58,7 @@ Global
 		{16D20281-2B2F-96B7-CB4B-76E21082F9E5} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
 		{ABE0E5E7-289E-4E6E-A436-B2B9BE5D44AB} = {8C1EB6B3-A40E-4964-8913-154B82B68535}
 		{CFC8345C-1D6C-F07B-40F9-D6EDC92CC0C6} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
+		{07318915-327C-451F-8A99-9232160B40A3} = {8C1EB6B3-A40E-4964-8913-154B82B68535}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F5715F99-B6C8-47A8-8813-968B2AEF6BB2}
