@@ -1,0 +1,63 @@
+# Direct Python dependencies for Anchor. Hand-edited; this is the file you change.
+#
+# The pinned, hash-locked file that actually gets installed is requirements.txt, which is GENERATED
+# from this one. Do not edit requirements.txt by hand. See README.md for the commands.
+#
+# Every line here is a name being trusted, and each one drags in a transitive tree. Keeping the list
+# short is a security property, not tidiness: it is the difference between a dependency graph a
+# person can review and one they can only hope about. Prefer doing without over adding a package.
+#
+# Names are easy to get subtly wrong, and a wrong name is a live typosquat risk. Each is written
+# below with its project page so it can be checked against the real repository before first install.
+
+# The agent SDK. Anchor's Dafny workflows are translated to Python against this, so it is the target
+# the whole verification story is aimed at rather than an incidental dependency.
+#   strands-agents   https://github.com/strands-agents/harness-sdk
+#
+# The distribution name is confirmed, not guessed. PyPI lists `strands-agents` with its Homepage and
+# Bug Tracker both under github.com/strands-agents/harness-sdk, and `author_email` as
+# `AWS <opensource@amazon.com>`. Note the repository is `harness-sdk`, not the `sdk-python` the
+# import name might lead you to expect — the kind of near-miss this convention exists to catch.
+#
+# Pinned exactly rather than left to float, so that changing the version is a reviewable one-line
+# diff here rather than a silent difference in the lock. Requires Python >=3.10; the venv is 3.13.
+#
+# It pulls a real tree — thirteen direct dependencies, every one of them a range:
+#   boto3 >=1.26.0,<2, botocore >=1.29.0,<2, docstring-parser >=0.15,<1, httpx >=0.28.1,<1,
+#   jsonschema >=4,<5, mcp >=1.23.0,<2, opentelemetry-api >=1.30.0,<2,
+#   opentelemetry-instrumentation-threading >=0.51b0,<1.00b0, opentelemetry-sdk >=1.30.0,<2,
+#   pydantic >=2.4.0,<3, pyyaml >=6,<7, typing-extensions >=4.13.2,<5, watchdog >=6,<7
+#
+# Read the boto3/botocore part of the first lock diff with particular attention: they are the
+# largest surface here, and they publish new versions most weekdays, so they will dominate every
+# subsequent recompile. Anything appearing under a `# via` you did not expect deserves the same
+# treatment.
+strands-agents==1.54.0
+
+# NOT named here, but present anyway. Read from the `# via` chains of the first lock, 48 packages
+# for one direct dependency:
+#
+#   The real dependency is `mcp`, not strands-agents. strands-agents pulls thirteen things directly;
+#   `mcp` alone drags in uvicorn, starlette, sse-starlette, pydantic-settings, python-multipart,
+#   pyjwt and httpx-sse. Most of the surface below arrives through that one edge, and none of it is
+#   optional once the agent SDK is in.
+#
+#   uvicorn, starlette, sse-starlette  — an ASGI web server and framework, i.e. code for *listening*,
+#                       inside a framework whose job is to shell out to verifiers. They are MCP's
+#                       server-side transport. Anchor consuming MCP as a client would not execute
+#                       any of it, but it is installed and importable regardless.
+#
+#   python-multipart  — this list does not ask for it, and it arrives regardless: `mcp` depends on
+#                       it. It is a parser for untrusted bytes, which is the kind of thing worth
+#                       not having. What still holds is that *we* do not post multipart. Do not add
+#                       an upload without deciding that separately.
+#
+#   cryptography, cffi, pycparser  — a large native crypto surface, via pyjwt, via mcp's token
+#                       handling. cffi and pycparser are marker-gated to non-PyPy.
+#
+#   pywin32           — via mcp, gated `sys_platform == 'win32'`. Proof the --universal flag did its
+#                       job: the marker survives into the lock, so a Linux install skips it rather
+#                       than failing on a Windows-only wheel.
+#
+#   boto3, botocore, s3transfer, urllib3, jmespath, python-dateutil, six  — the AWS SDK, expected,
+#                       and the churn source. boto3/botocore publish most weekdays.

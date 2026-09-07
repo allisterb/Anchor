@@ -75,8 +75,21 @@ and explain how to record a hash rather than installing an unverified solver.
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |
 | `tests/Anchor.Tests.Verifier` | tests for both verifiers |
+| `requirements/` | Python dependencies, pinned and hash-locked |
+| `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |
 | `reference/` | third-party source read for reference, never built (gitignored) |
+
+## Python
+
+The Strands SDK is the target the Dafny workflows are translated to, and lives in a venv at
+`python/`, separate from the .NET build and installed by hand rather than by the build scripts.
+
+It is installed with pip in hash-checking mode and wheels-only: an install either reproduces exactly
+the artifacts that were reviewed, or fails outright, and no sdist ever runs a `setup.py` on the
+machine. `requirements/install.cmd` and `requirements/install.sh` are the entry points — run by a
+person, deliberately; nothing in the build or any agent invokes them. See
+[requirements/README.md](requirements/README.md) for the procedure.
 
 ## How verification is wired
 
