@@ -4,11 +4,21 @@ TLA+ models of agent workflows. `SpecTests` in `tests/Anchor.Tests.Verifier` run
 one of these on each build, so a spec that stops verifying — or a bug variant that stops being
 caught — fails the suite.
 
-| | |
+| Model (TLA+) | |
 |---|---|
-| `BoundedRetry` | an agent attempting a task against a model that may never succeed. Verifies. |
-| `Bug1_Overshoot` | `BoundedRetry` with a wrong affordability check. Violates `BudgetSafe`. |
-| `Bug2_FreeRetry` | `BoundedRetry` with an uncharged retry path. Violates `EventuallyTerminates`. |
+| `BoundedRetry.tla` | an agent attempting a task against a model that may never succeed. Verifies. |
+| `Bug1_Overshoot.tla` | with a wrong affordability check. Violates `BudgetSafe`. |
+| `Bug2_FreeRetry.tla` | with an uncharged retry path. Violates `EventuallyTerminates`. |
+
+| Implementation (Dafny) | |
+|---|---|
+| `BoundedRetry.dfy` | the same state machine, executable. Verifies. |
+| `BoundedRetryFreeRetry.dfy` | the same uncharged retry path. Fails `decreases`. |
+
+| Multi-agent (TLA+ only) | |
+|---|---|
+| `SharedBudget.tla` | several agents, one budget, atomic acquire. Verifies. |
+| `Bug3_CheckThenReserve.tla` | check and reserve as two steps. Violates `BudgetSafe`. |
 
 The two bug variants are the load-bearing half. A verifier that only ever reports success proves
 nothing; these pin down that TLC catches a specific mistake and says which.
@@ -47,6 +57,56 @@ reports it as a lasso: a trace ending in `Back to state`, an infinite cycle. An 
 checker cannot see this class of bug at all, and it is the failure mode behind agents that interact
 indefinitely without completing. That is the concrete argument for model checking here rather than
 a constraint checker.
+
+## The two halves say the same thing
+
+The Dafny implementation is the TLA+ model in executable form, and the correspondence is exact
+where it matters:
+
+| TLA+ | Dafny |
+|---|---|
+| `BudgetSafe` invariant | the loop invariant, and `ensures spent <= budget` |
+| `EventuallyTerminates` | `decreases budget - spent` |
+| `Costs == 1..MaxCost` | `ensures 1 <= cost <= maxCost` on `Attempt` |
+| `phase' \in {"ready","done"}` | `ok`, returned unconstrained |
+
+`Attempt` is deliberately bodiless. An implementation may return anything, so the verifier reasons
+about every possibility — the same universal quantification TLC performs over behaviours, and the
+same reason neither tool needs to model the LLM itself.
+
+The clearest evidence they are making one argument rather than two is that the same bug breaks both,
+in the same place. `Bug2_FreeRetry.tla` fails liveness with a lasso; `BoundedRetryFreeRetry.dfy`
+fails with `decreases expression might not decrease`. Termination and liveness are the same claim,
+and both rest on every pass consuming something.
+
+## Where TLA+ stops being redundant
+
+On `BoundedRetry` the two tools agree, which is a useful cross-check but also means Dafny alone
+would have caught both bugs. `SharedBudget` is where they part.
+
+Several agents draw on one budget. Each runs the logic `BoundedRetry.dfy` already verifies, and each
+is individually correct: every agent checks before it spends, and no agent overspends on its own.
+Split the check from the reservation — two statements, which is what an implementation writes by
+default — and TLC finds this:
+
+```
+ 8: <Check>    spent = 5   reserved = (a1 :> 0 @@ a2 :> 0)   phase = (a1 :> "checked" @@ a2 :> "ready")
+ 9: <Check>    spent = 5   reserved = (a1 :> 0 @@ a2 :> 0)   phase = (a1 :> "checked" @@ a2 :> "checked")
+10: <Reserve>  spent = 5   reserved = (a1 :> 3 @@ a2 :> 0)
+11: <Reserve>  spent = 5   reserved = (a1 :> 3 @@ a2 :> 3)      -- 5 + 6 = 11 > 10
+```
+
+Both agents pass the check, because neither has reserved yet. Both then act on a decision that has
+since stopped being true. The budget is broken by the *order*, not by either agent's logic.
+
+**There is deliberately no Dafny counterpart to these two.** A loop invariant describes one thread of
+control; it cannot say "and meanwhile another agent took the room I just checked for". Verifying
+each agent separately — which is all Dafny offers here — finds nothing wrong, because nothing is
+wrong with either agent. This is the division of labour: TLA+ for the protocol, Dafny for the
+implementation.
+
+The fix is in `SharedBudget.tla`: make the check and the reservation one atomic action, so nothing
+can slip between deciding there is room and taking it.
 
 ## Running one by hand
 

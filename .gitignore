@@ -431,3 +431,6 @@ FodyWeavers.xsd
 **/*appsettings.json
 lib/
 reference/
+# TLC scratch. Written next to the spec by a by-hand `tlc2.TLC` run; -cleanup does not remove it
+# after a run that found a violation. TLCProcess avoids this entirely by passing -metadir.
+states/
