@@ -142,5 +142,198 @@ public class SpecTests : TestsRuntime
         Assert.DoesNotContain("invariant", run.Output);
     }
 
+    /// <summary>Binding the model to Python changes nothing about the proof.</summary>
+    [Fact]
+    public async Task ExternVariantStillVerifies()
+    {
+        var run = await VerifyAsync("BoundedRetryExtern.dfy");
+        Assert.True(run.Verified, run.Output);
+    }
+
+    /// <summary>
+    /// The extern names decide the emitted call. Dafny also writes the <c>import</c>, which the
+    /// reference manual says it cannot do — it can, when the module itself is <c>{:extern}</c>.
+    /// </summary>
+    [Fact]
+    public async Task ExternTranslatesToAPythonCall()
+    {
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
+        Assert.True(r.IsSuccess, r.Message);
+
+        var generated = r.Value.Files["module_.py"];
+        Assert.Contains("import anchor_model", generated);
+        Assert.Contains("anchor_model.Model.attempt(", generated);
+
+        // The placeholder Dafny emits for the extern module is empty — it is what the real
+        // implementation replaces, not something to build on.
+        Assert.DoesNotContain("def attempt", r.Value.Files["anchor_model.py"]);
+    }
+
+    /// <summary>
+    /// The audit is the trust boundary, enumerated. Both entries are the model, and there is
+    /// nothing else — no stray assume, no unproved lemma hiding behind the budget guarantee.
+    /// </summary>
+    [Fact]
+    public async Task AuditReportsExactlyTheModelBoundary()
+    {
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var r = await DafnyProgram.AuditAsync(src, "BoundedRetryExtern.dfy");
+        Assert.True(r.IsSuccess, r.Message);
+
+        Assert.False(r.Value.IsFullyProved);
+        Assert.All(r.Value.Assumptions, a => Assert.Equal("Attempt", a.Declaration));
+        Assert.Contains(r.Value.Assumptions, a => a.Issue.Contains("ensures"));
+        Assert.Contains(r.Value.Assumptions, a => a.Issue.Contains("requires"));
+        Assert.Equal(2, r.Value.Assumptions.Count);
+    }
+
+    /// <summary>
+    /// A bodiless declaration is an assumption too, even without <c>{:extern}</c> — and the auditor
+    /// distinguishes the ones that matter. `Attempt` carries an ensures the proof leans on, so it
+    /// is reported; `NeedsClarification` promises nothing, so it is not.
+    /// </summary>
+    [Fact]
+    public async Task AuditFlagsOnlyDeclarationsTheProofRelieson()
+    {
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetryFreeRetry.dfy"));
+        var r = await DafnyProgram.AuditAsync(src, "BoundedRetryFreeRetry.dfy");
+        Assert.True(r.IsSuccess, r.Message);
+
+        Assert.Contains(r.Value.Assumptions, a => a.Declaration == "Attempt");
+        Assert.DoesNotContain(r.Value.Assumptions, a => a.Declaration == "NeedsClarification");
+    }
+
+    /// <summary>
+    /// The whole point, end to end: verified Dafny, translated to Python, executed against a real
+    /// hand-written module across the extern boundary.
+    ///
+    /// This needs only an interpreter and the Dafny runtime that translation emits alongside the
+    /// code — no Strands, no venv — so it runs anywhere Python is on PATH.
+    /// </summary>
+    [Fact]
+    public async Task GeneratedPythonRunsAgainstTheRealModule()
+    {
+        var python = FindPython();
+        Assert.True(python is not null,
+            "no Python interpreter found; looked in the repo venv and on PATH");
+
+        var src = await File.ReadAllTextAsync(Spec("BoundedRetryExtern.dfy"));
+        var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
+        Assert.True(r.IsSuccess, r.Message);
+
+        var dir = Path.Combine(Path.GetTempPath(), "anchor-roundtrip", Path.GetRandomFileName());
+        try
+        {
+            foreach (var (file, content) in r.Value.Files)
+            {
+                var path = Path.Combine(dir, file);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await File.WriteAllTextAsync(path, content);
+            }
+
+            // Replace Dafny's empty placeholder with the real implementation.
+            File.Copy(Spec("anchor_model.py"), Path.Combine(dir, "anchor_model.py"), overwrite: true);
+
+            await File.WriteAllTextAsync(Path.Combine(dir, "driver.py"),
+                """
+                import module_
+                outcome, spent = module_.default__.RunTask(10, 3)
+                assert spent <= 10, f"budget violated at runtime: {spent}"
+                print(f"OK spent={spent}")
+                """);
+
+            var info = new System.Diagnostics.ProcessStartInfo(python!)
+            {
+                WorkingDirectory = dir,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            info.ArgumentList.Add("driver.py");
+
+            using var process = System.Diagnostics.Process.Start(info)!;
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            Assert.True(process.ExitCode == 0, $"python exited {process.ExitCode}\n{stdout}\n{stderr}");
+            Assert.Contains("OK spent=", stdout);
+
+            // The model succeeds on its third attempt at cost 2 each, so the workflow spends 6 of 10.
+            Assert.Contains("OK spent=6", stdout);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch (IOException) { /* scratch */ }
+        }
+    }
+
+    /// <summary>
+    /// Any interpreter on PATH. Deliberately not the repo venv: the generated code needs only the
+    /// Dafny runtime emitted beside it, and reaching for the venv would imply a Strands dependency
+    /// this round-trip does not have.
+    /// </summary>
+    static string? FindPython()
+    {
+        var names = OperatingSystem.IsWindows() ? ["python.exe"] : new[] { "python3", "python" };
+        var candidates = new List<string>();
+
+        // The repo venv first, when there is one: an interpreter known to work. Any Python does —
+        // the generated code needs only the Dafny runtime emitted beside it, so this is not a
+        // Strands dependency, just the one we can be sure exists locally.
+        var dir = new DirectoryInfo(AssemblyLocation);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Anchor.sln")))
+        {
+            dir = dir.Parent;
+        }
+        if (dir is not null)
+        {
+            var bin = Path.Combine(dir.FullName, "python", OperatingSystem.IsWindows() ? "Scripts" : "bin");
+            candidates.AddRange(names.Select(n => Path.Combine(bin, n)));
+        }
+
+        candidates.AddRange((Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(Path.PathSeparator)
+            .Where(d => !string.IsNullOrWhiteSpace(d))
+            .SelectMany(d => names.Select(n => Path.Combine(d, n))));
+
+        return candidates.Where(File.Exists).FirstOrDefault(CanRunCode);
+    }
+
+    /// <summary>
+    /// Existing on disk proves nothing, and neither does answering <c>--version</c>. Windows ships
+    /// an App Execution Alias at WindowsApps\python.exe that File.Exists reports happily and which
+    /// only prints "Python was not found"; MSYS2's python answers --version but then cannot find its
+    /// own stdlib when launched from a Windows process. Require it to actually execute something.
+    /// </summary>
+    static bool CanRunCode(string exe)
+    {
+        try
+        {
+            var info = new System.Diagnostics.ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            info.ArgumentList.Add("-c");
+            info.ArgumentList.Add("print('anchor')");
+
+            using var probe = System.Diagnostics.Process.Start(info);
+            if (probe is null)
+            {
+                return false;
+            }
+            var output = probe.StandardOutput.ReadToEnd();
+            probe.WaitForExit(10_000);
+            return probe.HasExited && probe.ExitCode == 0 && output.Contains("anchor");
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     #endregion
 }

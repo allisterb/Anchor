@@ -16,16 +16,21 @@ rather than as a wrapper around a command line.
 
 Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is complete.
 
-| | Parse | Type check | Verify / model check |
-|---|---|---|---|
-| **Dafny** | in-process | in-process | in-process |
-| **TLA+** | in-process (SANY) | — | out-of-process (TLC) |
+| | Parse | Type check | Verify / model check | Audit | Translate |
+|---|---|---|---|---|---|
+| **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
+| **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
 Milestone 2 has started: [specs/](specs/) holds a budget-bounded retry loop, modelled in TLA+ and
 implemented in Dafny, plus variants each carrying one realistic mistake — so the suite proves the
 verifiers catch failures and not merely that they report success. A multi-agent spec shows where the
 two tools stop overlapping: a race on a shared budget that TLC finds and no Dafny loop invariant can
 express.
+
+The Dafny → Python path now runs end to end: a verified workflow whose model is bound to a real
+Python module via `{:extern}`, translated and executed against it. `DafnyProgram.AuditAsync`
+enumerates the trust boundary that remains — every point where the proof rests on an assumption
+rather than a proof — so it is a checked output rather than a paragraph someone maintains by hand.
 
 ## Prerequisites
 

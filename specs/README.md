@@ -14,6 +14,8 @@ caught — fails the suite.
 |---|---|
 | `BoundedRetry.dfy` | the same state machine, executable. Verifies. |
 | `BoundedRetryFreeRetry.dfy` | the same uncharged retry path. Fails `decreases`. |
+| `BoundedRetryExtern.dfy` | the model bound to real Python via `{:extern}`. Verifies, translates, runs. |
+| `anchor_model.py` | the Python behind that boundary — the one thing the proof asks of the outside world. |
 
 | Multi-agent (TLA+ only) | |
 |---|---|
@@ -107,6 +109,61 @@ implementation.
 
 The fix is in `SharedBudget.tla`: make the check and the reservation one atomic action, so nothing
 can slip between deciding there is room and taking it.
+
+## Crossing into Python
+
+`BoundedRetryExtern.dfy` is `BoundedRetry.dfy` with the model bound to real Python. The proof does
+not change — the cost bound was always an assumption about the outside world — but the assumption
+now has an address.
+
+```dafny
+module {:extern "anchor_model"} AnchorModel {
+  class {:extern "Model"} Model {
+    static method {:extern "attempt"} Attempt(maxCost: nat) returns (ok: bool, cost: nat)
+      requires maxCost > 0
+      ensures 1 <= cost <= maxCost
+  }
+}
+```
+
+Translating that emits, in `module_.py`:
+
+```python
+import anchor_model as anchor_model
+...
+out0_, out1_ = anchor_model.Model.attempt(maxCost)
+```
+
+The extern names decide the emitted call, verbatim, as `module.Class.method`. Dafny also writes an
+empty `anchor_model.py` placeholder, which the real `anchor_model.py` in this directory replaces.
+
+**Dafny does emit the `import`.** The reference manual states that "there is no syntax in Dafny to
+insert such `import` statements" and that the generated file must be hand-edited. That is not what
+happens when the *module* carries `{:extern}` — the import appears. Worth knowing, because designing
+around the documented limitation would mean building a post-processing step that is not needed.
+
+The round trip is a test, not a claim: `GeneratedPythonRunsAgainstTheRealModule` translates, writes
+the output, drops in the real module, and runs it.
+
+### The boundary is where Dafny's assumption gets enforced
+
+`anchor_model.py` clamps the cost to `1 <= cost <= maxCost` rather than trusting whatever the model
+reports. Dafny assumed that clause and cannot check Python, so this is the only place it can be made
+true. A miscounted or absent usage field reporting zero cost would break termination; one reporting
+more than `maxCost` would break the budget bound. Neither is hypothetical.
+
+## The audit
+
+`DafnyProgram.AuditAsync` enumerates every point where a proof rests on something taken on trust —
+bodiless declarations with an `ensures`, `{:axiom}`, `{:verify false}`, `assume` statements, and
+`{:extern}` declarations carrying a `requires` or `ensures`.
+
+For `BoundedRetryExtern.dfy` it reports exactly two, both on `Attempt`: one for the requires, one for
+the ensures. That is the complete trust boundary of the program, and it is checked by a test — so it
+cannot silently grow.
+
+It is also precise about what does *not* count. In `BoundedRetryFreeRetry.dfy`, `Attempt` is reported
+and `NeedsClarification` is not, because the latter promises nothing that a proof could lean on.
 
 ## Running one by hand
 

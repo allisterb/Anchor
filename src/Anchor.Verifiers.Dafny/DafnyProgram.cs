@@ -2,19 +2,23 @@ namespace Anchor.Verifiers.Dafny;
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 using Microsoft.Dafny;
+using Microsoft.Dafny.Auditor;
+using Microsoft.Dafny.Compilers;
 
 using Bpl = Microsoft.Boogie;
 
 using static Anchor.Result;
 
 /// <summary>
-/// Parses, type-checks and verifies Dafny source in-process via the DafnyPipeline assembly.
+/// Parses, type-checks, verifies, audits and translates Dafny source in-process via the
+/// DafnyPipeline assembly.
 /// </summary>
 public class DafnyProgram : Runtime
 {
@@ -100,6 +104,88 @@ public class DafnyProgram : Runtime
             : Success(path[ProverPath.Length..]);
     }
 
+    /// <summary>
+    /// Translate to Python. Resolution is required first, but verification is not: this emits code
+    /// for a program whose proofs may not have gone through, which is why it is a separate step
+    /// rather than something <see cref="VerifyAsync"/> does on the way past.
+    ///
+    /// A <c>{:extern}</c> declaration is emitted as a call with no body, so the Python it names has
+    /// to exist at run time. Note that Dafny cannot emit the <c>import</c> for it — the reference
+    /// manual says the generated file must be edited to add one — so calling out to a hand-written
+    /// module needs that import injected afterwards.
+    /// </summary>
+    public static async Task<Result<DafnyTranslation>> TranslateToPythonAsync(string src, string name = "program.dfy",
+        DafnyOptions? options = null, CancellationToken ct = default)
+    {
+        var reporter = new BatchErrorReporter(options ??= CreateOptions());
+        if (!(await ResolveAsync(src, name, reporter, ct)).Succeeded(out var resolved))
+        {
+            return Failure<DafnyTranslation>(resolved.Message);
+        }
+
+        var program = resolved.Value;
+        var backend = new PythonBackend(options);
+        options.Backend = backend;
+        backend.OnPreCompile(reporter, new ReadOnlyCollection<string>([]));
+
+        // Dafny marks the entry point on the program rather than discovering it during Compile.
+        if (SinglePassCodeGenerator.HasMain(program, out var main))
+        {
+            main.IsEntryPoint = true;
+            program.MainMethod = main;
+        }
+
+        var tree = new ConcreteSyntaxTree();
+        backend.Compile(program, name, tree);
+
+        // Compile builds a tree; rendering it is what produces text, and any additional files the
+        // backend wanted are queued up during that render rather than returned separately.
+        var writer = new StringWriter();
+        var state = new WriterState();
+        var queued = new Queue<FileSyntax>();
+        tree.Render(writer, 0, state, queued, backend.TargetIndentSize);
+
+        var files = new Dictionary<string, string>();
+        while (queued.Count > 0)
+        {
+            var file = queued.Dequeue();
+            var fileWriter = new StringWriter();
+            state.HasNewLine = false;
+            file.Tree.Render(fileWriter, 0, state, queued, backend.TargetIndentSize);
+            files[file.Filename] = fileWriter.ToString();
+        }
+
+        return reporter.HasErrors
+            ? Failure<DafnyTranslation>(Diagnostics(reporter))
+            : Success(new DafnyTranslation(writer.ToString(), files, Diagnostics(reporter)));
+    }
+
+    /// <summary>
+    /// Every place a proof rests on an assumption rather than on a proof: bodiless declarations,
+    /// <c>{:axiom}</c>, <c>{:verify false}</c>, <c>assume</c> statements, and <c>{:extern}</c>
+    /// declarations carrying a <c>requires</c> or <c>ensures</c> — where Dafny takes the
+    /// specification on trust because it cannot see the other language.
+    ///
+    /// This is the trust boundary, enumerated rather than described in prose.
+    /// </summary>
+    public static async Task<Result<DafnyAudit>> AuditAsync(string src, string name = "program.dfy",
+        DafnyOptions? options = null, CancellationToken ct = default)
+    {
+        var reporter = new BatchErrorReporter(options ?? CreateOptions());
+        if (!(await ResolveAsync(src, name, reporter, ct)).Succeeded(out var resolved))
+        {
+            return Failure<DafnyAudit>(resolved.Message);
+        }
+
+        var report = AuditReport.BuildReport(resolved.Value);
+        var assumptions = report.AllAssumptions()
+            .SelectMany(byDecl => byDecl.Value.Select(a =>
+                new DafnyAssumption(byDecl.Key.Name, a.desc.Issue, a.desc.Mitigation, a.desc.IsExplicit)))
+            .ToList();
+
+        return Success(new DafnyAudit(assumptions, report.RenderMarkdownTable()));
+    }
+
     /// <summary>All messages the reporter collected, one per line, in Dafny's console format.</summary>
     public static string Diagnostics(BatchErrorReporter reporter) =>
         string.Join(Environment.NewLine,
@@ -148,3 +234,22 @@ public record DafnyVerification(bool Verified, string Output, IReadOnlyList<Dafn
 
 /// <summary>Outcome of verifying one module.</summary>
 public record DafnyModuleVerification(string Module, Bpl.PipelineOutcome Outcome, Bpl.PipelineStatistics Statistics, bool Verified);
+
+/// <summary>Python emitted for a Dafny program, plus any supporting files the backend asked for.</summary>
+public record DafnyTranslation(string Source, IReadOnlyDictionary<string, string> Files, string Diagnostics);
+
+/// <summary>
+/// One place a proof rests on something taken on trust. <paramref name="IsExplicit"/> marks the
+/// assumptions that were asked for — an <c>{:axiom}</c> — as against those that arrive as a
+/// consequence of something else, such as an <c>{:extern}</c> that happens to carry an ensures.
+/// </summary>
+public record DafnyAssumption(string Declaration, string Issue, string Mitigation, bool IsExplicit)
+{
+    public override string ToString() => $"{Declaration}: {Issue} Mitigation: {Mitigation}";
+}
+
+/// <summary>The complete trust boundary of a program.</summary>
+public record DafnyAudit(IReadOnlyList<DafnyAssumption> Assumptions, string Report)
+{
+    public bool IsFullyProved => Assumptions.Count == 0;
+}
