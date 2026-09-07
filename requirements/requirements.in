@@ -34,6 +34,33 @@
 # treatment.
 strands-agents==1.54.0
 
+# Cedar policy engine — Rust-backed Python bindings over the official cedar-policy crate. Used by
+# tests/strands/cedar_differential.py as the oracle: the real engine's decisions are what our TLA+
+# model of Cedar is checked against.
+#   cedarpy   https://pypi.org/project/cedarpy/
+#
+# THE USUAL NAME CHECK CANNOT BE DONE HERE. cedarpy publishes no project_urls, no home_page, no
+# author and no licence in its PyPI metadata, so there is no repository link to check the name
+# against. That is worth knowing rather than glossing.
+#
+# What corroborates it instead, and is arguably stronger than a self-declared homepage would be:
+# the Strands SDK pins this exact version in its own pyproject.toml —
+# `cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]` — so the version below
+# is the one AWS's SDK depends on, not one we chose. Their design doc 0006 describes it as
+# "Rust-backed Python bindings wrapping the official cedar-policy crate. Externally maintained."
+# Note "externally maintained": Cedar is an AWS language, these bindings are not an AWS package.
+#
+# Pinned to match Strands rather than floating, so the engine under test is the engine the SDK
+# would actually use. Deliberately NOT installed via `strands-agents[cedar]`, which would also drag
+# in cedar-policy-mcp-schema-generator — that is only for generating Cedar schemas from tool
+# definitions, its import is lazy, and nothing here uses it.
+#
+# Ships platform-specific wheels only (32 of them, cp39–cp314 across Linux/macOS/Windows) plus an
+# sdist. There is no pure-Python wheel, so --only-binary=:all: depends on a wheel existing for the
+# target platform; on one without, the install fails loudly rather than building from source, which
+# is the intended behaviour.
+cedarpy==4.8.7
+
 # NOT named here, but present anyway. Read from the `# via` chains of the first lock, 48 packages
 # for one direct dependency:
 #
