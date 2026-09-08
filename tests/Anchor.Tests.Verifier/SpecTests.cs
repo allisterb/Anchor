@@ -159,8 +159,15 @@ public class SpecTests : TestsRuntime
 
     /// <summary>
     /// HP10 from arXiv:2510.14133 Table 1: a sub-task is invoked only once every dependency has
-    /// completed. Holds, together with termination — but only because the orchestrator also cancels
-    /// the subgraph orphaned by a failure.
+    /// completed. Holds, together with termination — but on two conditions, neither of which the
+    /// Strands runtime supplies by itself.
+    /// <para>
+    /// The orchestrator cancels the subgraph orphaned by a failure, or termination breaks — that is
+    /// Bug5 below. And the join in <c>Workflow.tla</c> carries a condition, or HP10 breaks: Strands
+    /// decides readiness per edge with OR semantics, so an unguarded join starts as soon as one
+    /// parent completes. <c>tests/strands/graph_to_tla.py</c> checks an unguarded graph built from
+    /// the live SDK and reports exactly that violation.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task DependencyDAGVerifies()

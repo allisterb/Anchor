@@ -37,6 +37,8 @@ end: a verified Dafny workflow translated to Python and executed against a real 
   the domain, and a mutation of `Decide` is caught.
 - **A Strands `Graph` translates mechanically to TLA+.** `GraphBuilder` is a construction API, so
   the graph *is* the workflow; walking it is translation rather than paraphrase.
+- **Strands readiness is per-edge and OR by default, and the first model of it was wrong.** See
+  below — the correction is in, and it turns HP10 from a tautology into a real obligation.
 
 ## Findings worth not re-deriving
 
@@ -70,19 +72,69 @@ implicit; TL4 as published forbids cancelling a dispatching task; HP10 is not in
 because satisfying it creates an obligation to cancel orphaned subgraphs that Table 1 never states.
 TL3 was correct and caught a modelling error of ours.
 
-## Next: conditional edges
+## Conditional edges
 
-`GraphEdge` carries an optional `condition` that decides traversal at runtime. `graph_to_tla.py`
-translates topology only and ignores it, which is the main gap in the translation story.
+### The readiness rule was wrong, and is now fixed
 
-Two approaches, and the project owner has an idea to discuss before picking:
+`Graph._is_node_ready_with_conditions` returns `True` on the **first** incoming edge whose source is
+in the completed batch and whose condition passes. `GraphNode.dependencies` — which the translator
+used to emit as an AND-set — is used only to find entry points and gather node inputs, and never
+gates execution. The SDK docs state it outright: *"In Python, the default behavior is OR semantics —
+a target node fires when any incoming edge's source completes."*
 
-1. **Model conditions as nondeterminism** — an edge may or may not be taken. Sound, requires no
-   translation of predicates, and proves properties that hold whatever the condition decides. Weaker
-   but cheap and unfalsifiable-by-mistranslation.
-2. **Translate the predicate** — stronger, and the same trap as the Cedar condition language: a
-   hand-written translator that can silently disagree. Would need the same differential treatment,
-   which is affordable now that agents run in milliseconds against a scripted model.
+Modelling it as AND described a stricter orchestrator than the one that runs, which is the unsound
+direction. `DependencyDAG.tla` now takes the OR rule, and `Workflow.tla` emits four definitions
+instead of two:
+
+| | |
+|---|---|
+| `Tasks` | the nodes |
+| `Edges` | `<<from, to>>` pairs. The parent set HP10 quantifies over is *derived* from this, so the two cannot disagree |
+| `EdgeCond(from, to, st)` | each edge's traversal condition. State is a parameter because `Workflow` is EXTENDed by the module declaring `VARIABLE state` |
+| `EdgeSupport(from, to)` | the tasks a condition reads, so `EdgeDead` can tell a false condition that may yet flip from one that cannot |
+
+**HP10 is no longer a tautology.** Under the old AND gate it restated `Unblock` and could not fail.
+Under OR it is a real obligation that holds only if every join carries a condition strong enough to
+enforce it. The checked-in `Workflow.tla` guards its join and verifies; `graph_to_tla.py` builds two
+unguarded graphs from the live SDK — the docs' own four-node example and an `A→B, B→C, A→C` skew —
+and both violate HP10 with the counterexample the SDK's own execution order predicts.
+
+**Failure propagation narrowed with it.** A failed parent no longer strands its children on its own,
+because another edge may still admit them. Only a task with no surviving edge is an orphan.
+
+### Known gap: re-execution
+
+Strands admits a node once per satisfied incoming edge, so on the skew shape `execution_order`
+contains C **twice**. `COMPLETED` is terminal in `DependencyDAG.tla`, so the second run is outside
+the model. Same OR rule, second symptom; it needs its own spec. Note the interleaving varies between
+runs (the batch is concurrent) — the repeat does not, so assert on the repeat.
+
+### Next: the condition vocabulary
+
+Design settled with the project owner. Annotations, but bound to the **condition object** rather
+than to a source comment: a comment binds by line adjacency, is invisible to the runtime, and needs
+a parser to read — which is the thing being avoided.
+
+Three tiers, all reported in the generator's output:
+
+0. **Anchor combinators** (`all_complete`, `any_complete`, `none_failed`). A real Python condition
+   that carries its own TLA+ meaning. Meaning is construction, not assertion; reviewed and
+   differentially tested once rather than per workflow. Covers `all_dependencies_complete`, which is
+   what the docs tell every user to write.
+1. **`@anchor.condition_schema`** on a condition *factory*. It leaves the Python untouched and
+   stamps `__anchor__` on each closure the factory produces, capturing the per-call-site arguments —
+   necessary because the docs pattern is a factory, so the arguments, not the function, are what
+   differ per edge. The predicate is a user assumption: emit it into the generated module, count it,
+   pin the count, exactly as `AuditAsync` treats `{:extern}`.
+2. **Unannotated** → nondeterministic edge. Sound, weak, counted.
+
+`to_tla` currently **refuses** a graph with an untranslated condition rather than emitting `TRUE`.
+`TRUE` would model an edge that always fires and so hide a condition that never fires and strands
+its target; nondeterminism is the honest translation and it needs tier 2.
+
+Two constraints to keep: the predicate must stay inside the spec's vocabulary (`status`, `Edges`,
+`Tasks`), and a condition reading `state.results[...]` text or the `invocation_state` dict that
+`EdgeConditionWithContext` passes gets `nondet`, never a fudged predicate.
 
 ## House rules that have earned their keep
 

@@ -39,16 +39,55 @@ From the four-node example in the Strands graph docs:
 ```tla
 Tasks == {"analysis", "factcheck", "report", "research"}
 
-Deps ==
-    [t \in Tasks |->
-        CASE t = "analysis"  -> {"research"}
-          [] t = "factcheck" -> {"research"}
-          [] t = "report"    -> {"analysis", "factcheck"}
-          [] OTHER           -> {}]
+Edges == {<<"analysis", "report">>, <<"factcheck", "report">>,
+          <<"research", "analysis">>, <<"research", "factcheck">>}
+
+\* No edge in this graph carries a condition, so every edge is unconditional and
+\* readiness is Strands' OR default: one completed parent is enough.
+EdgeCond(from, to, st) == TRUE
+
+EdgeSupport(from, to) == {}
 ```
 
-`GraphNode.dependencies` is already the parent set HP10 is stated over, so the translator is close
-to a rename — which is the point. The surface where it could go wrong is small enough to read.
+The emitted graph is `Edges`, not a `Deps` AND-set, and that is the whole finding below.
+`DependencyDAG.tla` derives the parent set HP10 quantifies over from `Edges` itself, so the graph
+and the thing the property is stated over cannot disagree.
+
+## Strands readiness is per-edge, and OR by default
+
+An earlier version of this translator emitted `GraphNode.dependencies` as `Deps[t]` and the spec
+gated execution on every parent being complete. **That is not what the SDK does.**
+`Graph._is_node_ready_with_conditions` returns `True` on the *first* incoming edge whose source is
+in the completed batch and whose condition passes; `dependencies` is used only to find entry points
+and to gather node inputs, and never gates execution. The SDK documentation says so plainly:
+
+> In Python, the default behavior is OR semantics — a target node fires when **any** incoming edge's
+> source completes. Use conditional edges to explicitly wait for all dependencies.
+
+Modelling it as AND described a stricter orchestrator than the one that runs, which is the unsound
+direction — HP10 verified against a discipline nothing enforces. The diamond above hides it, because
+`analysis` and `factcheck` execute in one batch and `report` sees both complete. A shape whose
+parents cannot share a batch does not hide it:
+
+```
+A ──> B ──> C
+└───────────^
+```
+
+Against the real SDK, `execution_order` contains **C twice** — admitted once on the `A` edge while
+`B` is still running, and again when `B` completes. Under AND semantics C would run exactly once.
+Both graphs now violate HP10 under TLC, with the counterexample the SDK run predicts:
+
+```
+state = [A |-> "COMPLETED", B |-> "BLOCKED", C |-> "IN_PROGRESS"]
+```
+
+The remedy is a condition on the join — `all_dependencies_complete([...])`, the factory the Strands
+docs tell users to write. [`specs/DependencyDAG/Workflow.tla`](../../specs/DependencyDAG/Workflow.tla)
+carries that guard hand-written and verifies; emitting it from the graph instead is the next step.
+
+**What the model does not cover.** `COMPLETED` is terminal in `DependencyDAG.tla`, so the *second*
+run of C is outside it. Re-execution is the same OR rule showing up again and needs its own spec.
 
 **There is no DOT or mermaid export to translate instead.** The mermaid blocks in the Strands docs
 are hand-drawn illustrations, not generated output, and nothing in the SDK emits a graph format.

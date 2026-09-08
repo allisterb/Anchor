@@ -1,7 +1,7 @@
 ---------------------------- MODULE Bug5_NoFailurePropagation ----------------------------
 (***************************************************************************)
 (* DependencyDAG with failure propagation removed: CancelOrphan is gone    *)
-(* from Next, so a task whose dependency failed simply waits.              *)
+(* from Next, so a task whose incoming edges are all dead simply waits.    *)
 (*                                                                         *)
 (* HP10 satisfied and TL1 broken at the same time, which is the point:     *)
 (* one task fails, everything downstream stays BLOCKED, the graph never    *)
@@ -19,12 +19,9 @@
 (*   AG( ∀i ∈ D : CL.invoke(EE, prot, sub_task_i)                          *)
 (*                  → ∀p ∈ parents(sub_task_i) : Completed(p) )            *)
 (*                                                                         *)
-(* SIMPLIFICATION. TaskLifecycle.tla models one sub-task in full; this     *)
-(* models several in outline, because HP10 is about the relation between   *)
-(* tasks rather than the states within one. Retry, fallback and dispatch   *)
-(* are therefore absent and FAILED is terminal here. Composing the two     *)
-(* models is a separate exercise; this one would not fit in a checkable    *)
-(* state space if each task carried the full eleven states.                *)
+(* Readiness is per-edge, not per-node — see the header of                 *)
+(* DependencyDAG.tla for why, and for the SIMPLIFICATION and KNOWN GAP     *)
+(* notes that apply here unchanged.                                        *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, Workflow
 
@@ -41,18 +38,35 @@ Init == state = [t \in Tasks |-> "BLOCKED"]
 
 Done(t) == state[t] = "COMPLETED"
 
-\* A dependency that failed or was cancelled will never complete, so anything
-\* waiting on it can never become READY.
-Doomed(t) == \E p \in Deps[t] : state[p] \in {"FAILED", "CANCELED"}
+Deps == [t \in Tasks |-> {p \in Tasks : <<p, t>> \in Edges}]
+
+Entry(t) == Deps[t] = {}
+
+CanFire(p, t) ==
+    /\ <<p, t>> \in Edges
+    /\ Done(p)
+    /\ EdgeCond(p, t, state)
+
+EdgeDead(p, t) ==
+    \/ state[p] \in {"FAILED", "CANCELED"}
+    \/ /\ Done(p)
+       /\ ~EdgeCond(p, t, state)
+       /\ \A n \in EdgeSupport(p, t) : state[n] \in Terminal
+
+Doomed(t) ==
+    /\ ~Entry(t)
+    /\ \A p \in Deps[t] : EdgeDead(p, t)
 
 (***************************************************************************)
 (* TRANSITIONS                                                             *)
 (***************************************************************************)
 
-\* The HP10 gate: a task becomes runnable only once every parent is COMPLETED.
+\* The OR rule: an entry point is runnable at once, and any other task becomes
+\* runnable as soon as ONE incoming edge fires.
 Unblock(t) ==
     /\ state[t] = "BLOCKED"
-    /\ \A p \in Deps[t] : Done(p)
+    /\ \/ Entry(t)
+       \/ \E p \in Deps[t] : CanFire(p, t)
     /\ state' = [state EXCEPT ![t] = "READY"]
 
 Start(t) ==
@@ -68,18 +82,8 @@ Fail(t) ==
     /\ state' = [state EXCEPT ![t] = "FAILED"]
 
 (***************************************************************************)
-(* Failure propagation, and why it has to exist.                           *)
-(*                                                                         *)
-(* HP10 admits a task into IN_PROGRESS only when all its parents COMPLETED.*)
-(* A task whose parent FAILED therefore never runs — and, with nothing     *)
-(* else to move it, never terminates either, which breaks TL1. HP10 and    *)
-(* TL1 together force the orchestrator to cancel the orphaned subgraph     *)
-(* rather than leave it waiting.                                           *)
-(*                                                                         *)
-(* The paper gestures at this — "the Orchestrator enforces causal          *)
-(* isolation and failure containment ... a sub-task does not proceed if    *)
-(* any dependency is FAILED" — but "does not proceed" is only half of it.  *)
-(* Not proceeding satisfies HP10 and violates TL1. Bug5 is that half.      *)
+(* The bug. CancelOrphan is defined but never reached from Next, so the    *)
+(* orphaned subgraph is left waiting instead of being cancelled.           *)
 (***************************************************************************)
 CancelOrphan(t) ==
     /\ state[t] = "BLOCKED"
@@ -94,9 +98,6 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 (* PROPERTIES                                                              *)
 (***************************************************************************)
 
-\* HP10 itself. Stated over IN_PROGRESS and COMPLETED rather than over the
-\* invoke action, because COMPLETED is reachable only through IN_PROGRESS and
-\* an invariant over states is what TLC checks directly.
 HP10 ==
     \A t \in Tasks :
         state[t] \in {"IN_PROGRESS", "COMPLETED"} => \A p \in Deps[t] : state[p] = "COMPLETED"
@@ -108,8 +109,8 @@ AllTerminate == <>(\A t \in Tasks : state[t] \in Terminal)
 TerminalIsFinal ==
     [][ \A t \in Tasks : state[t] \in Terminal => state'[t] = state[t] ]_vars
 
-\* Failure containment: an orphan is cancelled, never run. The contrapositive of
-\* HP10 restricted to the failure case, and the property Bug5 breaks.
+\* Failure containment: an orphan is cancelled, never run. The property this
+\* variant breaks.
 NoOrphanRuns ==
     \A t \in Tasks : Doomed(t) => state[t] \notin {"READY", "IN_PROGRESS", "COMPLETED"}
 
