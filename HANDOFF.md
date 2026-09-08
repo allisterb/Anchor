@@ -109,24 +109,48 @@ contains C **twice**. `COMPLETED` is terminal in `DependencyDAG.tla`, so the sec
 the model. Same OR rule, second symptom; it needs its own spec. Note the interleaving varies between
 runs (the batch is concurrent) — the repeat does not, so assert on the repeat.
 
-### Next: the condition vocabulary
+### The condition vocabulary — tiers 0 and 1 are in
 
-Design settled with the project owner. Annotations, but bound to the **condition object** rather
-than to a source comment: a comment binds by line adjacency, is invisible to the runtime, and needs
-a parser to read — which is the thing being avoided.
+`specs/DependencyDAG/anchor_conditions.py` ships combinators that are simultaneously real Strands
+conditions and their own TLA+ predicates, plus `@condition_schema` for a user's own factory.
+Annotations are bound to the **condition object**, not to a source comment: a comment binds by line
+adjacency, is invisible to the runtime, and needs a parser to read — the thing being avoided.
+`@condition_schema` wraps a *factory* because in the docs pattern the arguments, not the function,
+are what differ per edge.
+
+`graph_to_tla.py` reads the declaration off `edge.condition` and emits `EdgeCond`/`EdgeSupport`
+arms. Both example graphs now run both ways, and the SDK agrees with TLC on each:
+
+| | real SDK | TLC |
+|---|---|---|
+| unguarded | join admitted twice | HP10 **VIOLATED** |
+| guarded with `all_complete` | join admitted once | HP10 holds |
+
+**The annotation is checked, not trusted.** `tests/strands/condition_differential.py` enumerates
+every assignment of task states over a condition's declared support, measures the real callable, and
+has TLC compare. All six cases match, including a deliberate `\E`-for-`\A` mutation that must
+disagree. Two things it catches that were worth confirming rather than asserting:
+
+- **The state-vocabulary mapping.** Spec and SDK share only `COMPLETED` and `FAILED`, and a
+  condition sees neither directly — it reads `state.results`, populated only once a node finishes.
+  `BLOCKED`, `READY`, `IN_PROGRESS` and `CANCELED` all arrive as an absent result.
+- **An understated `EdgeSupport`.** A predicate reading outside its declared support indexes `st`
+  outside its domain, and TLC names the task. Verified by probe.
 
 Three tiers, all reported in the generator's output:
 
-0. **Anchor combinators** (`all_complete`, `any_complete`, `none_failed`). A real Python condition
-   that carries its own TLA+ meaning. Meaning is construction, not assertion; reviewed and
+0. **DONE — Anchor combinators** (`all_complete`, `any_complete`, `none_failed`). A real Python
+   condition that carries its own TLA+ meaning. Meaning is construction, not assertion; reviewed and
    differentially tested once rather than per workflow. Covers `all_dependencies_complete`, which is
    what the docs tell every user to write.
-1. **`@anchor.condition_schema`** on a condition *factory*. It leaves the Python untouched and
-   stamps `__anchor__` on each closure the factory produces, capturing the per-call-site arguments —
-   necessary because the docs pattern is a factory, so the arguments, not the function, are what
-   differ per edge. The predicate is a user assumption: emit it into the generated module, count it,
-   pin the count, exactly as `AuditAsync` treats `{:extern}`.
-2. **Unannotated** → nondeterministic edge. Sound, weak, counted.
+1. **DONE — `@condition_schema`** on a condition *factory*. It leaves the Python untouched and
+   stamps `__anchor__` on each closure the factory produces, capturing the per-call-site arguments.
+   Template placeholders and support names are checked against the factory's real signature at
+   decoration time, so a typo fails at import rather than becoming literal text in a generated
+   module. The predicate is a user assumption: `to_tla` emits it into the module's header as an
+   ASSUMED block and counts it, the way `AuditAsync` treats `{:extern}`.
+2. **NOT DONE — unannotated** → nondeterministic edge. Sound, weak, counted. This is the remaining
+   gap, and the reason `to_tla` still refuses rather than translating such a graph.
 
 `to_tla` currently **refuses** a graph with an untranslated condition rather than emitting `TRUE`.
 `TRUE` would model an edge that always fires and so hide a condition that never fires and strands

@@ -16,6 +16,7 @@ no network call, no credentials, and no AWS.
 | `shared_budget.py` | [`specs/SharedBudget/`](../../specs/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/DependencyDAG/`](../../specs/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/cedar/`](../../specs/cedar). |
+| `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
 
 ## Translating a workflow, rather than paraphrasing one
 
@@ -82,12 +83,91 @@ Both graphs now violate HP10 under TLC, with the counterexample the SDK run pred
 state = [A |-> "COMPLETED", B |-> "BLOCKED", C |-> "IN_PROGRESS"]
 ```
 
-The remedy is a condition on the join — `all_dependencies_complete([...])`, the factory the Strands
-docs tell users to write. [`specs/DependencyDAG/Workflow.tla`](../../specs/DependencyDAG/Workflow.tla)
-carries that guard hand-written and verifies; emitting it from the graph instead is the next step.
-
 **What the model does not cover.** `COMPLETED` is terminal in `DependencyDAG.tla`, so the *second*
 run of C is outside it. Re-execution is the same OR rule showing up again and needs its own spec.
+
+## Conditions that carry their own meaning
+
+The remedy for the above is a condition on the join — `all_dependencies_complete([...])`, the
+factory the Strands docs tell every user to hand-write.
+[`specs/DependencyDAG/anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) ships
+it as a combinator that is simultaneously a real Strands condition and its own TLA+ predicate:
+
+```python
+builder.add_edge("analysis", "report", condition=all_complete("analysis", "factcheck"))
+```
+
+which `graph_to_tla.py` reads straight off the edge object:
+
+```tla
+EdgeCond(from, to, st) ==
+    CASE <<from, to>> = <<"analysis", "report">>  -> \A n \in {"analysis", "factcheck"} : st[n] = "COMPLETED"
+      [] <<from, to>> = <<"factcheck", "report">> -> \A n \in {"analysis", "factcheck"} : st[n] = "COMPLETED"
+      [] OTHER                                    -> TRUE
+```
+
+**The annotation rides on the condition object, not on a source comment.** A comment above
+`add_edge(...)` binds by line adjacency — invisible to the runtime, silently detached when the call
+moves into a loop or a helper, and readable only by parsing the source, which is the thing being
+avoided. `edge.condition` is the same reference the scheduler calls, so annotating it binds by
+identity. `@condition_schema` wraps a *factory* for the same reason: in the docs pattern the
+arguments, not the function, are what differ per edge, so the wrapper stamps the bound arguments
+onto each closure the factory returns.
+
+`graph_to_tla.py` runs both graphs both ways, and the SDK agrees with TLC on each:
+
+| | real SDK | TLC |
+|---|---|---|
+| unguarded | C admitted twice | HP10 **VIOLATED** |
+| guarded with `all_complete` | C admitted once | HP10 holds |
+
+An edge whose condition has no declared meaning is **refused**, not guessed at. Emitting `TRUE`
+would model an edge that always fires and so hide a condition that never fires and strands its
+target; the honest translation is a nondeterministic edge, which is not built yet.
+
+## Checking the annotation, rather than trusting it
+
+An annotation is only better than a hand-written translator if its claim is checked — otherwise it
+is the same silent-disagreement trap with a nicer syntax. `condition_differential.py` enumerates
+every assignment of task states over a condition's declared support, asks the real callable for a
+verdict on each, and has TLC compare that table against the predicate:
+
+```
+Tier 0 -- combinators, whose meaning is construction rather than assertion
+  all_complete("a", "b")                       36 states  combinator AGREE
+  any_complete("a", "b")                       36 states  combinator AGREE
+  none_failed("a", "b")                        36 states  combinator AGREE
+  all_complete("a", "b", "c")                 216 states  combinator AGREE
+
+Tier 1 -- a user's own factory, with an asserted meaning
+  all_dependencies_complete(["a", "b"])        36 states  assumed    AGREE
+
+Mutation -- the same callable with a deliberately wrong predicate
+  mistranslated(["a", "b"])                    36 states  assumed    DISAGREE
+```
+
+The mutation is there because a harness that cannot catch `\E` where the callable means `\A` is
+checking nothing, and every AGREE above would be worthless.
+
+**The state vocabularies differ, and that mapping is under test too.** The spec has six states, the
+SDK five, sharing only `COMPLETED` and `FAILED` — and a condition sees neither directly, because it
+reads `state.results`, which gains an entry only once a node finishes. So `BLOCKED`, `READY`,
+`IN_PROGRESS` and `CANCELED` all reach a condition as an absent result, and the predicate has to
+agree with that or fail here.
+
+**An understated support set is caught too.** `EdgeSupport` tells `DependencyDAG.tla` when a false
+condition can no longer become true; naming too few tasks would let the model cancel a live one. A
+predicate that reads outside its declared support indexes `st` outside its domain, and TLC says so
+by name — checked, not assumed:
+
+```
+Error: Attempted to apply function:
+to argument "b", which is not in the domain of the function.
+```
+
+**Scope.** The oracle populates `NodeResult.status` and nothing else, so a condition reading result
+*content* or the `invocation_state` dict is out of scope by construction — and those are exactly the
+conditions that cannot be given a predicate over the spec's vocabulary either. They belong in tier 2.
 
 **There is no DOT or mermaid export to translate instead.** The mermaid blocks in the Strands docs
 are hand-drawn illustrations, not generated output, and nothing in the SDK emits a graph format.

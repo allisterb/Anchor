@@ -18,15 +18,16 @@ There is no DOT or mermaid export in the SDK to translate instead; the mermaid b
 docs are hand-drawn illustrations. The object graph is the artifact, and it is the better one — no
 format, no parser, nothing to fall out of step.
 
-WHAT THIS SCRIPT NOW REPORTS. Strands decides readiness per EDGE, with OR semantics: a node fires on
-the first incoming edge whose source completed and whose condition passed. An unguarded join
-therefore starts before all of its parents are done, and HP10 is violated. Both graphs below are
-straight out of the SDK documentation and neither carries a condition, so both go red — and the
-second one is checked against the real SDK as well, so the TLA+ counterexample and the observed
-execution order can be compared side by side.
+WHAT THIS SCRIPT SHOWS. Strands decides readiness per EDGE, with OR semantics: a node fires on the
+first incoming edge whose source completed and whose condition passed. Four runs below, two graphs
+each unguarded and guarded:
 
-The remedy is a condition on the join, which is what `specs/DependencyDAG/Workflow.tla` shows
-hand-written and what tier-0 combinators will attach automatically.
+  - unguarded, the shape as the Strands docs write it -> HP10 VIOLATED. The join starts before all
+    of its parents are done, and nothing in the runtime prevents it.
+  - guarded with `all_complete(...)` from specs/DependencyDAG/anchor_conditions.py -> HP10 holds.
+
+The second graph is checked against the real SDK as well, so the TLA+ result and the observed
+execution order can be compared directly: unguarded, the join runs twice; guarded, once.
 
     python tests/strands/graph_to_tla.py
 """
@@ -38,60 +39,67 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from shared_budget import ScriptedModel  # noqa: E402
-
-from strands import Agent  # noqa: E402
-from strands.multiagent import GraphBuilder  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "DependencyDAG"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(SPECS))
+
+from anchor_conditions import ConditionUse, all_complete, meaning  # noqa: E402
+from shared_budget import ScriptedModel  # noqa: E402
+
+from strands import Agent  # noqa: E402
+from strands.multiagent import GraphBuilder  # noqa: E402
 
 
 def agent(name: str) -> Agent:
     return Agent(model=ScriptedModel(cost=1), system_prompt=name, callback_handler=None)
 
 
-def build_docs_graph():
+def build_docs_graph(guarded: bool):
     """The four-node workflow from the Strands graph documentation.
 
     research ──┬──> analysis ───┐
                └──> factcheck ──┴──> report
     """
+    join = all_complete("analysis", "factcheck") if guarded else None
+
     builder = GraphBuilder()
     for name in ("research", "analysis", "factcheck", "report"):
         builder.add_node(agent(name), name)
 
     builder.add_edge("research", "analysis")
     builder.add_edge("research", "factcheck")
-    builder.add_edge("analysis", "report")
-    builder.add_edge("factcheck", "report")
+    builder.add_edge("analysis", "report", condition=join)
+    builder.add_edge("factcheck", "report", condition=join)
     builder.set_entry_point("research")
 
     return builder.build()
 
 
-def build_skew_graph():
+def build_skew_graph(guarded: bool):
     """A join whose two parents cannot land in the same batch.
 
         A ──> B ──> C
         └───────────^
 
     The diamond above hides the OR rule, because `analysis` and `factcheck` run in one batch and
-    `report` sees both complete. Here C's parents are a batch apart, so C fires off the A edge
-    while B is still running — and again when B completes.
+    `report` sees both complete. Here C's parents are a batch apart, so unguarded C fires off the
+    A edge while B is still running — and again when B completes.
     """
+    join = all_complete("A", "B") if guarded else None
+
     builder = GraphBuilder()
     for name in ("A", "B", "C"):
         builder.add_node(agent(name), name)
 
     builder.add_edge("A", "B")
-    builder.add_edge("B", "C")
-    builder.add_edge("A", "C")
+    builder.add_edge("B", "C", condition=join)
+    builder.add_edge("A", "C", condition=join)
     builder.set_entry_point("A")
 
     return builder.build()
@@ -102,53 +110,114 @@ class UntranslatableCondition(Exception):
 
     Refusing is the only sound option available today. Emitting TRUE would model an edge that always
     fires, which hides a condition that never fires and so strands its target; emitting FALSE would
-    model a workflow that cannot run. The honest translation is nondeterminism, which needs the
-    condition vocabulary that does not exist yet.
+    model a workflow that cannot run. The honest translation is nondeterminism — tier 2 — which
+    needs work not done yet.
     """
 
 
-def to_tla(graph) -> str:
+@dataclass
+class Translation:
+    tla: str
+    assumptions: list[tuple[tuple[str, str], ConditionUse]]  # tier-1 holes, edge -> declaration
+
+
+def to_tla(graph) -> Translation:
     """Emit the four definitions DependencyDAG.tla expects.
 
     Readiness in Strands is decided per edge, not per node, so the emitted graph is `Edges` rather
     than a `Deps` AND-set — DependencyDAG.tla derives the parent set HP10 quantifies over from
     `Edges` itself, which is one fewer place for the two to disagree.
-
-    `EdgeCond` and `EdgeSupport` are the hooks conditions will land in. Every edge here is
-    unconditional, so they are constants.
     """
     nodes = sorted(graph.nodes)
-    edges = sorted((e.from_node.node_id, e.to_node.node_id) for e in graph.edges)
+    edges = sorted(graph.edges, key=lambda e: (e.from_node.node_id, e.to_node.node_id))
 
-    conditioned = [(f, t) for (f, t), e in zip(edges, sorted(
-        graph.edges, key=lambda e: (e.from_node.node_id, e.to_node.node_id))) if e.condition]
-    if conditioned:
+    declared: list[tuple[tuple[str, str], ConditionUse]] = []
+    untranslated: list[tuple[str, str]] = []
+    for e in edges:
+        pair = (e.from_node.node_id, e.to_node.node_id)
+        if e.condition is None:
+            continue
+        use = meaning(e.condition)
+        if use is None:
+            untranslated.append(pair)
+        else:
+            declared.append((pair, use))
+
+    if untranslated:
         raise UntranslatableCondition(
             "no declared TLA+ meaning for the condition on: "
-            + ", ".join(f"{f} -> {t}" for f, t in conditioned)
+            + ", ".join(f"{f} -> {t}" for f, t in untranslated)
+            + ". Build it with a combinator from anchor_conditions, or declare it with "
+            "@condition_schema."
         )
 
-    tasks = ", ".join(f'"{n}"' for n in nodes)
-    edge_set = ", ".join(f'<<"{f}", "{t}">>' for f, t in edges)
+    # A support set naming a node that is not in the graph would index `state` outside its domain,
+    # which TLC reports as an opaque evaluation error deep in a trace. Catch it here instead.
+    for (f, t), use in declared:
+        stray = [n for n in use.support if n not in graph.nodes]
+        if stray:
+            raise UntranslatableCondition(
+                f"condition on {f} -> {t} reads {stray!r}, which are not nodes in this graph"
+            )
 
-    return "\n".join([
+    def case(arms: list[tuple[tuple[str, str], str]], otherwise: str, indent: str = "    ") -> str:
+        if not arms:
+            return otherwise
+        width = max(len(f'<<from, to>> = <<"{f}", "{t}">>') for (f, t), _ in arms)
+        lines = [
+            f'{indent}{"CASE" if i == 0 else "  []"} '
+            f'{f"<<from, to>> = <<\"{f}\", \"{t}\">>":<{width}} -> {body}'
+            for i, (((f, t), body)) in enumerate(arms)
+        ]
+        lines.append(f'{indent}  [] {"OTHER":<{width}} -> {otherwise}')
+        return "\n" + "\n".join(lines)
+
+    tasks = ", ".join(f'"{n}"' for n in nodes)
+    edge_set = ", ".join(f'<<"{e.from_node.node_id}", "{e.to_node.node_id}">>' for e in edges)
+
+    cond_arms = [(pair, use.tla) for pair, use in declared]
+    supp_arms = [(pair, "{" + ", ".join(f'"{n}"' for n in use.support) + "}") for pair, use in declared]
+
+    header = [
         r"\* GENERATED by tests/strands/graph_to_tla.py from a live Strands Graph.",
         r"\* Do not edit. Regenerate instead.",
+    ]
+    assumed = [(pair, use) for pair, use in declared if use.assumed]
+    if assumed:
+        header += [
+            r"\*",
+            r"\* ASSUMED. These predicates are user assertions about their own Python, which",
+            r"\* Anchor does not verify. Each is a hole in every proof below.",
+        ] + [
+            rf"\*   {use.schema:<14} <<{f!r}, {t!r}>>  from {use.origin}".replace("'", '"')
+            for (f, t), use in assumed
+        ]
+
+    body = [
         "------------------------------- MODULE Workflow -------------------------------",
         "",
         f"Tasks == {{{tasks}}}",
         "",
         f"Edges == {{{edge_set}}}",
         "",
-        r"\* No edge in this graph carries a condition, so every edge is unconditional and",
-        r"\* readiness is Strands' OR default: one completed parent is enough.",
-        "EdgeCond(from, to, st) == TRUE",
-        "",
-        "EdgeSupport(from, to) == {}",
-        "",
-        "=============================================================================",
-        "",
-    ])
+    ]
+    if not declared:
+        body += [
+            r"\* No edge in this graph carries a condition, so every edge is unconditional and",
+            r"\* readiness is Strands' OR default: one completed parent is enough.",
+            "EdgeCond(from, to, st) == TRUE",
+            "",
+            "EdgeSupport(from, to) == {}",
+        ]
+    else:
+        body += [
+            f"EdgeCond(from, to, st) =={case(cond_arms, 'TRUE')}",
+            "",
+            f"EdgeSupport(from, to) =={case(supp_arms, '{}')}",
+        ]
+    body += ["", "=============================================================================", ""]
+
+    return Translation(tla="\n".join(header + body), assumptions=assumed)
 
 
 def check(workflow_tla: str, spec: str) -> tuple[bool, str]:
@@ -192,11 +261,29 @@ def counterexample(output: str, last: int = 1) -> list[str]:
     return [" ".join(b) for b in blocks[-last:] if b]
 
 
-def describe(graph) -> None:
-    print(f"    {len(graph.nodes)} nodes, {len(graph.edges)} edges")
-    for name in sorted(graph.nodes):
-        parents = sorted(e.from_node.node_id for e in graph.edges if e.to_node.node_id == name)
-        print(f"      {name:10} <- {parents or '(entry point)'}")
+def run_scenario(title: str, graph, expect_hold: bool, show_tla: bool = False) -> bool:
+    """Generate, check, and report one graph. Returns True if TLC agreed with the expectation."""
+    print(f"\n{title}")
+    print("-" * len(title))
+
+    translated = to_tla(graph)
+    if show_tla:
+        print()
+        print("\n".join("    " + line for line in translated.tla.strip().splitlines()[2:-1]))
+
+    holes = len(translated.assumptions)
+    print(f"\n  assumed predicates: {holes}"
+          + ("" if holes else "  (every condition came from a reviewed combinator)"))
+
+    ok, output = check(translated.tla, "DependencyDAG")
+    verdict = "HOLD" if ok else "VIOLATED"
+    agreed = ok == expect_hold
+    print(f"  HP10 + termination: {verdict}"
+          + ("" if agreed else f"   ! expected {'HOLD' if expect_hold else 'VIOLATED'}"))
+    if not ok:
+        for line in counterexample(output, last=1):
+            print(f"      {line}")
+    return agreed
 
 
 def main() -> int:
@@ -205,65 +292,48 @@ def main() -> int:
     print("=" * 78)
     print("The four-node example from the Strands graph documentation")
     print("=" * 78)
-    docs = build_docs_graph()
-    describe(docs)
+    failures += not run_scenario(
+        "unguarded, as the docs write it", build_docs_graph(guarded=False),
+        expect_hold=False, show_tla=True)
+    print("\n  `report` starts with only one of `analysis`/`factcheck` complete. Both are parents,")
+    print("  and HP10 requires both. Nothing in the runtime prevents it -- the docs say so: the")
+    print("  Python default is OR semantics, and a condition is how you opt out.")
 
-    workflow = to_tla(docs)
-    print("\n  generated Workflow.tla:\n")
-    print("\n".join("      " + line for line in workflow.strip().splitlines()[2:-1]))
-
-    ok, output = check(workflow, "DependencyDAG")
-    print(f"\n  HP10 + termination: {'HOLD' if ok else 'VIOLATED'}")
-    if ok:
-        print("  ! expected a violation: an unguarded join must break HP10 under the OR rule")
-        failures += 1
-    else:
-        for line in counterexample(output, last=1):
-            print(f"      {line}")
-        print("\n  `report` starts with only one of `analysis`/`factcheck` complete. Both are")
-        print("  parents, and HP10 requires both. Nothing in the SDK enforces that -- the docs")
-        print("  say so: the Python default is OR semantics, and a condition is how you opt out.")
+    failures += not run_scenario(
+        "guarded with all_complete(\"analysis\", \"factcheck\")", build_docs_graph(guarded=True),
+        expect_hold=True, show_tla=True)
 
     print()
     print("=" * 78)
     print("A join whose parents are a batch apart -- checked against the real SDK too")
     print("=" * 78)
-    skew = build_skew_graph()
-    describe(skew)
 
-    order = [n.node_id for n in skew("go").execution_order]
-    print(f"\n  real SDK execution_order: {order}")
+    for guarded, expect_runs in ((False, 2), (True, 1)):
+        label = "guarded" if guarded else "unguarded"
+        order = [n.node_id for n in build_skew_graph(guarded)("go").execution_order]
+        runs = order.count("C")
+        # Keyed on how many times C is admitted, not on the order: the batch executes concurrently,
+        # so where B and a first C land relative to each other varies between runs. The count does
+        # not. Under AND semantics C is admitted exactly once, after both parents.
+        mark = "" if runs == expect_runs else f"   ! expected C {expect_runs}x"
+        failures += runs != expect_runs
+        print(f"\n  real SDK, {label:<9} execution_order: {str(order):<32} C ran {runs}x{mark}")
 
-    # Keyed on C appearing twice, not on the order. The batch is executed concurrently, so where
-    # B and the first C land relative to each other varies between runs; what does not vary is
-    # that C is admitted twice. Under AND semantics C runs exactly once, after both parents.
-    if order.count("C") > 1:
-        print(f"  C ran {order.count('C')} times -- admitted once per satisfied incoming edge.")
-        print("  Under AND semantics it would run exactly once, after both A and B.")
-    else:
-        print("  ! the SDK admitted C once; the OR finding would be wrong")
-        failures += 1
+    failures += not run_scenario("unguarded", build_skew_graph(False), expect_hold=False)
+    print("\n  The model and the SDK agree: C is admitted on the A edge alone, while B is still")
+    print("  BLOCKED. The model stops there -- COMPLETED is terminal in it, so the second C the")
+    print("  SDK runs is a gap in the model rather than a second finding.")
 
-    workflow = to_tla(skew)
-    ok, output = check(workflow, "DependencyDAG")
-    print(f"\n  HP10 + termination: {'HOLD' if ok else 'VIOLATED'}")
-    if ok:
-        print("  ! expected a violation; the model disagrees with the observed execution order")
-        failures += 1
-    else:
-        for line in counterexample(output, last=1):
-            print(f"      {line}")
-        print("\n  The model and the SDK agree: C is admitted on the A edge alone, while B is")
-        print("  still BLOCKED. The model stops there -- COMPLETED is terminal in it, so the")
-        print("  second C the SDK runs is a gap in the model rather than a second finding.")
+    failures += not run_scenario("guarded with all_complete(\"A\", \"B\")", build_skew_graph(True),
+                                 expect_hold=True)
 
     print()
     print("=" * 78)
-    print("The remedy, for comparison")
+    print(f"{'all four scenarios matched expectation' if not failures else f'{failures} MISMATCHED'}")
     print("=" * 78)
-    print("  specs/DependencyDAG/Workflow.tla is the same shape with the join guarded, and it")
-    print("  verifies. The guard is what `all_dependencies_complete([...])` means. Emitting it")
-    print("  from the graph -- rather than writing it by hand -- is the tier-0 combinator work.")
+    print("The guard is what `all_dependencies_complete([...])` means in the Strands docs, except")
+    print("that it carries its TLA+ predicate rather than being paraphrased into one. Whether that")
+    print("predicate really matches the Python is tests/strands/condition_differential.py.")
 
     return 1 if failures else 0
 
