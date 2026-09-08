@@ -46,13 +46,45 @@ EXTENDS Naturals, FiniteSets, Workflow
 States == {"BLOCKED", "READY", "IN_PROGRESS", "COMPLETED", "FAILED", "CANCELED"}
 Terminal == {"COMPLETED", "FAILED", "CANCELED"}
 
-VARIABLE state       \* [Tasks -> States]
+VARIABLES
+    state,           \* [Tasks -> States]
+    oracle           \* [NondetEdges -> BOOLEAN] -- see below
 
-vars == <<state>>
+vars == <<state, oracle>>
 
-TypeOK == state \in [Tasks -> States]
+(***************************************************************************)
+(* EDGES WHOSE CONDITION HAS NO DECLARED MEANING.                          *)
+(*                                                                         *)
+(* Workflow.tla lists these in NondetEdges. Their conditions are opaque    *)
+(* Python, so their truth is not a function of anything this model holds,  *)
+(* and `oracle` stands in for whatever they decide. It is chosen freely in *)
+(* Init and never changes, so TLC explores the workflow once per           *)
+(* combination — including the run in which an edge never fires.           *)
+(*                                                                         *)
+(* What that buys: a property that survives every combination holds        *)
+(* WHATEVER the conditions decide, with nothing about them translated and  *)
+(* so nothing to mistranslate. What it costs: precision. A property that   *)
+(* depends on what a condition actually does cannot be established this    *)
+(* way, and TLC will report the combination that breaks it.                *)
+(*                                                                         *)
+(* THE ABSTRACTION IS "UNKNOWN BUT FIXED", AND THAT IS A REAL LIMIT. A     *)
+(* condition whose answer changes as the run progresses -- one reading     *)
+(* accumulated results, say -- is not covered, because oracle cannot flip  *)
+(* mid-behaviour. Fixing it per behaviour is what lets EdgeDead recognise  *)
+(* an edge that will never fire, which is what lets an orphaned task be    *)
+(* cancelled rather than waiting forever. A time-varying condition needs a *)
+(* real predicate (tier 0 or tier 1), not this.                            *)
+(*                                                                         *)
+(* When NondetEdges is empty -- every graph checked before tier 2 --       *)
+(* [NondetEdges -> BOOLEAN] holds exactly one function, so Init has one    *)
+(* oracle value and nothing about those checks changes.                    *)
+(***************************************************************************)
 
-Init == state = [t \in Tasks |-> "BLOCKED"]
+TypeOK == /\ state \in [Tasks -> States]
+          /\ oracle \in [NondetEdges -> BOOLEAN]
+
+Init == /\ state = [t \in Tasks |-> "BLOCKED"]
+        /\ oracle \in [NondetEdges -> BOOLEAN]
 
 Done(t) == state[t] = "COMPLETED"
 
@@ -68,12 +100,17 @@ Entry(t) == Deps[t] = {}
 (* EDGES                                                                   *)
 (***************************************************************************)
 
+\* Whether an edge's condition passes. A declared condition is a predicate over the
+\* state; an undeclared one is whatever `oracle` says for this behaviour.
+Traversable(p, t) ==
+    IF <<p, t>> \in NondetEdges THEN oracle[<<p, t>>] ELSE EdgeCond(p, t, state)
+
 \* An incoming edge that would admit t right now: its source has completed and
 \* its condition holds. ONE of these is enough — that is the OR rule.
 CanFire(p, t) ==
     /\ <<p, t>> \in Edges
     /\ Done(p)
-    /\ EdgeCond(p, t, state)
+    /\ Traversable(p, t)
 
 \* An incoming edge that can never fire again. Two ways for that:
 \*
@@ -87,10 +124,13 @@ CanFire(p, t) ==
 \* and either guess is wrong: assume it can and a guarded join can never be
 \* cancelled, assume it cannot and a live task gets cancelled while one of its
 \* dependencies is still running.
+\* A nondeterministic edge has empty support and a fixed oracle, so this reduces to
+\* "the source completed and the oracle said no" — which is exactly right: under the
+\* unknown-but-fixed abstraction that edge will never fire in this behaviour.
 EdgeDead(p, t) ==
     \/ state[p] \in {"FAILED", "CANCELED"}
     \/ /\ Done(p)
-       /\ ~EdgeCond(p, t, state)
+       /\ ~Traversable(p, t)
        /\ \A n \in EdgeSupport(p, t) : state[n] \in Terminal
 
 \* No incoming edge can ever admit t. Entry points are never doomed.
@@ -110,18 +150,22 @@ Unblock(t) ==
     /\ \/ Entry(t)
        \/ \E p \in Deps[t] : CanFire(p, t)
     /\ state' = [state EXCEPT ![t] = "READY"]
+    /\ UNCHANGED oracle
 
 Start(t) ==
     /\ state[t] = "READY"
     /\ state' = [state EXCEPT ![t] = "IN_PROGRESS"]
+    /\ UNCHANGED oracle
 
 Succeed(t) ==
     /\ state[t] = "IN_PROGRESS"
     /\ state' = [state EXCEPT ![t] = "COMPLETED"]
+    /\ UNCHANGED oracle
 
 Fail(t) ==
     /\ state[t] = "IN_PROGRESS"
     /\ state' = [state EXCEPT ![t] = "FAILED"]
+    /\ UNCHANGED oracle
 
 (***************************************************************************)
 (* Failure propagation, and why it has to exist.                           *)
@@ -144,6 +188,7 @@ CancelOrphan(t) ==
     /\ state[t] = "BLOCKED"
     /\ Doomed(t)
     /\ state' = [state EXCEPT ![t] = "CANCELED"]
+    /\ UNCHANGED oracle
 
 Next == \E t \in Tasks : Unblock(t) \/ Start(t) \/ Succeed(t) \/ Fail(t) \/ CancelOrphan(t)
 

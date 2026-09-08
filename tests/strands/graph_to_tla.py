@@ -105,20 +105,73 @@ def build_skew_graph(guarded: bool):
     return builder.build()
 
 
-class UntranslatableCondition(Exception):
-    """An edge carries a condition with no declared TLA+ meaning.
+def approved(state) -> bool:
+    """An opaque condition — tier 2, and genuinely untranslatable.
 
-    Refusing is the only sound option available today. Emitting TRUE would model an edge that always
-    fires, which hides a condition that never fires and so strands its target; emitting FALSE would
-    model a workflow that cannot run. The honest translation is nondeterminism — tier 2 — which
-    needs work not done yet.
+    It reads the agent's output text, which is not in the spec's vocabulary and could not be given a
+    predicate over it. This is the category `nondet` exists for, not a gap someone forgot to fill.
     """
+    result = state.results.get("plan")
+    return result is not None and "approve" in str(result.result).lower()
+
+
+def rejected(state) -> bool:
+    result = state.results.get("plan")
+    return result is not None and "approve" not in str(result.result).lower()
+
+
+def build_router_graph():
+    """Conditional routing on what an agent said.
+
+               ┌──> approve
+        plan ──┤
+               └──> reject
+
+    Both edges are opaque. Every target has one parent, so an edge can only fire once that parent
+    has completed — which is HP10, whatever the conditions decide.
+    """
+    builder = GraphBuilder()
+    for name in ("plan", "approve", "reject"):
+        builder.add_node(agent(name), name)
+
+    builder.add_edge("plan", "approve", condition=approved)
+    builder.add_edge("plan", "reject", condition=rejected)
+    builder.set_entry_point("plan")
+
+    return builder.build()
+
+
+def build_opaque_join_graph():
+    """The same opacity on a join, where it costs something.
+
+        a ──┐
+            ├──> z
+        b ──┘
+
+    Nothing says the conditions wait for both parents, so the combination where one fires alone is
+    a behaviour of this workflow — and it violates HP10.
+    """
+    builder = GraphBuilder()
+    for name in ("a", "b", "z"):
+        builder.add_node(agent(name), name)
+
+    builder.add_edge("a", "z", condition=approved)
+    builder.add_edge("b", "z", condition=rejected)
+    builder.set_entry_point("a")
+    builder.set_entry_point("b")
+
+    return builder.build()
+
+
+class UntranslatableCondition(Exception):
+    """A declaration that cannot be emitted — a support set naming a task outside the graph."""
 
 
 @dataclass
 class Translation:
     tla: str
     assumptions: list[tuple[tuple[str, str], ConditionUse]]  # tier-1 holes, edge -> declaration
+    nondet: list[tuple[str, str]]                            # tier-2 edges, condition not modelled
 
 
 def to_tla(graph) -> Translation:
@@ -132,24 +185,16 @@ def to_tla(graph) -> Translation:
     edges = sorted(graph.edges, key=lambda e: (e.from_node.node_id, e.to_node.node_id))
 
     declared: list[tuple[tuple[str, str], ConditionUse]] = []
-    untranslated: list[tuple[str, str]] = []
+    nondet: list[tuple[str, str]] = []
     for e in edges:
         pair = (e.from_node.node_id, e.to_node.node_id)
         if e.condition is None:
             continue
         use = meaning(e.condition)
         if use is None:
-            untranslated.append(pair)
+            nondet.append(pair)   # tier 2: modelled as an unknown-but-fixed choice
         else:
             declared.append((pair, use))
-
-    if untranslated:
-        raise UntranslatableCondition(
-            "no declared TLA+ meaning for the condition on: "
-            + ", ".join(f"{f} -> {t}" for f, t in untranslated)
-            + ". Build it with a combinator from anchor_conditions, or declare it with "
-            "@condition_schema."
-        )
 
     # A support set naming a node that is not in the graph would index `state` outside its domain,
     # which TLC reports as an opaque evaluation error deep in a trace. Catch it here instead.
@@ -192,6 +237,15 @@ def to_tla(graph) -> Translation:
             rf"\*   {use.schema:<14} <<{f!r}, {t!r}>>  from {use.origin}".replace("'", '"')
             for (f, t), use in assumed
         ]
+    if nondet:
+        header += [
+            r"\*",
+            r"\* NOT MODELLED. These conditions have no declared meaning, so nothing about what",
+            r"\* they decide is claimed. Anything proved below holds for every combination of",
+            r"\* their outcomes -- and a property that depends on one of them will not prove.",
+        ] + [
+            rf"\*   <<{f!r}, {t!r}>>".replace("'", '"') for f, t in nondet
+        ]
 
     body = [
         "------------------------------- MODULE Workflow -------------------------------",
@@ -203,8 +257,9 @@ def to_tla(graph) -> Translation:
     ]
     if not declared:
         body += [
-            r"\* No edge in this graph carries a condition, so every edge is unconditional and",
-            r"\* readiness is Strands' OR default: one completed parent is enough.",
+            r"\* No edge in this graph carries a condition with a declared meaning, so EdgeCond is",
+            r"\* vacuous. An edge with no condition at all is Strands' OR default: one completed",
+            r"\* parent is enough.",
             "EdgeCond(from, to, st) == TRUE",
             "",
             "EdgeSupport(from, to) == {}",
@@ -215,9 +270,17 @@ def to_tla(graph) -> Translation:
             "",
             f"EdgeSupport(from, to) =={case(supp_arms, '{}')}",
         ]
-    body += ["", "=============================================================================", ""]
 
-    return Translation(tla="\n".join(header + body), assumptions=assumed)
+    nondet_set = ", ".join(f'<<"{f}", "{t}">>' for f, t in nondet)
+    body += [
+        "",
+        f"NondetEdges == {{{nondet_set}}}",
+        "",
+        "=============================================================================",
+        "",
+    ]
+
+    return Translation(tla="\n".join(header + body), assumptions=assumed, nondet=nondet)
 
 
 def check(workflow_tla: str, spec: str) -> tuple[bool, str]:
@@ -246,18 +309,22 @@ def counterexample(output: str, last: int = 1) -> list[str]:
     TLC wraps a wide state record over several lines, so this collects each `State n:` block rather
     than matching single lines.
     """
+    # TLC ends a state block with a blank line, except for the last one in a run, which runs
+    # straight into the progress summary. Both endings are matched rather than guessed at by
+    # bracket depth -- a two-variable state is a conjunction, so the first conjunct balances its
+    # own brackets while the block continues.
+    summary = re.compile(r"^(\d+ states generated|The depth |Progress\(|Finished |Model checking|"
+                         r"Error|\s*Estimates|\s*calculated)")
     blocks: list[list[str]] = []
-    depth = 0
     collecting = False
     for line in output.splitlines():
         if re.match(r"^State \d+:", line):
             blocks.append([])
-            collecting, depth = True, 0
-        elif collecting and line.strip():
+            collecting = True
+        elif collecting and (not line.strip() or summary.match(line)):
+            collecting = False
+        elif collecting:
             blocks[-1].append(line.strip())
-            depth += line.count("[") - line.count("]")
-            if depth <= 0:  # the record closed; TLC's run summary follows
-                collecting = False
     return [" ".join(b) for b in blocks[-last:] if b]
 
 
@@ -271,9 +338,12 @@ def run_scenario(title: str, graph, expect_hold: bool, show_tla: bool = False) -
         print()
         print("\n".join("    " + line for line in translated.tla.strip().splitlines()[2:-1]))
 
-    holes = len(translated.assumptions)
-    print(f"\n  assumed predicates: {holes}"
-          + ("" if holes else "  (every condition came from a reviewed combinator)"))
+    holes, opaque = len(translated.assumptions), len(translated.nondet)
+    if holes or opaque:
+        print(f"\n  assumed predicates: {holes}    not modelled: {opaque}")
+    else:
+        print("\n  assumed predicates: 0    not modelled: 0"
+              "  (every condition came from a reviewed combinator)")
 
     ok, output = check(translated.tla, "DependencyDAG")
     verdict = "HOLD" if ok else "VIOLATED"
@@ -329,11 +399,45 @@ def main() -> int:
 
     print()
     print("=" * 78)
-    print(f"{'all four scenarios matched expectation' if not failures else f'{failures} MISMATCHED'}")
+    print("Tier 2 -- conditions with no declared meaning, modelled as an unknown choice")
     print("=" * 78)
-    print("The guard is what `all_dependencies_complete([...])` means in the Strands docs, except")
-    print("that it carries its TLA+ predicate rather than being paraphrased into one. Whether that")
-    print("predicate really matches the Python is tests/strands/condition_differential.py.")
+    print("  `approved(state)` reads the agent's output text. That is not in the spec's")
+    print("  vocabulary and no predicate over it exists, so nothing is claimed about what it")
+    print("  decides: TLC runs the workflow once per combination of outcomes.")
+
+    failures += not run_scenario(
+        "routing on an opaque condition -- one parent per target", build_router_graph(),
+        expect_hold=True, show_tla=True)
+    print("\n  HP10 holds for every combination. Each target has a single parent, so an edge can")
+    print("  only fire once that parent completed -- true whatever the condition says. A real")
+    print("  result about a workflow whose conditions were never translated.")
+
+    failures += not run_scenario(
+        "the same opacity on a join", build_opaque_join_graph(), expect_hold=False)
+    print("\n  And the honest limit. Nothing says these conditions wait for both parents, so the")
+    print("  combination where one fires alone is a behaviour of this workflow. Tier 2 cannot")
+    print("  clear it; declaring the condition -- tier 0 or 1 -- is the only way through.")
+
+    print()
+    print("=" * 78)
+    print("Why an edge that never fires does not hang the graph")
+    print("=" * 78)
+    graph = build_router_graph()
+    result = graph("go")
+    ran = [n.node_id for n in result.execution_order]
+    skipped = sorted(set(graph.nodes) - set(ran))
+    print(f"  real SDK: status={result.status}, ran {ran}, "
+          f"{result.completed_nodes}/{result.total_nodes} nodes, skipped {skipped}")
+    print("\n  The scripted model never says \"approve\", so that branch's condition never passes")
+    print("  and the node never runs. Strands does not wait for it: when nothing is ready the run")
+    print("  ENDS, and it ends reporting COMPLETED. A node can be silently dropped from a")
+    print("  workflow that reports success -- which is why AllTerminate is a property of the")
+    print("  MODEL here, not a claim about the runtime.")
+
+    print()
+    print("=" * 78)
+    print(f"{'all scenarios matched expectation' if not failures else f'{failures} MISMATCHED'}")
+    print("=" * 78)
 
     return 1 if failures else 0
 

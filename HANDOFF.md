@@ -102,6 +102,23 @@ and both violate HP10 with the counterexample the SDK's own execution order pred
 **Failure propagation narrowed with it.** A failed parent no longer strands its children on its own,
 because another edge may still admit them. Only a task with no surviving edge is an orphan.
 
+### Strands skips what it cannot admit, and reports success
+
+When no node is ready the execution loop simply ends. A node whose incoming conditions never pass is
+never run, never appears in `results`, and the graph reports `Status.COMPLETED` — probed directly:
+`status=Status.COMPLETED, ran ['plan', 'reject'], 2/3 nodes, skipped ['approve']`. No hang, no
+error. **A workflow can silently drop part of its graph and still look successful.**
+
+Two consequences worth carrying:
+
+- `AllTerminate` is a property of the **model**, not a claim about the runtime. The model has no
+  "skipped" state; a task it cannot admit stays BLOCKED, which is why `CancelOrphan` has to exist
+  there.
+- `CancelOrphan` has no counterpart in Strands at all — the SDK's `Status` has no `CANCELED`, and a
+  node failure fail-fasts the whole run rather than cancelling a subgraph. So the Bug5 finding
+  (HP10 creates an obligation to cancel) describes the paper's orchestrator, and Strands satisfies
+  neither half of it. Worth its own spec.
+
 ### Known gap: re-execution
 
 Strands admits a node once per satisfied incoming edge, so on the skew shape `execution_order`
@@ -149,12 +166,17 @@ Three tiers, all reported in the generator's output:
    decoration time, so a typo fails at import rather than becoming literal text in a generated
    module. The predicate is a user assumption: `to_tla` emits it into the module's header as an
    ASSUMED block and counts it, the way `AuditAsync` treats `{:extern}`.
-2. **NOT DONE — unannotated** → nondeterministic edge. Sound, weak, counted. This is the remaining
-   gap, and the reason `to_tla` still refuses rather than translating such a graph.
+2. **DONE — unannotated** → nondeterministic edge. `Workflow.tla` lists them in `NondetEdges`, and
+   `oracle` — a free choice fixed per behaviour — stands in for what they decide. Anything that
+   verifies holds whatever the conditions decide; nothing is translated, so there is nothing to
+   mistranslate. Routing (one parent per target) verifies; an opaque join does not, and the
+   counterexample names the combination that broke it. **Limit: the abstraction is "unknown but
+   fixed".** A condition whose answer changes mid-run is not covered, and fixing it per behaviour is
+   what lets `EdgeDead` recognise an edge that will never fire — which is what lets an orphan be
+   cancelled rather than waiting forever. A time-varying condition needs a real predicate.
 
-`to_tla` currently **refuses** a graph with an untranslated condition rather than emitting `TRUE`.
-`TRUE` would model an edge that always fires and so hide a condition that never fires and strands
-its target; nondeterminism is the honest translation and it needs tier 2.
+Empty `NondetEdges` costs nothing: `[{} -> BOOLEAN]` has one element, and the checked-in specs
+generate the same 40 and 33 distinct states they did before the variable existed.
 
 Two constraints to keep: the predicate must stay inside the spec's vocabulary (`status`, `Edges`,
 `Tasks`), and a condition reading `state.results[...]` text or the `invocation_state` dict that

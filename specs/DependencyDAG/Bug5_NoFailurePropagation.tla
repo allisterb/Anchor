@@ -28,13 +28,17 @@ EXTENDS Naturals, FiniteSets, Workflow
 States == {"BLOCKED", "READY", "IN_PROGRESS", "COMPLETED", "FAILED", "CANCELED"}
 Terminal == {"COMPLETED", "FAILED", "CANCELED"}
 
-VARIABLE state       \* [Tasks -> States]
+VARIABLES
+    state,           \* [Tasks -> States]
+    oracle           \* [NondetEdges -> BOOLEAN] -- see the header of DependencyDAG.tla
 
-vars == <<state>>
+vars == <<state, oracle>>
 
-TypeOK == state \in [Tasks -> States]
+TypeOK == /\ state \in [Tasks -> States]
+          /\ oracle \in [NondetEdges -> BOOLEAN]
 
-Init == state = [t \in Tasks |-> "BLOCKED"]
+Init == /\ state = [t \in Tasks |-> "BLOCKED"]
+        /\ oracle \in [NondetEdges -> BOOLEAN]
 
 Done(t) == state[t] = "COMPLETED"
 
@@ -42,15 +46,18 @@ Deps == [t \in Tasks |-> {p \in Tasks : <<p, t>> \in Edges}]
 
 Entry(t) == Deps[t] = {}
 
+Traversable(p, t) ==
+    IF <<p, t>> \in NondetEdges THEN oracle[<<p, t>>] ELSE EdgeCond(p, t, state)
+
 CanFire(p, t) ==
     /\ <<p, t>> \in Edges
     /\ Done(p)
-    /\ EdgeCond(p, t, state)
+    /\ Traversable(p, t)
 
 EdgeDead(p, t) ==
     \/ state[p] \in {"FAILED", "CANCELED"}
     \/ /\ Done(p)
-       /\ ~EdgeCond(p, t, state)
+       /\ ~Traversable(p, t)
        /\ \A n \in EdgeSupport(p, t) : state[n] \in Terminal
 
 Doomed(t) ==
@@ -68,18 +75,22 @@ Unblock(t) ==
     /\ \/ Entry(t)
        \/ \E p \in Deps[t] : CanFire(p, t)
     /\ state' = [state EXCEPT ![t] = "READY"]
+    /\ UNCHANGED oracle
 
 Start(t) ==
     /\ state[t] = "READY"
     /\ state' = [state EXCEPT ![t] = "IN_PROGRESS"]
+    /\ UNCHANGED oracle
 
 Succeed(t) ==
     /\ state[t] = "IN_PROGRESS"
     /\ state' = [state EXCEPT ![t] = "COMPLETED"]
+    /\ UNCHANGED oracle
 
 Fail(t) ==
     /\ state[t] = "IN_PROGRESS"
     /\ state' = [state EXCEPT ![t] = "FAILED"]
+    /\ UNCHANGED oracle
 
 (***************************************************************************)
 (* The bug. CancelOrphan is defined but never reached from Next, so the    *)
@@ -89,6 +100,7 @@ CancelOrphan(t) ==
     /\ state[t] = "BLOCKED"
     /\ Doomed(t)
     /\ state' = [state EXCEPT ![t] = "CANCELED"]
+    /\ UNCHANGED oracle
 
 Next == \E t \in Tasks : Unblock(t) \/ Start(t) \/ Succeed(t) \/ Fail(t)
 

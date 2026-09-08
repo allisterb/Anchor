@@ -60,4 +60,9 @@ EdgeSupport(from, to) ==
       [] <<from, to>> = <<"t2", "t3">> -> {"t1", "t2"}
       [] OTHER                         -> {}
 
+\* Edges whose condition has no declared meaning, modelled as an unknown-but-fixed
+\* choice rather than translated. Every condition here is a combinator, so there
+\* are none; see the header of DependencyDAG.tla for what this does when there are.
+NondetEdges == {}
+
 =============================================================================

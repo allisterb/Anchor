@@ -121,9 +121,57 @@ onto each closure the factory returns.
 | unguarded | C admitted twice | HP10 **VIOLATED** |
 | guarded with `all_complete` | C admitted once | HP10 holds |
 
-An edge whose condition has no declared meaning is **refused**, not guessed at. Emitting `TRUE`
-would model an edge that always fires and so hide a condition that never fires and strands its
-target; the honest translation is a nondeterministic edge, which is not built yet.
+## Conditions with no meaning to declare
+
+Some conditions cannot be given a predicate over the spec's vocabulary at all, because they read
+things the spec does not hold — the agent's output text, or the `invocation_state` dict:
+
+```python
+def approved(state) -> bool:
+    return "approve" in str(state.results["plan"].result).lower()
+```
+
+These are **not modelled**, and the model says so. `NondetEdges` lists them, and `oracle` — a free
+choice fixed for each behaviour — stands in for whatever they decide. TLC runs the workflow once per
+combination, so anything that verifies holds *whatever the conditions decide*, with nothing about
+them translated and therefore nothing to mistranslate.
+
+The trade is precision, and both halves of it are worth seeing:
+
+```
+routing on an opaque condition -- one parent per target
+  assumed predicates: 0    not modelled: 2
+  HP10 + termination: HOLD
+
+the same opacity on a join
+  assumed predicates: 0    not modelled: 2
+  HP10 + termination: VIOLATED
+      /\ state = [a |-> "BLOCKED", b |-> "COMPLETED", z |-> "IN_PROGRESS"]
+      /\ oracle = (<<"a", "z">> :> FALSE @@ <<"b", "z">> :> TRUE)
+```
+
+Routing verifies: each target has one parent, so an edge can only fire once that parent completed,
+which is HP10 no matter what the condition says. The join does not, and the counterexample names the
+combination — `b`'s edge fired alone. Tier 2 cannot clear that; declaring the condition can.
+
+**The abstraction is "unknown but fixed", and that is a real limit.** A condition whose answer
+changes as the run progresses is not covered, because `oracle` cannot flip mid-behaviour. Fixing it
+per behaviour is what lets the model recognise an edge that will never fire, which is what lets an
+orphaned task be cancelled rather than waiting forever. A time-varying condition needs a real
+predicate, not this.
+
+## Strands skips what it cannot admit, and calls it success
+
+Worth knowing before reading `AllTerminate` as a statement about the runtime:
+
+```
+real SDK: status=Status.COMPLETED, ran ['plan', 'reject'], 2/3 nodes, skipped ['approve']
+```
+
+When no node is ready the execution loop simply ends. A node whose conditions never pass is never
+run, never appears in `results`, and the graph reports `COMPLETED`. There is no hang and no error —
+a workflow can drop part of its graph and still look successful. The model has no such state:
+`AllTerminate` is a property of the model, not a claim about Strands.
 
 ## Checking the annotation, rather than trusting it
 
