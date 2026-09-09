@@ -1,22 +1,21 @@
-
-| `DependencyDAG/` | |
-|---|---|
-| `DependencyDAG.tla` | four tasks in a DAG. HP10 holds, and so does termination. |
-| `Bug5_NoFailurePropagation.tla` | the same without orphan cancellation. HP10 still holds; the graph never finishes. |
-| `TaskLifecycle/` | the per-subtask lifecycle from arXiv:2510.14133 Table 2, checked. |
-| `DependencyDAG/` | HP10 from the same paper Table 1 — invoke a task only once its dependencies are done. |
 # Specs
 
 Models of agent workflows, one directory per subject. `SpecTests` in `tests/Anchor.Tests.Verifier`
 runs every one of them on each build — TLC over the TLA+, Dafny over the `.dfy` — so a spec that
 stops verifying, or a bug variant that stops being caught, fails the suite.
 
+**Every directory has its own README** with the detail; this page is the map and the cross-cutting
+argument. [`DependencyDAG/README.md`](DependencyDAG/README.md) additionally carries a TLA+ notation
+primer for readers new to the language, and the full account of how a Strands agent graph is
+translated into a model.
+
 | | |
 |---|---|
-| `BoundedRetry/` | one agent, one budget. Modelled in TLA+ **and** implemented in Dafny, so the two tools can be compared on the same problem. |
-| `SharedBudget/` | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
-| `TaskLifecycle/` | the per-subtask lifecycle from arXiv:2510.14133, checked. |
-| `cedar/` | a differential test between a TLA+ model of Cedar and the real engine. Has its own README. |
+| [`BoundedRetry/`](BoundedRetry/README.md) | one agent, one budget. Modelled in TLA+ **and** implemented in Dafny, so the two tools can be compared on the same problem. Crosses into real Python. |
+| [`SharedBudget/`](SharedBudget/README.md) | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
+| [`TaskLifecycle/`](TaskLifecycle/README.md) | one sub-task in full: the eleven-state lifecycle from arXiv:2510.14133 Table 2, checked. |
+| [`DependencyDAG/`](DependencyDAG/README.md) | several tasks in outline: HP10 from the same paper's Table 1. The target of the Strands graph translator. |
+| [`cedar/`](cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
 
 Each directory pairs a spec that verifies with variants that carry one deliberate mistake each. The
 variants are the load-bearing half: a verifier that only ever reports success proves nothing, so
@@ -50,6 +49,8 @@ these pin down that a specific mistake is caught and which property catches it.
 |---|---|
 | `DependencyDAG.tla` | four tasks in a DAG. HP10 holds, and so does termination. |
 | `Bug5_NoFailurePropagation.tla` | the same without orphan cancellation. HP10 **still holds**; the graph never finishes. |
+| `Workflow.tla` | the graph itself, separated out so it can be replaced by a generated one. |
+| `anchor_conditions.py` | Strands edge conditions that carry their own TLA+ meaning. |
 
 ## BoundedRetry
 
@@ -186,8 +187,15 @@ was wrong, not the property, and checking is what said so.
 > sub-tasks.
 > `AG(∀i ∈ D : CL.invoke(EE, prot, sub_task_i) → ∀p ∈ parents(sub_task_i) : Completed(p))`
 
-Four tasks, `t1` and `t2` feeding `t3`, which feeds `t4`. The gate is one conjunct — a task becomes
-runnable only once every parent is `COMPLETED`.
+Four tasks, `t1` and `t2` feeding `t3`, which feeds `t4`.
+
+**The gate is not "every parent completed", and getting that wrong was a real bug in this model.**
+Strands decides readiness per *edge*, with OR semantics — a node fires on the first incoming edge
+whose source completed and whose condition passed — so an unguarded join starts before all of its
+parents are done. Modelling it as AND described a stricter orchestrator than the one that runs,
+which is the unsound direction. The AND is recovered where it actually lives: in a condition the
+workflow author writes, which the translator reads off the edge object. See
+[`DependencyDAG/README.md`](DependencyDAG/README.md) for the whole account.
 
 **HP10 on its own is satisfied by a system that hangs.** `Bug5_NoFailurePropagation.tla` removes
 orphan cancellation and nothing else. TLC finds the counterexample in a handful of steps: one task

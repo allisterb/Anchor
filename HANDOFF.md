@@ -11,7 +11,14 @@ build fetches and hash-verifies everything they need on Windows and Linux.
 end: a verified Dafny workflow translated to Python and executed against a real module across an
 `{:extern}` boundary, plus TLA+ models of the multi-agent cases Dafny structurally cannot reach.
 
-30 tests, all green. `./build.sh -t` or `./build.ps1 -Test`.
+34 tests, all green. `./build.sh -t` or `./build.ps1 -Test`.
+
+The four Python harnesses under `tests/strands/` are now part of that run (`HarnessTests.cs`), each
+asserting the finding it exists to pin rather than merely exiting zero. **They skip when the repo
+venv is absent**, which is the case in CI — CI installs .NET, a JDK and `lib/`, but no Python. So
+the harnesses are pinned locally and skipped on GitHub until someone decides whether CI should
+install the venv. Both halves were checked by mutation: a bogus module name produces `Skipped: 1`,
+and flipping `all_complete`'s predicate from `\A` to `\E` fails two of the four.
 
 ## Layout
 

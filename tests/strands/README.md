@@ -1,8 +1,12 @@
 # Strands experiments
 
-Informal implementations against the real SDK, for learning its surface. Nothing here is generated
-from a spec and nothing checks that it matches one — that is the point of the word *informal*. The
-verified artefacts live in [`specs/`](../../specs).
+Implementations against the real SDK, for learning its surface. Nothing here is generated from a
+spec — that is the point of the word *informal*. The verified artefacts live in
+[`specs/`](../../specs).
+
+**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all four as part of
+the suite, each asserting the finding it exists to pin. They **skip** when the repo venv is absent,
+which is the case in CI — so the pin holds locally and not on GitHub.
 
 ```bash
 python tests/strands/shared_budget.py
