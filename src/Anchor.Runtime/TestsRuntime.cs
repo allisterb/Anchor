@@ -12,7 +12,7 @@ public class TestsRuntime : Runtime
     static TestsRuntime()
     {
         Runtime.WithFileAndConsoleLogging("Anchor", "Tests", true);
-        config = LoadConfigFile(Path.Combine(AssemblyLocation, "testappsettings.json"));
+        config = LoadConfigFile(Path.Combine(AssemblyLocation, "testappsettings.json"), false);
     }
 
     static protected new IConfigurationRoot config;  
