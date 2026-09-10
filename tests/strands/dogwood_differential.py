@@ -28,15 +28,18 @@ under `when temporal` or `unless temporal`. Binds may join a past event's field 
 input, to a scope entity, to a literal, or to `_`. The grammar is parsed by recursive descent in
 `dogwood_parse.py`, not by regex — it nests.
 
+Aggregations are covered too — `count` and `sum` over `for (v: T)` binders, with `tp(t)` binding a
+timepoint, in the `exists (n: T). (AGG == n && n CMP k)` shape the corpus uses throughout. That
+shape says nothing more than `AGG CMP k` and is recognised as such; general existential
+quantification is refused.
+
 Anything else is REFUSED rather than guessed at, because a translator that quietly mishandles a
 construct produces a disagreement it cannot attribute. The run reports how many cases were refused
-and why. The largest refusal by far is `count`/`sum`, which are quantified aggregations with
-variable binders, `exists` and `tp()` markers: a sub-language big enough that approximating it
-would be guessing.
+and why.
 
-`since` and `previous` are written as standard past-time MFOTL because **their semantics are not
-documented anywhere we could find**. That reading is checked here against 66 and 29 corpus cases
-respectively, which is the only reason to believe it.
+**None of `since`, `previous` or the aggregations has documented semantics that we could find.**
+They are written as standard past-time MFOTL, and the corpus is the only reason to believe that
+reading. Every one of them is exercised by accepted cases and mutation-checked independently.
 
     python tests/strands/dogwood_differential.py
 """
@@ -118,11 +121,21 @@ def parse_fields(text: str) -> dict:
     for part in split_binds(text):
         if not part.strip():
             continue
-        m = re.fullmatch(r'\s*(\w+)\s*:\s*("[^"]*"|true|false)\s*', part)
+        m = re.fullmatch(r'\s*(\w+)\s*:\s*("[^"]*"|true|false|-?\d+)\s*', part)
         if not m:
             raise Unsupported(f"field {part.strip()[:32]!r} is not a scalar")
         k, v = m.group(1), m.group(2)
-        fields[k] = (v == "true") if v in ("true", "false") else v[1:-1]
+        if v in ("true", "false"):
+            fields[k] = v == "true"
+        elif v.startswith('"'):
+            fields[k] = v[1:-1]
+        else:
+            n = int(v)
+            # Dogwood's `Long` outruns TLC, which works in Java ints and stops with
+            # "TLC can't handle a number this big" rather than giving a wrong answer.
+            if abs(n) > 2**31 - 1:
+                raise Unsupported("field value outside TLC's integer range")
+            fields[k] = n
     return fields
 
 
@@ -185,32 +198,70 @@ def tla_value(v) -> str:
     return f'"{escaped}"'
 
 
+def tla_scalar(v) -> str:
+    """A field value, tagged with its kind so TLC never compares across kinds."""
+    if isinstance(v, bool):
+        return f'[k |-> "b", v |-> {"TRUE" if v else "FALSE"}]'
+    if isinstance(v, int):
+        return f'[k |-> "n", v |-> {v}]'
+    escaped = str(v).replace("\\", "\\\\").replace('"', '\\"')
+    return f'[k |-> "s", v |-> "{escaped}"]'
+
+
 def tla_record(fields: dict) -> str:
     if not fields:
         return 'EmptyRec'
-    return "[" + ", ".join(f"{k} |-> {tla_value(v)}" for k, v in sorted(fields.items())) + "]"
+    return "[" + ", ".join(f"{k} |-> {tla_scalar(v)}" for k, v in sorted(fields.items())) + "]"
 
 
 def tla_pred(pd: dict) -> str:
     def bind(b):
         return (f'[side |-> "{b["side"]}", field |-> "{b["field"]}", kind |-> "{b["kind"]}", '
-                f'name |-> "{b["name"]}", value |-> {tla_value(b["value"])}]')
+                f'name |-> "{b["name"]}", value |-> {tla_scalar(b["value"])}]')
     return (f'[action |-> "{pd["action"]}", kind |-> "{pd["kind"]}", '
             f'binds |-> <<{", ".join(bind(b) for b in pd["binds"])}>>]')
 
 
 DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
-DUMMY_TERM = (f'[op |-> "formerly", window |-> 0, pred |-> {DUMMY_PRED}, '
-              f'left |-> {DUMMY_PRED}, leftNeg |-> FALSE]')
+
+
+def tla_atom(a: dict) -> str:
+    """Atoms are uniform — every node carries pred, var and args."""
+    if a["op"] == "pred":
+        return f'[op |-> "pred", pred |-> {tla_pred(a["pred"])}, var |-> "", args |-> <<>>]'
+    if a["op"] == "tp":
+        return f'[op |-> "tp", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>]'
+    args = ", ".join(tla_atom(x) for x in a["args"])
+    return f'[op |-> "and", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<{args}>>]'
+
+
+DUMMY_ATOM = f'[op |-> "pred", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>]'
+DUMMY_TERM = (f'[op |-> "formerly", window |-> 0, atom |-> {DUMMY_ATOM}, '
+              f'left |-> {DUMMY_ATOM}, leftNeg |-> FALSE]')
 
 
 def tla_cond(c: dict) -> str:
-    """Every node carries every field, so nothing depends on a CASE arm being lazy."""
+    """Condition nodes carry `term` always; `agg` only where there is one.
+
+    An aggregation holds a condition which could hold another aggregation, so a dummy `agg`
+    cannot be written down without recursing forever. The `agg` arm of CondHolds is only
+    reached when op = "agg", and TLA+ evaluates just the selected CASE arm.
+    """
     if c["op"] == "term":
         t = c["term"]
-        term = (f'[op |-> "{t["op"]}", window |-> {t["window"]}, pred |-> {tla_pred(t["pred"])}, '
-                f'left |-> {tla_pred(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}]')
+        term = (f'[op |-> "{t["op"]}", window |-> {t["window"]}, atom |-> {tla_atom(t["atom"])}, '
+                f'left |-> {tla_atom(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}]')
         return f'[op |-> "term", args |-> <<>>, term |-> {term}]'
+
+    if c["op"] == "agg":
+        a = c["agg"]
+        binders = ", ".join(f'[name |-> "{b["name"]}", type |-> "{b["type"]}"]'
+                            for b in a["binders"])
+        agg = (f'[kind |-> "{a["kind"]}", over |-> "{a["over"]}", '
+               f'binders |-> <<{binders}>>, cond |-> {tla_cond(a["cond"])}]')
+        return (f'[op |-> "agg", args |-> <<>>, term |-> {DUMMY_TERM}, agg |-> {agg}, '
+                f'cmp |-> "{c["cmp"]}", value |-> {c["value"]}]')
+
     args = ", ".join(tla_cond(a) for a in c.get("args", []))
     return f'[op |-> "{c["op"]}", args |-> <<{args}>>, term |-> {DUMMY_TERM}]'
 
@@ -220,7 +271,7 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
     events = ", ".join(
         f'[time |-> {e["time"]}, action |-> "{e["action"]}", kind |-> "{e["kind"]}", '
         f'input |-> {tla_record(e["input"])}, output |-> {tla_record(e["output"])}, '
-        f'principal |-> {tla_value(e["principal"])}, resource |-> {tla_value(e["resource"])}, '
+        f'principal |-> {tla_scalar(e["principal"])}, resource |-> {tla_scalar(e["resource"])}, '
         f'isDecision |-> {tla_value(e["decision"])}]'
         for e in trace)
 
@@ -230,8 +281,14 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
 
     orc = " @@ ".join(f"{i} :> {tla_value(v)}" for i, v in sorted(oracle.items()))
 
+    # The domain a bound variable of non-Timepoint type ranges over: every scalar the trace
+    # actually contains. Finite, so TLC can enumerate the assignments.
+    vals = sorted({v for e in trace for rec in (e["input"], e["output"]) for v in rec.values()},
+                  key=lambda x: (type(x).__name__, x))
+    values = ", ".join(tla_scalar(v) for v in vals)
+
     return (f'    [name |-> "{name}", trace |-> <<{events}>>, '
-            f'policies |-> <<{pols}>>, oracle |-> ({orc})]')
+            f'policies |-> <<{pols}>>, oracle |-> ({orc}), values |-> {{{values}}}]')
 
 
 def generate_module(cases: list[str]) -> str:

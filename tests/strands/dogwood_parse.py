@@ -18,10 +18,16 @@ THE SUBSET, and everything outside it raises `Unsupported`:
             | ("callerPrincipal"|"callerResource") ":" ("principal"|"resource")
     rhs    := "context.input." IDENT | "true" | "false" | STR | "_"
 
-REFUSED, deliberately: `count`/`sum`, which are quantified aggregations with variable binders,
-`exists` and `tp()` markers — a sub-language large enough that approximating it would be guessing.
-Pattern variables (a bare identifier as a bind value) go with them, since they only mean anything
-inside those binders.
+Aggregations are covered in the one shape the corpus actually uses:
+
+    exists (n: T). ((count for (t: Timepoint). where (phi)) == n && n >= 3)
+
+which says nothing more than `count(...) >= 3`. That exact shape is recognised; any other use of
+`exists` is REFUSED rather than approximated, because general existential quantification over a
+value domain is a different thing and pretending otherwise is guessing.
+
+Still refused: macros (`call`), parameter sigils (`?p`, `$t`), and comparisons that are not the
+aggregation idiom.
 """
 
 from __future__ import annotations
@@ -37,8 +43,9 @@ AGGREGATIONS = ("count ", "sum ", "exists ", "tp(")
 TOKEN = re.compile(r"""
       (?P<str>"[^"]*")
     | (?P<dur>\d+[smhd]\b)
+    | (?P<int>\d+)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
-    | (?P<sym>::|&&|\|\||[!(){}:.,<>=+-])
+    | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}:.,<>=+?$-])
     | (?P<ws>\s+)
 """, re.X)
 
@@ -95,7 +102,71 @@ class Parser:
             raise Unsupported("disjunction between temporal terms")
         return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
 
+    def binders(self) -> list[dict]:
+        """`for (t: Timepoint), (x: String).`"""
+        self.expect("for")
+        out = []
+        while True:
+            self.expect("(")
+            name = self.take()
+            self.expect(":")
+            ty = self.take()
+            while self.accept("::"):
+                ty = self.take()
+            self.expect(")")
+            out.append({"name": name, "type": ty})
+            if not self.accept(","):
+                break
+        self.expect(".")
+        return out
+
+    def aggregate(self) -> dict:
+        """`count for (...). where (C)` or `sum v for (...). where (C)`."""
+        kind = self.take()
+        over = "" if kind == "count" else self.take()
+        bs = self.binders()
+        self.expect("where")
+        self.expect("(")
+        cond = self.expr()
+        self.expect(")")
+        return {"kind": kind, "over": over, "binders": bs, "cond": cond}
+
+    def exists_idiom(self) -> dict:
+        """`exists (n: T). ((AGG) == n && n CMP k)` -- the corpus's only use of `exists`.
+
+        Recognised as exactly `AGG CMP k`. Anything else about `exists` is refused: general
+        quantification over a value domain is a different thing from this shape.
+        """
+        self.expect("exists")
+        self.expect("(")
+        var = self.take()
+        self.expect(":")
+        self.take()
+        self.expect(")")
+        self.expect(".")
+        self.expect("(")
+        self.expect("(")
+        agg = self.aggregate()
+        self.expect(")")
+        if self.take() != "==":
+            raise Unsupported("exists body is not `AGG == v && v CMP k`")
+        if self.take() != var:
+            raise Unsupported("exists binds a variable the aggregate is not compared to")
+        self.expect("&&")
+        if self.take() != var:
+            raise Unsupported("exists comparison does not start from the bound variable")
+        cmp_op = self.take()
+        if cmp_op not in ("==", "!=", ">=", "<=", ">", "<"):
+            raise Unsupported(f"comparison {cmp_op!r}")
+        value = self.take()
+        if not re.fullmatch(r"-?\d+", value):
+            raise Unsupported(f"comparison bound {value!r} is not an integer")
+        self.expect(")")
+        return {"op": "agg", "agg": agg, "cmp": cmp_op, "value": int(value)}
+
     def unary(self) -> dict:
+        if self.peek() == "exists":
+            return self.exists_idiom()
         if self.peek() == "!":
             # `!A since within W B` negates the LEFT OPERAND of the since, not the whole
             # term, so a bare predicate after `!` has to be looked past before deciding.
@@ -122,10 +193,10 @@ class Parser:
             self.take()
             self.expect("within")
             window = self.duration(self.take())
-            pred = self.pred_or_group()
+            at = self.atom()
             return {"op": "term",
-                    "term": {"op": head, "window": window, "pred": pred,
-                             "left": pred, "leftNeg": False}}
+                    "term": {"op": head, "window": window, "atom": at,
+                             "left": at, "leftNeg": False}}
 
         # Otherwise the only remaining form is an infix `since`.
         neg = self.accept("!")
@@ -135,18 +206,33 @@ class Parser:
         self.take()
         self.expect("within")
         window = self.duration(self.take())
-        right = self.pred_or_group()
+        right = self.atom()
         return {"op": "term",
-                "term": {"op": "since", "window": window, "pred": right,
-                         "left": left, "leftNeg": neg}}
+                "term": {"op": "since", "window": window, "atom": right,
+                         "left": {"op": "pred", "pred": left}, "leftNeg": neg}}
 
-    def pred_or_group(self) -> dict:
-        """`formerly within 1h (P && tp(t))` puts a group where a predicate goes."""
+    def atom(self) -> dict:
+        """What a temporal operator scopes over: a predicate, a `tp(v)`, or a group of both.
+
+        An atom is evaluated AT A CANDIDATE EVENT rather than at the decision point, which is
+        how `tp(t)` gets to bind `t` to the index of whatever the enclosing `formerly` found.
+        """
         if self.peek() == "(":
-            # The grouped forms in the corpus all carry `tp(...)` binders, which belong to
-            # the aggregation sub-language.
-            raise Unsupported("grouped predicate after a temporal operator")
-        return self.pred()
+            self.expect("(")
+            parts = [self.atom()]
+            while self.accept("&&"):
+                parts.append(self.atom())
+            self.expect(")")
+            return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
+
+        if self.peek() == "tp":
+            self.take()
+            self.expect("(")
+            var = self.take()
+            self.expect(")")
+            return {"op": "tp", "var": var}
+
+        return {"op": "pred", "pred": self.pred()}
 
     def duration(self, tok: str) -> int:
         m = re.fullmatch(r"(\d+)([smhd])", tok)
@@ -205,8 +291,9 @@ class Parser:
         if nxt and nxt.startswith('"'):
             return {"side": lhs, "field": field, "kind": "lit", "name": "",
                     "value": self.take()[1:-1]}
-        # A bare identifier is a pattern variable, which only means something inside a
-        # `count`/`sum` binder.
+        # A bare identifier is a variable bound by an enclosing `count`/`sum`.
+        if nxt and re.fullmatch(r"[A-Za-z_]\w*", nxt):
+            return {"side": lhs, "field": field, "kind": "var", "name": self.take(), "value": ""}
         raise Unsupported(f"bind value {nxt!r}")
 
 
@@ -233,9 +320,6 @@ def parse_policies(text: str) -> list[dict]:
         if not bm:
             raise Unsupported(f"body {body[:48]!r}")
         keyword, inner = bm.group(1), bm.group(2).strip()
-
-        if any(a in inner for a in AGGREGATIONS):
-            raise Unsupported("count/sum aggregation")
 
         p = Parser(tokenize(inner))
         cond = p.expr()

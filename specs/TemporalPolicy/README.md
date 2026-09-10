@@ -167,33 +167,59 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   465 (trace, expected) pairs from 208 cases, in one TLC run
+checked   654 (trace, expected) pairs from 320 cases, in one TLC run
   AGREE
 ```
 
-The subset covers `formerly within`, `previous within` and `since within`, combined with `&&` and
-`!`, under `when temporal` or `unless temporal`. All four are genuinely exercised — 194 accepted
-cases use `formerly`, 66 use `since`, 29 use `previous`, 23 use a negation — so the agreement means
-something for each rather than resting on the common one.
+The subset covers `formerly within`, `previous within`, `since within`, `&&`, `!`, `when`/`unless
+temporal`, and the `count`/`sum` aggregations with `tp()` timepoint binders. Every construct is
+genuinely exercised, so the agreement means something for each rather than resting on the common
+one:
 
-**`since` and `previous` are inferred, not documented.** They are written as standard past-time
-MFOTL, and the corpus is the only reason to believe that reading. Each is mutation-checked
-independently: breaking the `previous` index, the `since` continuity condition, or the metric bound
-each turns the run red.
+| construct | accepted cases using it |
+|---|---|
+| `formerly` | 254 |
+| `since` | 68 |
+| `tp()` | 55 |
+| `sum` | 36 |
+| `previous` | 34 |
+| `count` | 24 |
+
+**None of these has documented semantics we could find.** They are written as standard past-time
+MFOTL and the corpus is the only reason to believe that reading — so each is mutation-checked
+independently, and all six turn the run red:
+
+```
+window (metric bound)    caught      tp binding               caught
+previous index           caught      count vs sum             caught
+since continuity         caught      self-inclusion (upto)    caught
+```
+
+### How `count` was decoded
+
+Corpus case 0254 is the Rosetta stone. Four identical transfers, and:
+
+```
+exists (n: Long). ((count for (t: Timepoint).
+    where (formerly within 1h (Transfer::request{...} && tp(t)))) == n && n >= 3)
+```
+
+Expected verdicts are `true, true, false, false`. That only works if `count` counts **distinct
+assignments to the bound variables** — here timepoints, via `tp(t)` — and if the request being
+authorized counts itself. Both fall straight out of the flip on the third transfer.
 
 Nothing is built or run from the Dogwood tree — the expected outputs are recorded, so the corpus is
 data. That keeps this inside the same no-network, no-credentials property as the rest of the suite.
 
-**The refusal count matters as much as the agreement count.** 313 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 201 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
-construct yields a disagreement it cannot attribute. The largest group by far is **`count`/`sum`**
-(140 cases): quantified aggregations with variable binders, `exists` and `tp()` markers, which is a
-sub-language rather than an operator. After that: non-scalar field values, schema pins, and grouped
-predicates that only appear alongside the aggregations.
+construct yields a disagreement it cannot attribute. What remains is mostly macro calls and
+parameter sigils, schema pins, and a handful of `Long` values outside TLC's integer range.
 
-**So `SessionRotation`'s aggregate is still untested.** That spec models a `sum`-shaped cap, and
-`sum` is exactly what this harness refuses. Widening to reach it means implementing the binder
-sub-language, which is the largest single piece of Dogwood left unmodelled.
+**A note on `SessionRotation`.** Dogwood's `sum` is now corpus-validated *here*, in
+`DogwoodSemantics.tla`. `SessionRotation.tla` is a different module with its own hand-rolled
+`SumTrades`, and shares no code with it — so that spec's aggregate is still our reading. Making it
+share this evaluator would close the gap properly; that has not been done.
 
 ### What it caught on the first run
 

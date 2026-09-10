@@ -113,7 +113,7 @@ public class HarnessTests : TestsRuntime
         // refusing more than it did — this notices rather than reporting a hollow success.
         var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) \(trace");
         Assert.True(m.Success, run.Output);
-        Assert.True(int.Parse(m.Groups[1].Value) >= 450,
+        Assert.True(int.Parse(m.Groups[1].Value) >= 640,
                     $"only {m.Groups[1].Value} pairs checked\n{run.Output}");
     }
 
