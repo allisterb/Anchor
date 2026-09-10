@@ -142,7 +142,7 @@ stance every other spec here takes.
   executable artifact in the reference implementation demonstrates it. Stated as a limit on
   confidence, not as a criticism of their testing.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **204 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **654 recorded pairs** — see below. What is
   still unchecked is everything this spec adds on top: the session model, the request/response
   recording convention, and `Granted`.
 - **Bounded sessions.** `MaxAttempts = 3`, each attempt being two events. "Vacuous" here means *no
@@ -216,10 +216,11 @@ subset and are refused rather than approximated, because a translator that quiet
 construct yields a disagreement it cannot attribute. What remains is mostly macro calls and
 parameter sigils, schema pins, and a handful of `Long` values outside TLC's integer range.
 
-**A note on `SessionRotation`.** Dogwood's `sum` is now corpus-validated *here*, in
-`DogwoodSemantics.tla`. `SessionRotation.tla` is a different module with its own hand-rolled
-`SumTrades`, and shares no code with it — so that spec's aggregate is still our reading. Making it
-share this evaluator would close the gap properly; that has not been done.
+**`SessionRotation` uses this evaluator.** It used to hand-roll its own `SumTrades`, which meant
+the headline finding rested on an aggregate nothing had checked. Its policies are now written as
+Dogwood policy *data* and handed to `DogwoodSemantics!Decide`, so the aggregate enforcing the cap is
+the one that agrees with the reference implementation on 654 cases. The only thing that spec still
+asserts on its own is the adversary.
 
 ### What it caught on the first run
 
@@ -276,6 +277,10 @@ State 4: hist = <<[action |-> "Trade", amount |-> 2]>>   traded = 4
 adversary with rotation disabled, and the cap holds. Without it the violation could be any modelling
 error; with it, rotation is the only thing that differs.
 
+It doubles as proof that the aggregate is live: if the `forbid` never fired, the cap would be
+breached without any rotation at all. Mutation-checked both ways — making the forbid unreachable, or
+summing over the timepoint binder instead of the amount, each breaks the control.
+
 ### The asymmetry
 
 On a fresh trajectory the history is empty, and the two policy shapes go in opposite directions from
@@ -296,9 +301,10 @@ makes the cap bite at the right point rather than one trade late.
 
 ### What this does not establish
 
-- **The engine is ours, not Dogwood's.** `DogwoodSemantics.tla` is differential-tested against the
-  reference corpus; this spec's aggregate is not — the corpus subset that harness covers is
-  `formerly`-only, and `count`/`sum` are among the refusals.
+- **The engine is shared, but the policy encoding is ours.** The decision comes from
+  `DogwoodSemantics`, which agrees with the reference implementation on 654 recorded cases. What is
+  still unchecked is the translation *into* it: that this hand-written policy data says what the
+  Dogwood text in the comment says. Nothing compares the two.
 - **Bounded.** Six steps, a cap of 3, trades of 1–2. Enough to exhibit the attack, not a claim about
   larger configurations.
 - **Rotation is modelled as free.** In reality a caller must be able to set the header, and a

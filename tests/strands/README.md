@@ -21,7 +21,8 @@ no network call, no credentials, and no AWS.
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/DependencyDAG/`](../../specs/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/cedar/`](../../specs/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
-| `dogwood_differential.py` | our TLA+ reading of Dogwood's `formerly within` against that language's own regression corpus. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
+| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 654 pairs, one TLC run. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
+| `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
 
 ## Translating a workflow, rather than paraphrasing one
 

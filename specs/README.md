@@ -66,12 +66,15 @@ directions, and neither is a refinement of the other.
 | `TemporalPolicy/` | |
 |---|---|
 | `TemporalPolicy.tla` | the session model. Checks `NeverFires`, and **means it to fail** — a violation is the witness, silence means the permit is vacuous. |
-| `DogwoodSemantics.tla` | our reading of `formerly within`, differential-tested against Dogwood's own corpus. |
+| `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, and the `count`/`sum` aggregations. Differential-tested against Dogwood's own corpus on 654 pairs. |
 | `Policies.tla` | the schema and policy set, swappable like `Workflow.tla`. |
 | `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden. **Vacuous** — a permit killed by an unrelated rule. |
 | `RequestGated_SurvivesForbid.cfg` | same forbid, gate on `::request`. Satisfiable, **and that is the bad news**. |
-| `SessionRotation.tla` | a caller who controls the session id. Rotation defeats an aggregate cap and cannot touch an approval gate — the two shapes fail in opposite directions. Three configs, one of them the control. |
+| `SessionRotation.tla` | a caller who controls the session id. Rotation defeats an aggregate cap and cannot touch an approval gate — the two shapes fail in opposite directions. Uses `DogwoodSemantics!Decide`, so the aggregate enforcing the cap is the corpus-validated one. |
+| `SessionRotation.cfg` | aggregate cap, rotation allowed. **Cap violated** in three steps. |
+| `NoRotation_CapHolds.cfg` | the control: same policy, rotation disabled. Cap holds — which also proves the aggregate is live. |
+| `Rotation_ApprovalGateHolds.cfg` | approval gate, rotation allowed. Gate holds. |
 
 ## BoundedRetry
 

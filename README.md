@@ -28,7 +28,7 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 | **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
-Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 35 tests, all green.
+Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 42 tests, all green.
 
 **A live Strands `Graph` is translated into a model, rather than described by one.** `GraphBuilder`
 is a construction API, so the object *is* the workflow and the runtime executes that same object;
@@ -52,7 +52,8 @@ what an agent *does* even when nothing constrains what it decides, so it applies
 coordination pattern rather than one. [`specs/TemporalPolicy`](specs/TemporalPolicy) asks whether a
 session-aware permit can ever grant anything — AWS notes that temporal policies "do not currently
 support the powerful automated reasoning analysis tools that Cedar provides" — and its reading of
-those semantics is held against the reference implementation's own corpus, 204 recorded cases.
+those semantics is held against the reference implementation's own corpus — **654 recorded cases**,
+covering every temporal operator including the `count`/`sum` aggregations.
 
 ## Which part of Strands this applies to
 

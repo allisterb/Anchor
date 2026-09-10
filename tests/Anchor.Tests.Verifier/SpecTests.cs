@@ -260,8 +260,8 @@ public class SpecTests : TestsRuntime
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("GlobalCapHolds", string.Join("\n", run.Errors.Select(e => e.Text)));
 
-        // The shape, not the instance: the history is emptied at least once on the way.
-        Assert.Contains(run.Trace, s => s.Text.Contains("hist = <<>>"));
+        // The shape, not the instance: the session trajectory is emptied at least once on the way.
+        Assert.Contains(run.Trace, s => s.Text.Contains("trace = <<>>"));
     }
 
     /// <summary>

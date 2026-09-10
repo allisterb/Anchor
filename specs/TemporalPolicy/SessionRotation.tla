@@ -23,24 +23,26 @@
 (*                                     -> FAILS CLOSED. Rotation costs the *)
 (*                                        caller the capability.           *)
 (*                                                                         *)
-(*   a FORBID on an aggregate          sees count/sum = 0, does not fire   *)
+(*   a FORBID on an aggregate          sees sum/count = 0, does not fire   *)
 (*                                     -> FAILS OPEN. Rotation hands the   *)
 (*                                        caller a fresh allowance.        *)
 (*                                                                         *)
 (* Budget caps, rate limits and mutual-exclusion rules are all the second  *)
 (* shape. Approval gates are the first.                                    *)
 (*                                                                         *)
+(* THE DECISION IS NOT MODELLED HERE. It comes from DogwoodSemantics,      *)
+(* whose reading of `formerly`, `sum` and `tp` agrees with the reference   *)
+(* implementation on 654 recorded cases. An earlier version of this spec   *)
+(* hand-rolled its own `SumTrades`, which meant the headline finding rested*)
+(* on an aggregate nothing had checked. The policies below are written as  *)
+(* Dogwood policy DATA and handed to that evaluator, so the only thing     *)
+(* this module still asserts on its own is the adversary.                  *)
+(*                                                                         *)
 (* THE CONTROL MATTERS. `NoRotation_CapHolds.cfg` runs the same policy and *)
 (* the same adversary with rotation disabled, and the cap holds. Without   *)
-(* that config the violation below would not be attributable to rotation.  *)
-(*                                                                         *)
-(* SELF-REFERENTIAL INCLUSION IS MODELLED. AgentCore documents that "when  *)
-(* a temporal condition references the same action that is being           *)
-(* authorized, the current request's own event is included in the          *)
-(* evaluation", so the aggregate below counts the trade being decided.     *)
-(* That is what makes the cap bite at all rather than one trade late.      *)
+(* that config the violation would not be attributable to rotation.        *)
 (***************************************************************************)
-EXTENDS Naturals, Sequences
+EXTENDS Integers, Sequences, FiniteSets, TLC
 
 CONSTANTS
     Limit,          \* the total the policy author means to allow
@@ -58,76 +60,142 @@ ASSUME RotationAssumption ==
 
 Amounts == 1..MaxAmount
 
+\* `Cases` is only read by DogwoodSemantics!Agree, which this module never calls; the
+\* evaluator's Decide takes its trace and policies as arguments.
+D == INSTANCE DogwoodSemantics WITH Cases <- << >>
+
+(***************************************************************************)
+(* THE POLICY SET, as Dogwood policy data                                  *)
+(*                                                                         *)
+(* aggregate:                                                              *)
+(*   permit (principal, action == "Trade", resource);                      *)
+(*   forbid (principal, action == "Trade", resource)                       *)
+(*   when temporal {                                                       *)
+(*     exists (n: Long).                                                   *)
+(*       ((sum a for (a: Long), (t: Timepoint).                            *)
+(*           where (formerly within W (Trade::request{input.amount: a}     *)
+(*                                     && tp(t)))) == n && n > Limit)      *)
+(*   };                                                                    *)
+(*                                                                         *)
+(* approval:                                                               *)
+(*   permit (principal, action == "Trade", resource)                       *)
+(*   when temporal { formerly within W Approve::request{} };               *)
+(*                                                                         *)
+(* The `tp(t)` binder is what makes the sum per-EVENT: t is unique to each *)
+(* matching event, so two trades of the same amount contribute twice.      *)
+(* Without it the sum would range over distinct amounts.                   *)
+(***************************************************************************)
+Str(x) == [k |-> "s", v |-> x]
+Num(x) == [k |-> "n", v |-> x]
+
+EmptyRec == [f \in {} |-> Str("")]
+Anon == Str("caller")
+
+\* A window wide enough to cover any run of this length, so the finding is about
+\* session scope rather than about the metric bound.
+Window == 1000
+
+DummyPred == [action |-> "", kind |-> "", binds |-> << >>]
+DummyAtom == [op |-> "pred", pred |-> DummyPred, var |-> "", args |-> << >>]
+DummyTerm == [op |-> "formerly", window |-> 0, atom |-> DummyAtom,
+              left |-> DummyAtom, leftNeg |-> FALSE]
+
+PredAtom(a, k, bs) == [op |-> "pred", pred |-> [action |-> a, kind |-> k, binds |-> bs],
+                       var |-> "", args |-> << >>]
+TpAtom(v)          == [op |-> "tp", pred |-> DummyPred, var |-> v, args |-> << >>]
+AndAtom(xs)        == [op |-> "and", pred |-> DummyPred, var |-> "", args |-> xs]
+
+Formerly(atom)     == [op |-> "term", args |-> << >>,
+                       term |-> [op |-> "formerly", window |-> Window, atom |-> atom,
+                                 left |-> atom, leftNeg |-> FALSE]]
+TrueCond           == [op |-> "true", args |-> << >>, term |-> DummyTerm]
+
+\* input.amount: a   -- a bind to a variable the aggregation binds
+AmountVar == [side |-> "input", field |-> "amount", kind |-> "var", name |-> "a",
+              value |-> Str("")]
+
+SumOverTrades ==
+    [op |-> "agg", args |-> << >>, term |-> DummyTerm,
+     agg |-> [kind |-> "sum", over |-> "a",
+              binders |-> <<[name |-> "a", type |-> "Long"],
+                            [name |-> "t", type |-> "Timepoint"]>>,
+              cond |-> Formerly(AndAtom(<<PredAtom("Trade", "request", <<AmountVar>>),
+                                          TpAtom("t")>>))],
+     cmp |-> ">", value |-> Limit]
+
+Policies ==
+    IF Gate = "aggregate"
+    THEN << [effect |-> "permit", action |-> "Trade",   cond |-> TrueCond],
+            [effect |-> "permit", action |-> "Approve", cond |-> TrueCond],
+            [effect |-> "forbid", action |-> "Trade",   cond |-> SumOverTrades] >>
+    ELSE << [effect |-> "permit", action |-> "Approve", cond |-> TrueCond],
+            [effect |-> "permit", action |-> "Trade",
+             cond |-> Formerly(PredAtom("Approve", "request", << >>))] >>
+
+\* The domain a bound variable of non-Timepoint type ranges over.
+Values == {Num(x) : x \in Amounts}
+
 VARIABLES
-    hist,       \* the CURRENT session's trajectory -- what the policy engine can see
+    trace,      \* the CURRENT session's trajectory -- all the policy engine can see
     traded,     \* the true total across every session -- what the author meant to bound
     unapproved, \* TRUE once a trade was allowed with no approval in its own session
     steps
 
-vars == <<hist, traded, unapproved, steps>>
-
-Events == [action: {"Approve", "Trade"}, amount: 0..MaxAmount]
+vars == <<trace, traded, unapproved, steps>>
 
 TypeOK ==
     /\ traded \in 0..(MaxSteps * MaxAmount)
     /\ unapproved \in BOOLEAN
     /\ steps \in 0..MaxSteps
-    /\ \A i \in DOMAIN hist : hist[i] \in Events
+    /\ Len(trace) \in 0..MaxSteps
 
 Init ==
-    /\ hist = << >>
+    /\ trace = << >>
     /\ traded = 0
     /\ unapproved = FALSE
     /\ steps = 0
 
-(***************************************************************************)
-(* WHAT THE ENGINE CAN SEE -- and it can only see the current session.     *)
-(***************************************************************************)
-RECURSIVE SumTrades(_)
-SumTrades(s) ==
-    IF s = << >> THEN 0
-    ELSE (IF Head(s).action = "Trade" THEN Head(s).amount ELSE 0) + SumTrades(Tail(s))
+SessionApproved == \E i \in DOMAIN trace : trace[i].action = "Approve"
 
-\* `sum within W Trade::request{...}` over this session.
-SessionTraded == SumTrades(hist)
-
-\* `formerly within W Approve::response{...}` in this session.
-SessionApproved == \E i \in DOMAIN hist : hist[i].action = "Approve"
-
-(***************************************************************************)
-(* THE DECISION                                                            *)
-(*                                                                         *)
-(* aggregate: permit Trade, and forbid it when the session's running total *)
-(*            INCLUDING this request would exceed the cap.                 *)
-(* approval:  permit Trade only when an approval is in this session.       *)
-(***************************************************************************)
-Allowed(action, amount) ==
-    IF action = "Approve" THEN TRUE
-    ELSE IF Gate = "aggregate" THEN SessionTraded + amount <= Limit
-    ELSE SessionApproved
+Event(action, amount) ==
+    [time     |-> Len(trace) + 1,
+     action   |-> action,
+     kind     |-> "request",
+     input    |-> IF action = "Trade" THEN [amount |-> Num(amount)] ELSE EmptyRec,
+     output   |-> EmptyRec,
+     principal |-> Anon,
+     resource  |-> Anon,
+     isDecision |-> TRUE]
 
 (***************************************************************************)
 (* TRANSITIONS                                                             *)
+(*                                                                         *)
+(* The request event is appended BEFORE the decision, because AgentCore    *)
+(* documents that a self-referential condition sees the current request --  *)
+(* which is what makes the cap bite on the trade that would breach it      *)
+(* rather than one trade late.                                             *)
 (***************************************************************************)
 Attempt(action, amount) ==
     /\ steps < MaxSteps
-    /\ Allowed(action, amount)
-    /\ hist' = Append(hist, [action |-> action, amount |-> amount])
-    /\ traded' = IF action = "Trade" THEN traded + amount ELSE traded
-    \* Parenthesised deliberately: `\/` binds looser than `=`, so without them this reads
-    \* as `(unapproved' = unapproved) \/ (...)` -- a disjunction, not an assignment, and TLC
-    \* reports the variable as unassigned the moment the right-hand disjunct holds.
-    /\ unapproved' = (unapproved \/ (action = "Trade" /\ ~SessionApproved))
+    /\ LET withReq == Append(trace, Event(action, amount))
+           idx     == Len(withReq)
+       IN /\ D!Decide(withReq, Policies, idx, Values)
+          /\ trace' = withReq
+          /\ traded' = IF action = "Trade" THEN traded + amount ELSE traded
+          \* Parenthesised deliberately: `\/` binds looser than `=`, so without them this
+          \* reads as a disjunction rather than an assignment and TLC reports the variable
+          \* as unassigned the moment the right-hand side holds.
+          /\ unapproved' = (unapproved \/ (action = "Trade" /\ ~SessionApproved))
     /\ steps' = steps + 1
 
-\* The caller supplies the session id, so this needs no cooperation from anyone:
-\* send the next request under a new one and the engine sees an empty trajectory.
-\* The global total is untouched, because the world does not reset.
+\* The caller supplies the session id, so this needs no cooperation from anyone: send the
+\* next request under a new one and the engine sees an empty trajectory. The global total
+\* is untouched, because the world does not reset.
 Rotate ==
     /\ MayRotate
     /\ steps < MaxSteps
-    /\ hist # << >>
-    /\ hist' = << >>
+    /\ trace # << >>
+    /\ trace' = << >>
     /\ steps' = steps + 1
     /\ UNCHANGED <<traded, unapproved>>
 
