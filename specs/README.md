@@ -15,7 +15,9 @@ translated into a model.
 | [`SharedBudget/`](SharedBudget/README.md) | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
 | [`TaskLifecycle/`](TaskLifecycle/README.md) | one sub-task in full: the eleven-state lifecycle from arXiv:2510.14133 Table 2, checked. |
 | [`DependencyDAG/`](DependencyDAG/README.md) | several tasks in outline: HP10 from the same paper's Table 1. The target of the Strands graph translator. |
+| [`StrandsGraph/`](StrandsGraph/README.md) | the Strands executor **as it actually runs** — batch, await, recompute readiness, fail fast, stop. Catches a workflow that reports success having skipped a node. |
 | [`cedar/`](cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
+| [`TemporalPolicy/`](TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set. |
 
 Each directory pairs a spec that verifies with variants that carry one deliberate mistake each. The
 variants are the load-bearing half: a verifier that only ever reports success proves nothing, so

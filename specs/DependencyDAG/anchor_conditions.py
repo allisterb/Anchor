@@ -36,7 +36,7 @@ spec states per node so the mapping is exercised rather than assumed.
 
 Note the SDK has no CANCELED. Strands does not cancel an orphaned subgraph — it fails the whole run
 fast — so `CancelOrphan` in the model has no counterpart in the runtime. That is a separate finding
-from this file's concern; see HANDOFF.md.
+from this file's concern; see docs/agent/HANDOFF.md.
 """
 
 from __future__ import annotations

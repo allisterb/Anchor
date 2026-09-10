@@ -81,14 +81,38 @@ A ──> B ──> C
 
 Against the real SDK, `execution_order` contains **C twice** — admitted once on the `A` edge while
 `B` is still running, and again when `B` completes. Under AND semantics C would run exactly once.
-Both graphs now violate HP10 under TLC, with the counterexample the SDK run predicts:
+TLC finds the matching counterexample:
 
 ```
 state = [A |-> "COMPLETED", B |-> "BLOCKED", C |-> "IN_PROGRESS"]
 ```
 
-**What the model does not cover.** `COMPLETED` is terminal in `DependencyDAG.tla`, so the *second*
-run of C is outside it. Re-execution is the same OR rule showing up again and needs its own spec.
+### `DependencyDAG.tla` over-approximates, and the diamond is where it shows
+
+TLC reports HP10 violated on the **diamond** too — but the real executor cannot produce that, and an
+earlier version of this file wrongly said the SDK predicted it.
+
+`DependencyDAG.tla` has no notion of a batch: it interleaves tasks individually, so it admits
+`report` with one parent done. Strands seeds `analysis` and `factcheck` into one batch,
+`_execute_nodes_parallel` awaits all of it, and readiness is recomputed only afterwards. Probed 3/3:
+
+```
+docs diamond  ['research', 'analysis', 'factcheck', 'report']   report ran 1x
+skew          ['A', 'B', 'C', 'C']                              C ran 2x
+```
+
+So read its two outcomes asymmetrically:
+
+| | |
+|---|---|
+| **holds** in `DependencyDAG` | holds in reality. Over-approximation is sound in this direction. |
+| **VIOLATED** in `DependencyDAG` | *may* be spurious — as it is for the diamond. Confirm against [`specs/StrandsGraph/`](../../specs/StrandsGraph), which models the batch loop, or against the SDK. |
+
+The skew violation is real in both models and in the SDK. The diamond's is an artifact.
+
+**What `DependencyDAG.tla` does not cover.** Batching, per the above; and `COMPLETED` is terminal
+there, so the *second* run of C is outside it. Both are the same OR rule showing up again, and both
+are modelled in [`specs/StrandsGraph/`](../../specs/StrandsGraph).
 
 ## Conditions that carry their own meaning
 

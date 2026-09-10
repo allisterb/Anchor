@@ -39,6 +39,27 @@ public class HarnessTests : TestsRuntime
         // than on execution order: the batch runs concurrently, so the order varies between runs.
         Assert.Contains("C ran 2x", run.Output);
         Assert.Contains("C ran 1x", run.Output);
+
+        // The cross-model matrix, and specifically the two rows where the models disagree. Both
+        // are findings in their own right and both are easy to lose to a well-meaning edit.
+        Assert.DoesNotContain("! unexpected", run.Output);
+
+        // DependencyDAG over-approximates: no batches, so it reports a violation the executor
+        // cannot produce. Losing this row would mean the diamond had started failing for real.
+        Assert.Matches(@"docs diamond, unguarded\s+VIOLATED\s+HOLD", run.Output);
+
+        // And the other direction: the paper's orchestrator cancels what it cannot admit, so it
+        // satisfies the property honestly, while Strands stops and reports success with a node
+        // never run. A failure class DependencyDAG cannot express.
+        Assert.Matches(@"router, opaque conditions\s+HOLD\s+VIOLATED", run.Output);
+
+        // Each StrandsGraph finding attributed to the one shape that causes it. The combined
+        // config cannot do this — TLC stops at the first violation, so on the skew graph
+        // RunsAtMostOnce is masked by HP10 — which is why these were checked one at a time and
+        // why they are pinned here rather than left as a table in a README.
+        Assert.Matches(@"NoSilentSkip\s+ok\s+ok\s+VIOLATED", run.Output);
+        Assert.Matches(@"HP10\s+ok\s+VIOLATED\s+ok", run.Output);
+        Assert.Matches(@"RunsAtMostOnce\s+ok\s+VIOLATED\s+ok", run.Output);
     }
 
     /// <summary>

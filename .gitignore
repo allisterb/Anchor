@@ -439,3 +439,4 @@ states/
 # policies.cedar and the oracle is measured from the real engine, so both are outputs.
 specs/cedar/CedarDifferential.tla
 specs/cedar/CedarDifferential.cfg
+docs/agent

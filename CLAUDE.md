@@ -22,23 +22,6 @@
   non-ASCII — foreign-language comments, box-drawing characters, emoji, and BOMs
   are normal and are not attacks; in a terminal-graphics reference they are usually
   the subject.
-- **A clean scan says the bytes are safe. It says nothing about whether we may use
-  the work — read the front matter for the author's terms, and record them in the
-  same ledger row.** A scan asks "will this hurt us"; the terms ask "did the author
-  agree to this", and only the second is about them. Check the copyright page before
-  distilling anything into a manual.
-  - *Imaginative Drawing* (John Guy, 2025) is the standing example and is **excluded**.
-    Page 3 asks that it be shared only in its entirety, forbids distributing parts or
-    pages separately, and withholds permission for the work "or any part of it to be
-    used to train machine learning or artificial intelligence." A studio manual is a
-    distilled *part*, served to agents. Building a knowledge base is not training in
-    the technical sense, but its purpose is to let an AI do what the book teaches,
-    which is the thing being declined — and reading "train" narrowly enough to permit
-    it is picking the convenient answer. All citations were withdrawn on 2026-09-02.
-    **Do not re-add it**, however well it fits.
-  - Where an author has *not* refused, ordinary scholarly use applies and is what this
-    project already does for Bokhua: distil the principle, write it in our own words,
-    cite the chapter, never reproduce at length.
 - **A clean scan is about reading. Before third-party code is BUILT or RUN, check
   the execution surface too** — that is where it actually gets to act. Look for
   MSBuild `.targets` / `.props` / `Directory.Build.props` and `.editorconfig` files
@@ -54,16 +37,19 @@
 
 ## Project Overview
 Anchor is a formal verification framework for Amazon Strands SDK multi-agent workflows that uses the Microsoft Dafny language and the TLA+ verifier.
-Anchor allows humans and agents to write TLA+ model for verifying agent logic and to use Dafny to write verifiable agent workflows that is translated into Python using the Strands SDK.
+Anchor allows humans and agents to generate TLA+ models for verifying Strands agent logic and to use Dafny to write verifiable agent workflows that is translated into Python using the Strands SDK.
 The goal is to model the agent workflow as a formally verifiable state machine that, given the right assumptions hold, can be used to make agent code more reliable.
 
+Anchir is an entry into the Amazon Agents for Humans Hackathon: https://agentsforhumans.devpost.com
+
 ## Project structure
-* Anchor is written in .NET and C# and are organized into the following sub-projects: 
+* Anchor is written in C# and Python and organized into the following sub-projects: 
     - Anchor.Runtime at src/Anchor.Runtime provides global base types and features like logging for all other projects.    
     - Anchor.Verifiers.Dafny at src/Anchor.Verifiers.Dafny provides the Dafny verifier and language server.
     - Anchor.Verifiers.TLAPlus at src/Anchor.Verifiers.TLAPlus provides access to the TLA+ verifier.     
     - Anchor.Tests.Verifiers at tests/Anchor.Tests.Verifiers provides unit tests for verifiers.
-    
+    - specs contains TLA+ specifications for modeling Strands agent workflows.
+    - docs contains documentation for the Anchor framework and its sub-projects. All agent docs should live in docs/agent.
 * Logging is provided by the Anchor.Runtime project and is available to all other projects by either using the static Runtime methods or in a class inheriting from Runtime. Configure the logging system in a static constructor of the entry assembly.
 * Test classes should inherit from Anchor.Tests.TestsRuntime from the Anchor.Runtime project.
 * Package versions are locked. Every project carries a committed `packages.lock.json`, and `nuget.config` pins a single source with explicit source mapping. Adding or bumping a package updates the lock as part of restore — review that diff. CI restores in locked mode, which fails rather than silently re-resolving.
@@ -75,10 +61,6 @@ The goal is to model the agent workflow as a formally verifiable state machine t
 - Prefer functional programming paradigms and constructs where appropriate.
 - Prefer concise code over more verbose constructs.
 - Avoid modifying external library code located in the @ext directory. Changes should be limited to the code in the @src directory only whenever possible.
-- Jint will match a JS call like `createGoldenCircles(...)` to .NET `CreateGoldenCircles(...)` so follow the standard .NET method and property naming conventions for the drawing toolkits.
-- **This applies to every type reachable from a script, not just the toolkits** — including the ones that mirror an external API, such as `CanvasRenderingContext2D`, `CanvasPath`, `SkiaCanvas`, `ImageData`, and the whole `Snap*` surface. Members are PascalCase in C#; Jint resolves the JS camelCase spelling onto them, and that camelCase form is what @docs/Anchor.core.md and the studio manuals document. Do **not** add a camelCase alias member (`public int width => Width;`) to make a class read like its JS form — the mapping already handles it, and the alias becomes a duplicate the moment the real member is named correctly.
-- Each JS-exposed class carries a `<remarks>` note stating this. Keep it when adding a new one.
-- Text that an agent will read — exception messages, log output, doc comments quoting a call — should use the **JS** spelling (`Drawing.projectCastShadow(...)`), because that is what the reader will type.
 
 ## Project coding style:
 - Use the existing #regions in a file to organize class constructors, indexers, events, properties, methods, fields, and child types.
@@ -95,3 +77,4 @@ The goal is to model the agent workflow as a formally verifiable state machine t
 
 ## Project milestones
 ### Milestone 1: Confirm Dafny tools and TLA+ work.
+### Milestone 2: Create TLA+ specs for modelling Strands agent workflows.

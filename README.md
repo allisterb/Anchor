@@ -1,16 +1,23 @@
 # Anchor
 
-A formal verification framework for [Amazon Strands SDK](https://strandsagents.com/) multi-agent
-workflows.
+Formal verification for the **deterministic envelope** around [Amazon Strands
+SDK](https://strandsagents.com/) agents — dependency ordering, budgets, tool authorization, and
+termination.
 
-Anchor models an agent workflow as a state machine that can be checked before it is run. TLA+ is
-used to verify the workflow's logic — safety and liveness of the agent protocol — and Dafny to write
-the workflow implementation itself, which is then translated to Python on the Strands SDK. The goal
-is that, given the stated assumptions hold, the generated agent code is provably well-behaved rather
-than merely tested.
+**It does not verify what a model decides.** Strands is a model-driven framework, and an agent's
+choice of tools and task sequencing is the model's business. Anchor's subject is what can be
+guaranteed *regardless* of what the model decides, which is why every spec here treats the model as
+adversarial nondeterminism rather than trying to describe it.
+
+Anchor models that envelope as a state machine that can be checked before it is run. TLA+ is used to
+verify the protocol's logic — its safety and liveness — and Dafny to write the implementation
+itself, which is then translated to Python on the Strands SDK. The goal is that, given the stated
+assumptions hold, the generated code is provably well-behaved rather than merely tested.
 
 Both humans and agents are meant to author these models, so the verifiers are exposed as a library
 rather than as a wrapper around a command line.
+
+An entry in the [Amazon Agents for Humans Hackathon](https://agentsforhumans.devpost.com).
 
 ## Status
 
@@ -21,16 +28,91 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 | **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
-Milestone 2 has started: [specs/](specs/) holds a budget-bounded retry loop, modelled in TLA+ and
-implemented in Dafny, plus variants each carrying one realistic mistake — so the suite proves the
-verifiers catch failures and not merely that they report success. A multi-agent spec shows where the
-two tools stop overlapping: a race on a shared budget that TLC finds and no Dafny loop invariant can
-express.
+Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 35 tests, all green.
 
-The Dafny → Python path now runs end to end: a verified workflow whose model is bound to a real
+**A live Strands `Graph` is translated into a model, rather than described by one.** `GraphBuilder`
+is a construction API, so the object *is* the workflow and the runtime executes that same object;
+walking it is translation, not paraphrase. Nothing is hand-transcribed, so nothing can drift.
+
+**The models found real behaviour in the SDK**, each confirmed by running it rather than by reading
+it. See [Verifying a deterministic graph](#verifying-a-deterministic-graph).
+
+**The Dafny → Python path runs end to end**: a verified workflow whose model is bound to a real
 Python module via `{:extern}`, translated and executed against it. `DafnyProgram.AuditAsync`
 enumerates the trust boundary that remains — every point where the proof rests on an assumption
 rather than a proof — so it is a checked output rather than a paragraph someone maintains by hand.
+
+**Every spec is paired with variants carrying one deliberate mistake each**, and the suite requires
+those to fail. A verifier that only ever reports success proves nothing. [`specs/`](specs/) also
+holds the case where the two tools stop overlapping: a race on a shared budget that TLC finds and no
+Dafny loop invariant can express.
+
+## Which part of Strands this applies to
+
+Strands is model-driven: *"modern models are sophisticated enough to be their own orchestrators."*
+It offers four coordination patterns, and **only one of them is deterministic** —
+[graphs](https://aws.amazon.com/blogs/opensource/strands-agents-and-the-model-driven-approach/),
+recommended for *"business processes that require mandatory checkpoints or compliance
+requirements"*. Anchor's coverage differs per pattern, and is worth stating precisely rather than
+implying:
+
+| Strands pattern | what Anchor covers |
+|---|---|
+| **Graphs** (deterministic) | dependency ordering, edge conditions, the executor's own loop. [`specs/DependencyDAG`](specs/DependencyDAG), [`specs/StrandsGraph`](specs/StrandsGraph) |
+| **A single model-driven agent** | budget bounds and termination under a model free to fail forever. [`specs/BoundedRetry`](specs/BoundedRetry) |
+| **Swarms / agents-as-tools** | concurrent agents sharing one budget. [`specs/SharedBudget`](specs/SharedBudget). Handoffs and shared context are **not** modelled |
+| **Any agent that calls tools** | authorization decisions, differential-tested against the real Cedar engine. [`specs/cedar`](specs/cedar) |
+| **Meta agents** | nothing |
+
+The niche is narrow, and deliberately so: verification pays where determinism is already demanded,
+which is exactly the population Amazon points at graphs for.
+
+## Verifying a deterministic graph
+
+```bash
+python tests/strands/graph_to_tla.py
+```
+
+The translator emits the graph; the properties live once, reviewed, in the specs that consume it. A
+new workflow is checked against them without anyone rewriting anything.
+
+Three behaviours it surfaced, none of which shows up in a passing test run:
+
+| | |
+|---|---|
+| **Readiness is OR, not AND** | a node fires on the *first* incoming edge whose source completed. `GraphNode.dependencies` never gates execution. An unguarded join can start before all its parents are done — though only when those parents cannot share a batch, so the shape matters as much as the graph. |
+| **A node can run twice** | readiness is recomputed per completed batch, and an earlier firing does not disqualify a later one. The agent is invoked twice: charged twice, output recomputed. |
+| **A skipped node looks like success** | when nothing is ready the loop ends. A node whose conditions never pass is never run, never appears in `results`, and the graph reports `Status.COMPLETED`. Probed: 2 of 3 nodes run, no error, no warning. |
+
+The first is documented by the SDK; the consequences of the other two are easy to miss. All three are
+now checked, and the fix for the first two is a condition on the join — which Anchor supplies as a
+combinator that carries its own TLA+ meaning, so nothing per-workflow has to be trusted.
+
+**Two models, deliberately.** [`DependencyDAG`](specs/DependencyDAG) is the orchestrator of
+arXiv:2510.14133 — it cancels orphaned subgraphs and requires every task to terminate.
+[`StrandsGraph`](specs/StrandsGraph) is the executor Strands actually runs. They disagree in both
+directions, and neither is a refinement of the other: `DependencyDAG` has no notion of a batch and so
+reports violations the executor cannot produce, while `StrandsGraph` catches a whole failure class —
+the run ending early with nodes unexecuted — that the paper's machine cannot express. The translator
+runs both and prints the comparison alongside what the SDK actually did.
+
+**What a condition means is checked, not asserted.** An edge condition is opaque Python, so it gets
+one of three treatments: a reviewed combinator, a user-declared predicate that is
+differential-tested against the real callable, or an explicit "not modelled" that is counted rather
+than guessed at. See [docs/verifying-a-strands-graph.md](docs/verifying-a-strands-graph.md).
+
+### What this does not establish
+
+Worth stating plainly, because a framework like this invites overclaiming:
+
+- **Nothing about what an agent says.** Agents appear only as completing or failing.
+- **Nothing about the refinement gap.** A proof about a variable called `spent` says nothing about
+  whether `spent` was computed from the right field — and reading the wrong one is a real,
+  compounding overcharge that every proof here would still pass.
+- **Nothing about a model-driven agent's choices** — which tool to call, what to do next, when
+  it is finished. Three of Strands' four coordination patterns hand that to the model, and no
+  spec here has an opinion about it.
+- **Nothing about code paths outside the graph.**
 
 ## Prerequisites
 
@@ -85,8 +167,10 @@ and explain how to record a hash rather than installing an unverified solver.
 | `src/Anchor.Runtime` | base types for every other project — `Runtime` and its logging, `Result<T>`, process helpers |
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |
-| `tests/Anchor.Tests.Verifier` | tests for both verifiers |
+| `tests/Anchor.Tests.Verifier` | tests for both verifiers, and for the Python harnesses below |
+| `tests/strands/` | the graph translator and the differential tests, run against the real SDK |
 | `specs/` | models of agent workflows, one directory per subject, all checked by the test suite |
+| `docs/` | framework documentation; `docs/agent/` holds internal working notes — handoffs and task writeups |
 | `requirements/` | Python dependencies, pinned and hash-locked |
 | `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |

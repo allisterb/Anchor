@@ -22,6 +22,14 @@ public class SpecTests : TestsRuntime
         return r.Value;
     }
 
+    /// <summary>One spec, a config that does not share its name — several models of one module.</summary>
+    static async Task<TLCRun> CheckAsync(string tla, string cfg)
+    {
+        var r = await TLCProcess.CheckAsync(Spec($"{tla}.tla"), Spec($"{cfg}.cfg"));
+        Assert.True(r.IsSuccess, r.Message);
+        return r.Value;
+    }
+
     /// <summary>
     /// The budget is never exceeded and the task always ends — for every behaviour of a model that
     /// is free to fail forever and charge the maximum every time.
@@ -151,6 +159,108 @@ public class SpecTests : TestsRuntime
 
         // A lasso, not a finite path to a bad state: the retry cycle repeats forever.
         Assert.Contains(run.Messages, m => m.Code == TLCCodes.BackToState);
+    }
+
+    #endregion
+
+    #region Temporal policy vacuity
+
+    /// <summary>
+    /// A session-aware permit that can actually grant something. The witness is the point: TLC
+    /// reaches a state where <c>p_sell</c> fires, in two attempts — approve, then sell.
+    /// </summary>
+    /// <remarks>
+    /// <c>NeverFires</c> is checked as an invariant and is MEANT to be violated. TLA+ is
+    /// linear-time and has no <c>EF</c>, so reachability is posed as the negation of an invariant
+    /// and the counterexample is read as the witness. Here that workaround is the whole tool.
+    /// </remarks>
+    [Fact]
+    public async Task TemporalPermitIsSatisfiable()
+    {
+        var run = await CheckAsync("TemporalPolicy/TemporalPolicy");
+        Assert.False(run.Verified);
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
+        Assert.Contains("NeverFires", string.Join("\n", run.Errors.Select(e => e.Text)));
+
+        // The witness ends with the permit having granted something.
+        Assert.Contains(run.Trace, s => s.Text.Contains("p_sell"));
+    }
+
+    /// <summary>
+    /// Forbidding the approval action makes the sell permit unsatisfiable — and nothing about
+    /// either policy, read on its own, says so.
+    /// </summary>
+    /// <remarks>
+    /// A temporal condition matching <c>Action::response</c> matches only actions that were
+    /// permitted; a denied one is recorded as an <c>error</c> event. So the SellShares permit —
+    /// untouched, still valid, still deployed — can never fire once approvals are forbidden. The
+    /// capability it exists to grant is silently gone.
+    /// <para>
+    /// <b>This test passing means TLC found no violation, and that is the finding.</b> Vacuity is
+    /// the absence of a witness, so the quiet result is the bad one. That inversion is why the
+    /// assertion below is on <c>Verified</c> being true — the opposite of every other spec here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task ForbiddingApprovalMakesTheSellPermitVacuous()
+    {
+        var run = await CheckAsync("TemporalPolicy/TemporalPolicy",
+                                   "TemporalPolicy/Vacuous_ForbiddenApproval");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    /// <summary>
+    /// The same rule gated on <c>::request</c> instead of <c>::response</c> survives the same
+    /// forbid — and that is worse, not better.
+    /// </summary>
+    /// <remarks>
+    /// AgentCore records a <c>request</c> event for every attempt, permitted or not; only the
+    /// outcome event differs (<c>response</c> when allowed, <c>error</c> when denied). So a gate
+    /// written against <c>::request</c> means "somebody TRIED to get an approval", and opens on
+    /// attempts that were all refused. One word apart from the test above, opposite outcome, and
+    /// the permit grants exactly the capability the approval existed to protect.
+    /// <para>
+    /// Both results come from the same engine and the same policy set, which is what makes the
+    /// pair meaningful: it is the event kind doing the work, not a difference in the model.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task RequestGatedPermitFiresOnDeniedAttempts()
+    {
+        var run = await CheckAsync("TemporalPolicy/TemporalPolicy",
+                                   "TemporalPolicy/RequestGated_SurvivesForbid");
+        Assert.False(run.Verified);
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
+
+        // The witness records the denied approval as an error, and sells anyway.
+        Assert.Contains(run.Trace, s => s.Text.Contains("error"));
+        Assert.Contains(run.Trace, s => s.Text.Contains("p_sell_request"));
+    }
+
+    #endregion
+
+    #region Strands execution loop
+
+    /// <summary>
+    /// The Strands graph executor as it actually runs — batch, await the whole batch, recompute
+    /// readiness, fail fast, stop when nothing is ready. On the guarded workflow all four
+    /// invariants hold and the run always ends.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <c>DependencyDAG</c> because they model different orchestrators.
+    /// DependencyDAG is the Host Agent of arXiv:2510.14133, which cancels orphaned subgraphs and
+    /// requires every task to terminate. Strands does neither: no CANCELED status, fail-fast on a
+    /// raise, and the loop simply stops when nothing is ready — leaving unadmitted nodes unrun and
+    /// reporting success. The workflow-shaped counterexamples for each are in
+    /// <c>tests/strands/graph_to_tla.py</c>, which checks both models against one graph.
+    /// </remarks>
+    [Fact]
+    public async Task StrandsGraphVerifies()
+    {
+        var run = await CheckAsync("StrandsGraph/StrandsGraph");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
     }
 
     #endregion

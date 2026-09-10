@@ -523,6 +523,26 @@ state = [A |-> "COMPLETED", B |-> "BLOCKED", C |-> "IN_PROGRESS"]
 The remedy is a condition on the join, which is exactly what `all_complete` is for. Guarded, the
 real SDK admits C once and TLC verifies HP10.
 
+### This model over-approximates, and the diamond is where it shows
+
+Read carefully, because it is easy to over-claim here — and an earlier version of this file did.
+
+TLC reports HP10 violated on the **diamond** as well as the skew. The real executor cannot produce
+the diamond one. This model has no notion of a batch: it interleaves tasks individually, so it
+admits `report` with one parent complete. Strands seeds `analysis` and `factcheck` into one batch,
+`_execute_nodes_parallel` awaits all of it, and readiness is recomputed only afterwards. Probed 3/3,
+`report` runs once, after both parents.
+
+So the two outcomes are **not symmetric**:
+
+| | |
+|---|---|
+| **holds** here | holds in reality. Over-approximation is sound in this direction — the model admits every real behaviour and then some. |
+| **VIOLATED** here | *may* be spurious. Confirm against [`specs/StrandsGraph/`](../StrandsGraph), which models the batch loop, or against the SDK. |
+
+That is the ordinary price of an abstraction, not a defect — but it has to be stated, because a
+spurious counterexample is indistinguishable from a real one by looking at it.
+
 ## The three tiers of condition
 
 | tier | what it is | what is trusted |
@@ -649,6 +669,9 @@ The generated module is written into a **scratch directory**, never over the han
 
 Stated here rather than discovered later.
 
+- **Batching.** The executor runs a whole batch to completion before recomputing readiness. This
+  model does not, which is why it over-approximates — see above. [`specs/StrandsGraph/`](../StrandsGraph)
+  models the loop itself.
 - **Re-execution.** Strands admits a node once per satisfied incoming edge, so it can run more than
   once. `COMPLETED` is terminal in this model, so a second run is outside it. `TerminalIsFinal` is a
   property of *this model*, not a claim about the SDK.
