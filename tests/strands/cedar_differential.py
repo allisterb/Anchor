@@ -20,7 +20,7 @@ What is trusted by reading, and what is not:
                           disagreement exactly like a semantics error would.
   - the oracle            not trusted, measured. It is the real engine's answer.
 
-Requires cedarpy, which is pinned and hash-locked like everything else — see requirements/README.md.
+Requires cedarpy, which is pinned and hash-locked like everything else — see requirements/strands/README.md.
 A bare ``pip install cedarpy`` would bypass hash checking; recompile the lock instead.
 
     python tests/strands/cedar_differential.py
@@ -263,11 +263,13 @@ def main() -> int:
     except ImportError:
         print(
             "cedarpy is not installed, so there is no engine to compare against.\n"
-            "It is pinned in requirements/requirements.in. Recompile and install rather than\n"
+            "It is pinned in requirements/strands/requirements.in. Recompile and install rather\n"
             "reaching for a bare pip install, which would skip hash checking:\n"
-            "  python/Scripts/uv.exe pip compile requirements/requirements.in --universal \\\n"
-            "      --python-version 3.13 --generate-hashes -o requirements/requirements.txt\n"
-            "  requirements\\install.cmd",
+            "  than reaching for a bare pip install, which would skip hash checking:\n"
+            "  python/Scripts/uv.exe pip compile requirements/strands/requirements.in \\\n"
+            "      --universal --python-version 3.13 --generate-hashes \\\n"
+            "      -o requirements/strands/requirements.txt\n"
+            "  requirements\\strands\\install.cmd",
             file=sys.stderr,
         )
         return 2

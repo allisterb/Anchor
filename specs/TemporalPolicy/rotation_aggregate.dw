@@ -1,0 +1,34 @@
+// A per-session spend cap, in the shape AgentCore's own examples use.
+//
+// This is the policy `SessionRotation.tla` checks. It is real Dogwood text, translated into
+// TLA+ by the same parser that agrees with the reference implementation on 654 corpus cases,
+// so the model under test is not a paraphrase of this file -- it is this file.
+//
+// `tp(t)` is what makes the sum per-EVENT. Without it `a` would range over distinct amounts
+// and two trades of 200 would count once; `t` is unique to each matching event, so each
+// contributes separately.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+);
+
+// Total traded within the window may not exceed 3.
+//
+// The window is wide enough to cover any run this spec explores, so the finding is about
+// session SCOPE rather than about the metric bound expiring.
+forbid (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    exists (n: Long). ((sum a for (a: Long), (t: Timepoint). where (formerly within 1000s (Anchor::Action::"Trade"::request{ input.amount: a } && tp(t)))) == n && n > 3)
+};

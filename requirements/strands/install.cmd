@@ -7,7 +7,8 @@ setlocal
 
 rem %~dp0 is this script's own directory, so paths do not depend on the caller's working directory.
 set "SCRIPT_DIR=%~dp0"
-set "REPO_ROOT=%SCRIPT_DIR%.."
+rem Two levels up: this script lives in requirements/strands/, not requirements/.
+set "REPO_ROOT=%SCRIPT_DIR%..\.."
 rem pip reads its settings from the venv root, under a different name on each platform: pip.ini here,
 rem pip.conf on Linux and macOS. Same contents, so install.sh copies the same file to the other name.
 set "VENV_PIP=%REPO_ROOT%\python\Scripts\pip.exe"

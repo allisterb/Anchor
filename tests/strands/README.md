@@ -12,7 +12,7 @@ which is the case in CI — so the pin holds locally and not on GitHub.
 python tests/strands/shared_budget.py
 ```
 
-Needs the venv (`requirements/install.cmd`), and nothing else — the model is scripted, so there is
+Needs the venv (`requirements/strands/install.cmd`), and nothing else — the model is scripted, so there is
 no network call, no credentials, and no AWS.
 
 | | |
@@ -23,6 +23,7 @@ no network call, no credentials, and no AWS.
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
 | `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 654 pairs, one TLC run. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
 | `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
+| `dw_to_tla.py` | translates a `.dw` policy file into the TLA+ data a spec checks, so a policy is model-checked as written rather than as paraphrased. `--check` fails if the generated module has drifted. |
 
 ## Translating a workflow, rather than paraphrasing one
 

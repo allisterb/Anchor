@@ -10,7 +10,7 @@ using System.Diagnostics;
 /// assert the finding each one exists to pin, not merely that it exited zero.
 ///
 /// SKIPPED WHEN THE VENV IS ABSENT. The harnesses need the repo venv, which is installed by hand
-/// (requirements/install.cmd) and which CI does not set up. Skipping is visible in the run summary;
+/// (requirements/strands/install.cmd) and which CI does not set up. Skipping is visible in the run summary;
 /// a silent pass would be worse than not having the test.
 /// </summary>
 public class HarnessTests : TestsRuntime
@@ -118,6 +118,24 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// <c>RotationPolicies.tla</c> is generated from the <c>.dw</c> sources, so it can go stale.
+    /// This regenerates and compares.
+    /// </summary>
+    /// <remarks>
+    /// The generated module is checked in, which is what lets the spec tests run in CI without a
+    /// venv — but a checked-in generated file is a copy, and a copy drifts. A <c>.dw</c> edit that
+    /// was never carried through would leave <c>SessionRotation</c> quietly checking the previous
+    /// policy while its own source file says something else.
+    /// </remarks>
+    [PythonHarness("dw_to_tla.py")]
+    public async Task GeneratedRotationPoliciesAreUpToDate()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/dw_to_tla.py", "--check");
+        Assert.True(run.ExitCode == 0, run.Output);
+        Assert.Contains("up to date", run.Output);
+    }
+
+    /// <summary>
     /// The TLA+ model of Cedar against the real engine, over the whole finite request space.
     /// </summary>
     [PythonHarness("cedar_differential.py", "cedarpy")]
@@ -202,17 +220,17 @@ public static class PythonHarness
         }
         if (Interpreter is null)
         {
-            return "no venv at python/ — see requirements/install.cmd";
+            return "no venv at python/ — see requirements/strands/install.cmd";
         }
 
         var missing = modules.Where(m => !CanImport(m)).ToArray();
         return missing.Length == 0
             ? null
-            : $"venv is missing {string.Join(", ", missing)} — see requirements/install.cmd";
+            : $"venv is missing {string.Join(", ", missing)} — see requirements/strands/install.cmd";
     }
 
     /// <summary>Run a harness, from the repo root, the way it is run by hand.</summary>
-    public static async Task<(int ExitCode, string Output)> RunAsync(string script)
+    public static async Task<(int ExitCode, string Output)> RunAsync(string script, params string[] args)
     {
         var info = new ProcessStartInfo(Interpreter!)
         {
@@ -222,6 +240,10 @@ public static class PythonHarness
             RedirectStandardError = true
         };
         info.ArgumentList.Add(script);
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
 
         using var process = Process.Start(info)!;
 

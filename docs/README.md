@@ -15,7 +15,7 @@ rather than copying it:
 | [`../specs/DependencyDAG/README.md`](../specs/DependencyDAG/README.md) | **a TLA+ primer for readers new to the language**, and the full account of translating a Strands graph |
 | [`../specs/StrandsGraph/README.md`](../specs/StrandsGraph/README.md) | the executor as it actually runs, and where the two models disagree |
 | [`../tests/strands/README.md`](../tests/strands/README.md) | what was established against the real SDK |
-| [`../requirements/README.md`](../requirements/README.md) | the pinned, hash-locked Python dependencies |
+| [`../requirements/README.md`](../requirements/README.md) | how dependencies are pinned — Python wheels and the Rust lockfile |
 | [`../reference/README.md`](../reference/README.md) | the ledger: what third-party material has been ingested, on what terms, and its scan verdict |
 
 ## Verifying a Strands graph

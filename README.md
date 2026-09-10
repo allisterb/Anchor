@@ -28,7 +28,7 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 | **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
-Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 42 tests, all green.
+Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 43 tests, all green.
 
 **A live Strands `Graph` is translated into a model, rather than described by one.** `GraphBuilder`
 is a construction API, so the object *is* the workflow and the runtime executes that same object;
@@ -180,7 +180,7 @@ and explain how to record a hash rather than installing an unverified solver.
 | `tests/strands/` | the graph translator and the differential tests, run against the real SDK |
 | `specs/` | models of agent workflows, one directory per subject, all checked by the test suite |
 | `docs/` | framework documentation; `docs/agent/` holds internal working notes — handoffs and task writeups |
-| `requirements/` | Python dependencies, pinned and hash-locked |
+| `requirements/` | dependency pins: `strands/` for Python (hash-locked), `dogwood/` for the Rust lockfile |
 | `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |
 | `reference/` | third-party source read for reference, never built (gitignored) |
@@ -192,9 +192,9 @@ The Strands SDK is the target the Dafny workflows are translated to, and lives i
 
 It is installed with pip in hash-checking mode and wheels-only: an install either reproduces exactly
 the artifacts that were reviewed, or fails outright, and no sdist ever runs a `setup.py` on the
-machine. `requirements/install.cmd` and `requirements/install.sh` are the entry points — run by a
+machine. `requirements/strands/install.cmd` and `requirements/strands/install.sh` are the entry points — run by a
 person, deliberately; nothing in the build or any agent invokes them. See
-[requirements/README.md](requirements/README.md) for the procedure.
+[requirements/strands/README.md](requirements/strands/README.md) for the procedure.
 
 ## How verification is wired
 

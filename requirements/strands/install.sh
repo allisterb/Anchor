@@ -6,10 +6,11 @@
 set -euo pipefail
 
 # Resolve paths from the script's own location rather than the caller's working directory, so this
-# works whether it is run as ./install.sh from requirements/ or as requirements/install.sh from the
+# works whether it is run as ./install.sh from requirements/strands/ or as
 # repo root.
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(cd -- "${script_dir}/.." && pwd)
+# Two levels up: this script lives in requirements/strands/, not requirements/.
+repo_root=$(cd -- "${script_dir}/../.." && pwd)
 
 # A POSIX virtualenv puts executables in bin/; only Windows uses Scripts/. The venv is expected at
 # <repo>/python either way, so the same relative location works on both and only the leaf differs.

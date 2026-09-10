@@ -30,29 +30,33 @@
 (* Budget caps, rate limits and mutual-exclusion rules are all the second  *)
 (* shape. Approval gates are the first.                                    *)
 (*                                                                         *)
-(* THE DECISION IS NOT MODELLED HERE. It comes from DogwoodSemantics,      *)
-(* whose reading of `formerly`, `sum` and `tp` agrees with the reference   *)
-(* implementation on 654 recorded cases. An earlier version of this spec   *)
-(* hand-rolled its own `SumTrades`, which meant the headline finding rested*)
-(* on an aggregate nothing had checked. The policies below are written as  *)
-(* Dogwood policy DATA and handed to that evaluator, so the only thing     *)
-(* this module still asserts on its own is the adversary.                  *)
+(* NEITHER THE DECISION NOR THE POLICY IS WRITTEN HERE.                    *)
+(*                                                                         *)
+(* The decision comes from DogwoodSemantics, whose reading of `formerly`,  *)
+(* `sum` and `tp` agrees with the reference implementation on 654 recorded *)
+(* cases. The policy comes from rotation_aggregate.dw and                  *)
+(* rotation_approval.dw -- real Dogwood text, translated by the same       *)
+(* parser, into RotationPolicies.tla.                                      *)
+(*                                                                         *)
+(* Two earlier versions of this spec each hand-wrote one of those halves,  *)
+(* and each time the headline finding rested on something unchecked: first *)
+(* a hand-rolled `SumTrades`, then hand-written policy records that no one *)
+(* had compared against the Dogwood text in their own comment. The only    *)
+(* thing this module still asserts on its own is the adversary.            *)
 (*                                                                         *)
 (* THE CONTROL MATTERS. `NoRotation_CapHolds.cfg` runs the same policy and *)
 (* the same adversary with rotation disabled, and the cap holds. Without   *)
 (* that config the violation would not be attributable to rotation.        *)
 (***************************************************************************)
-EXTENDS Integers, Sequences, FiniteSets, TLC
+EXTENDS Integers, Sequences, FiniteSets, TLC, RotationPolicies
 
 CONSTANTS
-    Limit,          \* the total the policy author means to allow
     MaxAmount,      \* the largest single trade
     MaxSteps,       \* bound on the run
     Gate,           \* "aggregate" (forbid on a sum) or "approval" (permit on a prior event)
     MayRotate       \* whether the caller may start a fresh session
 
 ASSUME RotationAssumption ==
-    /\ Limit \in Nat /\ Limit > 0
     /\ MaxAmount \in Nat /\ MaxAmount > 0
     /\ MaxSteps \in Nat /\ MaxSteps > 0
     /\ Gate \in {"aggregate", "approval"}
@@ -65,72 +69,17 @@ Amounts == 1..MaxAmount
 D == INSTANCE DogwoodSemantics WITH Cases <- << >>
 
 (***************************************************************************)
-(* THE POLICY SET, as Dogwood policy data                                  *)
-(*                                                                         *)
-(* aggregate:                                                              *)
-(*   permit (principal, action == "Trade", resource);                      *)
-(*   forbid (principal, action == "Trade", resource)                       *)
-(*   when temporal {                                                       *)
-(*     exists (n: Long).                                                   *)
-(*       ((sum a for (a: Long), (t: Timepoint).                            *)
-(*           where (formerly within W (Trade::request{input.amount: a}     *)
-(*                                     && tp(t)))) == n && n > Limit)      *)
-(*   };                                                                    *)
-(*                                                                         *)
-(* approval:                                                               *)
-(*   permit (principal, action == "Trade", resource)                       *)
-(*   when temporal { formerly within W Approve::request{} };               *)
-(*                                                                         *)
-(* The `tp(t)` binder is what makes the sum per-EVENT: t is unique to each *)
-(* matching event, so two trades of the same amount contribute twice.      *)
-(* Without it the sum would range over distinct amounts.                   *)
+(* The policy set, generated from the .dw sources. `Cap` is the bound the  *)
+(* aggregate policy states, lifted out of the same text so the property    *)
+(* and the rule cannot disagree about what the cap is.                     *)
 (***************************************************************************)
+Policies == IF Gate = "aggregate" THEN AggregatePolicies ELSE ApprovalPolicies
+
 Str(x) == [k |-> "s", v |-> x]
 Num(x) == [k |-> "n", v |-> x]
 
 EmptyRec == [f \in {} |-> Str("")]
 Anon == Str("caller")
-
-\* A window wide enough to cover any run of this length, so the finding is about
-\* session scope rather than about the metric bound.
-Window == 1000
-
-DummyPred == [action |-> "", kind |-> "", binds |-> << >>]
-DummyAtom == [op |-> "pred", pred |-> DummyPred, var |-> "", args |-> << >>]
-DummyTerm == [op |-> "formerly", window |-> 0, atom |-> DummyAtom,
-              left |-> DummyAtom, leftNeg |-> FALSE]
-
-PredAtom(a, k, bs) == [op |-> "pred", pred |-> [action |-> a, kind |-> k, binds |-> bs],
-                       var |-> "", args |-> << >>]
-TpAtom(v)          == [op |-> "tp", pred |-> DummyPred, var |-> v, args |-> << >>]
-AndAtom(xs)        == [op |-> "and", pred |-> DummyPred, var |-> "", args |-> xs]
-
-Formerly(atom)     == [op |-> "term", args |-> << >>,
-                       term |-> [op |-> "formerly", window |-> Window, atom |-> atom,
-                                 left |-> atom, leftNeg |-> FALSE]]
-TrueCond           == [op |-> "true", args |-> << >>, term |-> DummyTerm]
-
-\* input.amount: a   -- a bind to a variable the aggregation binds
-AmountVar == [side |-> "input", field |-> "amount", kind |-> "var", name |-> "a",
-              value |-> Str("")]
-
-SumOverTrades ==
-    [op |-> "agg", args |-> << >>, term |-> DummyTerm,
-     agg |-> [kind |-> "sum", over |-> "a",
-              binders |-> <<[name |-> "a", type |-> "Long"],
-                            [name |-> "t", type |-> "Timepoint"]>>,
-              cond |-> Formerly(AndAtom(<<PredAtom("Trade", "request", <<AmountVar>>),
-                                          TpAtom("t")>>))],
-     cmp |-> ">", value |-> Limit]
-
-Policies ==
-    IF Gate = "aggregate"
-    THEN << [effect |-> "permit", action |-> "Trade",   cond |-> TrueCond],
-            [effect |-> "permit", action |-> "Approve", cond |-> TrueCond],
-            [effect |-> "forbid", action |-> "Trade",   cond |-> SumOverTrades] >>
-    ELSE << [effect |-> "permit", action |-> "Approve", cond |-> TrueCond],
-            [effect |-> "permit", action |-> "Trade",
-             cond |-> Formerly(PredAtom("Approve", "request", << >>))] >>
 
 \* The domain a bound variable of non-Timepoint type ranges over.
 Values == {Num(x) : x \in Amounts}
@@ -215,9 +164,9 @@ Spec == Init /\ [][Next]_vars
 (* the point is that rotation defeats one and not the other.               *)
 (***************************************************************************)
 
-\* What the author of the aggregate policy meant: never more than Limit in total.
+\* What the author of the aggregate policy meant: never more than Cap in total.
 \* The engine only ever enforces it per session.
-GlobalCapHolds == traded <= Limit
+GlobalCapHolds == traded <= Cap
 
 \* What the author of the approval policy meant: no trade without an approval.
 \* Rotation cannot manufacture one -- an empty trajectory denies.

@@ -216,11 +216,36 @@ subset and are refused rather than approximated, because a translator that quiet
 construct yields a disagreement it cannot attribute. What remains is mostly macro calls and
 parameter sigils, schema pins, and a handful of `Long` values outside TLC's integer range.
 
-**`SessionRotation` uses this evaluator.** It used to hand-roll its own `SumTrades`, which meant
-the headline finding rested on an aggregate nothing had checked. Its policies are now written as
-Dogwood policy *data* and handed to `DogwoodSemantics!Decide`, so the aggregate enforcing the cap is
-the one that agrees with the reference implementation on 654 cases. The only thing that spec still
-asserts on its own is the adversary.
+**`SessionRotation` checks a real Dogwood policy, end to end.** Neither the decision nor the
+policy is written in that spec any more:
+
+```
+rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
+                                                           ├──> TLC checks the properties
+                             SessionRotation.tla ──────────┘
+```
+
+The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
+[`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
+reading agrees with the reference implementation on 654 corpus cases, and evaluated by the same
+`DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
+and the rule cannot disagree about what the limit is.
+
+Two earlier versions each hand-wrote one half of this and each time the finding rested on something
+unchecked: first a hand-rolled `SumTrades`, then policy records nobody had compared against the
+Dogwood text in their own comment. The only thing the spec still asserts on its own is the
+adversary.
+
+**The wiring is live, demonstrated by editing the policy text rather than the model:**
+
+| `.dw` edit | `Cap` | rotation | control |
+|---|---|---|---|
+| baseline | 3 | VIOLATED | HOLDS |
+| `n > 3` becomes `n > 100` | **100** | **HOLDS** | HOLDS |
+| `forbid` becomes `permit` | 3 | VIOLATED | **VIOLATED** |
+
+`RotationPolicies.tla` is generated and checked in — which is what lets the spec tests run in CI
+without a venv — so `dw_to_tla.py --check` regenerates and compares, and the suite fails on drift.
 
 ### What it caught on the first run
 
@@ -301,10 +326,10 @@ makes the cap bite at the right point rather than one trade late.
 
 ### What this does not establish
 
-- **The engine is shared, but the policy encoding is ours.** The decision comes from
-  `DogwoodSemantics`, which agrees with the reference implementation on 654 recorded cases. What is
-  still unchecked is the translation *into* it: that this hand-written policy data says what the
-  Dogwood text in the comment says. Nothing compares the two.
+- **The policy is real Dogwood, but the *trace* is ours.** Events are synthesised by this spec in
+  the shape `DogwoodSemantics` expects; nothing checks that AgentCore records a session the same
+  way. The corpus validates the evaluator against recorded traces, not our construction of new
+  ones.
 - **Bounded.** Six steps, a cap of 3, trades of 1–2. Enough to exhibit the attack, not a claim about
   larger configurations.
 - **Rotation is modelled as free.** In reality a caller must be able to set the header, and a

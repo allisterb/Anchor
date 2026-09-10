@@ -1,112 +1,66 @@
-# Python dependencies
+# Dependency pins
 
-Anchor's Dafny workflows are translated to Python against the Strands SDK, which lives in a venv at
-`python/` — separate from the .NET build, and installed by hand rather than by the build scripts.
-
-Everything here exists so that an install either reproduces exactly the artifacts that were
-reviewed, or fails outright.
+One directory per toolchain. Both follow the same rule, which is the one that matters: **pin exact
+versions, verify them by hash, and fail rather than silently re-resolve.**
 
 | | |
 |---|---|
-| `requirements.in` | what we actually want. **Edit this.** |
-| `requirements.txt` | the compiled lock: every package, transitive ones included, pinned exactly and carrying the sha256 of each acceptable artifact. **Generated — never hand-edited.** |
-| `pip.ini` | pip settings, copied into the venv root on every install |
-| `check_python.py` | refuses a venv older than the lock was resolved for |
-| `install.cmd` / `install.sh` | the installers. Run by a person, deliberately — nothing in the build or any agent invokes them |
+| [`strands/`](strands) | Python. `requirements.in` → compiled lock with hashes → installed by hand. Has [its own README](strands/README.md) for the procedure. |
+| `dogwood/` | `Cargo.lock` for the Dogwood policy language, kept here rather than in the tree it describes. |
 
-These live here rather than in `python/`, because the venv carries a venv-generated `.gitignore`
-containing `*`: anything placed inside it is invisible to git.
+Nothing in the build or in any agent installs either of these. They are run by a person,
+deliberately.
 
-## First-time setup
+## Why the Cargo.lock lives here
 
-```bash
-py -3.13 -m venv python
-```
+`reference/` is gitignored, so a lockfile generated in place would evaporate on a fresh clone and
+would pin nobody else's build. Keeping the copy here is the same move `build.sh` makes for z3 and
+tla2tools: the version and hash live in a **tracked** file, while the artifacts they describe do
+not.
 
-Then install `uv`, which compiles the lock. This is the one unpinned install, and it is deliberate:
-the tool that generates hashes cannot itself be hash-pinned until it has run once. That is also why
-`require-hashes` is set on the install *command* rather than in `pip.ini` — putting it in the config
-would quietly exempt this step instead of making it visible.
+Build against it with `--locked`, so a resolution drift fails instead of proceeding:
 
 ```bash
-python/Scripts/pip install uv
+cargo build --locked          # or --frozen, which adds --offline
 ```
 
-## Compiling the lock
+## What the Rust lock actually pins
 
-```bash
-python/Scripts/uv.exe pip compile requirements/requirements.in --universal --python-version 3.13 --generate-hashes -o requirements/requirements.txt
+Cargo's lockfile is a hash lock, and unlike pip's the verification is **always on** — there is no
+`--require-hashes` equivalent to forget:
+
+```toml
+name = "serde"
+version = "1.0.228"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 ```
 
-`--universal` keeps the environment markers, so the lock installs on Linux and macOS too; without
-it, the lock only works on the platform it was compiled on. `--python-version 3.13` records the
-floor in the header — which is where `check_python.py` reads it from, so the version is stated once
-rather than duplicated into a script that could drift from it.
+For Dogwood that is **271 packages, 268 from crates.io, every one checksummed, none from git** — so
+a later build gets byte-identical crates or fails.
 
-## Installing
+## Audit status
 
-```bash
-requirements\install.cmd
+`cargo audit` against this lock, and an independent OSV query at the same pinned versions, agree:
+
+```
+Crate:     smartstring
+Version:   1.0.1
+Warning:   unmaintained
+ID:        RUSTSEC-2026-0249      (published 2026-05-03)
+
+warning: 1 allowed warning found
 ```
 
-```bash
-./requirements/install.sh
-```
+**No vulnerabilities.** The one hit is RustSec's *informational* `unmaintained` category — no CVE, no
+severity, no fix — on a crate pulled in by `rhai`, the scripting engine Dogwood uses for information
+providers. Its suggested replacements are `compact_str` and `smol_str`, and Dogwood already depends
+on `smol_str` directly, so a future rhai migration costs nothing here.
 
-Both check the venv exists, check the lock exists, check the interpreter is new enough, copy
-`pip.ini` into the venv, and then install with `--require-hashes --only-binary=:all:`.
+Two things that scan cannot tell you, worth remembering when re-reading this:
 
-The `pip.ini` copy happens on **every** install, not once by hand, because `python -m venv` rewrites
-that directory on every rebuild — a copy made once is silently destroyed by the next rebuild, taking
-the wheels-only and single-index defaults with it. Both flags are also passed explicitly on the
-command line even though the copied config sets `only-binary`, because the copy is one `del` away
-from being gone.
-
-## What the settings buy
-
-- **`--require-hashes`** — every package, transitive ones included, must match a recorded digest.
-  pip demands that everything is pinned with `==` and that nothing unlisted can be pulled in. If any
-  artifact fails, pip installs **nothing**; it does not partially apply.
-- **`--only-binary=:all:`** — no source distributions. An sdist runs its `setup.py` during
-  installation, which is arbitrary code execution on this machine before anything has been reviewed.
-  A package shipping no wheel fails loudly instead of building.
-- **one index, named explicitly** — dependency confusion needs two sources pip might resolve across.
-  Never add `extra-index-url`.
-- **`require-virtualenv`** — never installs into the system interpreter by accident.
-
-### Note: the bootstrap is not hash-pinned
-
-After a first install the venv contains the lock **plus `pip` and `uv`**, neither of which is
-hash-verified. That is the exemption `pip.ini` describes, and it is deliberate — the tool that
-generates hashes cannot be hash-pinned before it has run once — but it means the environment is not
-purely the lock, and `pip list` will show two packages that no lock file accounts for.
-
-It is closable: a small `bootstrap.txt` pinning `pip` and `uv` with hashes, installed with
-`--require-hashes`, makes the tools exempt only for the very first install rather than for every one
-after it. The same argument applies to `pip install --upgrade pip`, which is otherwise another
-unpinned install into this venv.
-
-**Not done here, deliberately**, so that this procedure stays identical to the one it was taken from.
-If that project adopts a bootstrap lock, adopt it here too rather than diverging first.
-
-## Upgrading
-
-Change the version in `requirements.in`, recompile, and **read the diff** before installing. That
-review is the step the whole arrangement exists to make possible: anything appearing under a `# via`
-you did not expect deserves attention, and a package arriving that you thought you had excluded is
-exactly what the diff is for.
-
-Expect churn. `strands-agents` depends on `boto3` and `botocore`, which publish most weekdays, so
-they will dominate every recompile. That is the cost of pinning, not a sign of a problem.
-
-## What this does not do
-
-Hash pinning is **trust on first use**. The hashes record what the index served at the first
-compile; they do not independently establish that those artifacts are what their authors intended.
-What they give you is immutability from then on — no silent substitution, no dependency-confusion
-swap, no upgrade nobody reviewed.
-
-So the review that matters is the first compile and each upgrade diff. After that the guarantee is
-mechanical. `requirements.in` names each dependency alongside its project page for exactly this
-reason: the name is checked against the real repository before the first install, because a wrong
-name is a live typosquat risk that no amount of hashing detects.
+- **It only finds what has been reported.** A supply-chain compromise is normally discovered after
+  the fact, and the database is silent until then. What protects a build here is the pinning itself,
+  not the audit.
+- **It ages.** Re-run it rather than treating this section as a clearance; the advisory above was
+  three weeks old when it was recorded.

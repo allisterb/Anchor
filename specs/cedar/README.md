@@ -7,8 +7,8 @@ python tests/strands/cedar_differential.py
 ```
 
 Needs `cedarpy`, which is pinned and hash-locked like every other Python dependency. It is already
-in `requirements/requirements.in`; recompile the lock and install, rather than reaching for a bare
-`pip install` that would skip hash checking. See [requirements/README.md](../../requirements/README.md).
+in `requirements/strands/requirements.in`; recompile the lock and install, rather than reaching for a bare
+`pip install` that would skip hash checking. See [requirements/strands/README.md](../../requirements/strands/README.md).
 
 ## Why this exists
 

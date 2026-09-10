@@ -1,0 +1,23 @@
+// An approval gate, for comparison with rotation_aggregate.dw.
+//
+// The same adversary is run against both. This one survives session rotation and the cap does
+// not, and the reason is the shape: a PERMIT gated on a prior event does not fire on an empty
+// trajectory, so rotation costs the caller the capability instead of resetting an allowance.
+
+permit (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+);
+
+// A trade needs an approval earlier in the same session. Nothing here bounds volume -- an
+// approval gate is an authorization control, not a spend cap, which is exactly why the two
+// fail in opposite directions.
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Approve"::request{ }
+};
