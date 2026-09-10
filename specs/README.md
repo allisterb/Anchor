@@ -17,7 +17,7 @@ translated into a model.
 | [`DependencyDAG/`](DependencyDAG/README.md) | several tasks in outline: HP10 from the same paper's Table 1. The target of the Strands graph translator. |
 | [`StrandsGraph/`](StrandsGraph/README.md) | the Strands executor **as it actually runs** — batch, await, recompute readiness, fail fast, stop. Catches a workflow that reports success having skipped a node. |
 | [`cedar/`](cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
-| [`TemporalPolicy/`](TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set. |
+| [`TemporalPolicy/`](TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set, and a gate that opens on refused attempts. Its semantics are differential-tested against Dogwood's own corpus. |
 
 Each directory pairs a spec that verifies with variants that carry one deliberate mistake each. The
 variants are the load-bearing half: a verifier that only ever reports success proves nothing, so
@@ -53,6 +53,24 @@ these pin down that a specific mistake is caught and which property catches it.
 | `Bug5_NoFailurePropagation.tla` | the same without orphan cancellation. HP10 **still holds**; the graph never finishes. |
 | `Workflow.tla` | the graph itself, separated out so it can be replaced by a generated one. |
 | `anchor_conditions.py` | Strands edge conditions that carry their own TLA+ meaning. |
+
+| `StrandsGraph/` | |
+|---|---|
+| `StrandsGraph.tla` | the executor loop: batch, await, recompute readiness, fail fast, stop. Verifies on the guarded workflow. |
+| `Workflow.tla` | the graph, shared in form with `DependencyDAG` and generated the same way. |
+
+The workflow-shaped counterexamples live in `tests/strands/graph_to_tla.py`, which checks one graph
+against **both** models and prints what the SDK actually did beside them. They disagree in both
+directions, and neither is a refinement of the other.
+
+| `TemporalPolicy/` | |
+|---|---|
+| `TemporalPolicy.tla` | the session model. Checks `NeverFires`, and **means it to fail** — a violation is the witness, silence means the permit is vacuous. |
+| `DogwoodSemantics.tla` | our reading of `formerly within`, differential-tested against Dogwood's own corpus. |
+| `Policies.tla` | the schema and policy set, swappable like `Workflow.tla`. |
+| `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
+| `Vacuous_ForbiddenApproval.cfg` | approvals forbidden. **Vacuous** — a permit killed by an unrelated rule. |
+| `RequestGated_SurvivesForbid.cfg` | same forbid, gate on `::request`. Satisfiable, **and that is the bad news**. |
 
 ## BoundedRetry
 

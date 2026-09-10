@@ -47,6 +47,13 @@ those to fail. A verifier that only ever reports success proves nothing. [`specs
 holds the case where the two tools stop overlapping: a race on a shared budget that TLC finds and no
 Dafny loop invariant can express.
 
+**Authorization policies are checked too, and this is where it generalises.** A policy constrains
+what an agent *does* even when nothing constrains what it decides, so it applies to every
+coordination pattern rather than one. [`specs/TemporalPolicy`](specs/TemporalPolicy) asks whether a
+session-aware permit can ever grant anything — AWS notes that temporal policies "do not currently
+support the powerful automated reasoning analysis tools that Cedar provides" — and its reading of
+those semantics is held against the reference implementation's own corpus, 204 recorded cases.
+
 ## Which part of Strands this applies to
 
 Strands is model-driven: *"modern models are sophisticated enough to be their own orchestrators."*
@@ -62,6 +69,7 @@ implying:
 | **A single model-driven agent** | budget bounds and termination under a model free to fail forever. [`specs/BoundedRetry`](specs/BoundedRetry) |
 | **Swarms / agents-as-tools** | concurrent agents sharing one budget. [`specs/SharedBudget`](specs/SharedBudget). Handoffs and shared context are **not** modelled |
 | **Any agent that calls tools** | authorization decisions, differential-tested against the real Cedar engine. [`specs/cedar`](specs/cedar) |
+| **Agents deployed behind AgentCore Gateway** | session-aware (Dogwood) policies: whether a permit can ever grant anything, and whether a gate means what it reads like. [`specs/TemporalPolicy`](specs/TemporalPolicy) |
 | **Meta agents** | nothing |
 
 The niche is narrow, and deliberately so: verification pays where determinism is already demanded,

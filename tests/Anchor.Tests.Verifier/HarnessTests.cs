@@ -82,6 +82,41 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Our TLA+ reading of Dogwood's <c>formerly within</c> against the reference implementation's
+    /// own temporal regression corpus — policies and traces paired with the verdicts their engine
+    /// actually produced.
+    /// </summary>
+    /// <remarks>
+    /// This closes the largest caveat on <c>specs/TemporalPolicy</c>: that it modelled the
+    /// documented rules with nothing checking the reading was right. Nothing is built or run from
+    /// the Dogwood tree — the expected outputs are recorded, so the corpus is usable as data, and
+    /// this stays inside the suite's no-network property.
+    /// <para>
+    /// The refusal count matters as much as the agreement count. A translator that quietly
+    /// mishandles a construct produces a disagreement it cannot attribute, so anything outside the
+    /// modelled subset is refused. It already caught one: a case whose <c>event.dwschema</c> pins
+    /// <c>callerPrincipal</c> into every predicate, making the policy mean something its own text
+    /// never says.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("dogwood_differential.py")]
+    public async Task DogwoodSemanticsAgreeWithTheReferenceCorpus()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/dogwood_differential.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("agrees with Dogwood on all", run.Output);
+        Assert.DoesNotContain("DISAGREEMENT", run.Output);
+
+        // Enough cases to be worth something. If the subset silently narrowed — a parser change
+        // refusing more than it did — this notices rather than reporting a hollow success.
+        var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) \(trace");
+        Assert.True(m.Success, run.Output);
+        Assert.True(int.Parse(m.Groups[1].Value) >= 200,
+                    $"only {m.Groups[1].Value} pairs checked\n{run.Output}");
+    }
+
+    /// <summary>
     /// The TLA+ model of Cedar against the real engine, over the whole finite request space.
     /// </summary>
     [PythonHarness("cedar_differential.py", "cedarpy")]

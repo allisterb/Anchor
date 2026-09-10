@@ -4,7 +4,7 @@ Implementations against the real SDK, for learning its surface. Nothing here is 
 spec — that is the point of the word *informal*. The verified artefacts live in
 [`specs/`](../../specs).
 
-**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all four as part of
+**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all five as part of
 the suite, each asserting the finding it exists to pin. They **skip** when the repo venv is absent,
 which is the case in CI — so the pin holds locally and not on GitHub.
 
@@ -21,6 +21,7 @@ no network call, no credentials, and no AWS.
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/DependencyDAG/`](../../specs/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/cedar/`](../../specs/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
+| `dogwood_differential.py` | our TLA+ reading of Dogwood's `formerly within` against that language's own regression corpus. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
 
 ## Translating a workflow, rather than paraphrasing one
 

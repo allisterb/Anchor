@@ -9,6 +9,7 @@ deploys, and the capability it exists to allow is simply gone.
 | file | what it is |
 |---|---|
 | `TemporalPolicy.tla` | the session model and the decision engine |
+| `DogwoodSemantics.tla` | our reading of `formerly within`, checked against the reference corpus |
 | `Policies.tla` | the policy set — swappable, like `Workflow.tla` under [`DependencyDAG`](../DependencyDAG) |
 | `TemporalPolicy.cfg` | approvals permitted; the sell permit gated on `::response`. **Satisfiable** |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden, same permit. **Vacuous** |
@@ -136,10 +137,10 @@ stance every other spec here takes.
   traces. The rule is documented in the AgentCore devguide and the finding follows from it, but no
   executable artifact in the reference implementation demonstrates it. Stated as a limit on
   confidence, not as a criticism of their testing.
-- **No differential test yet.** A disagreement with the real evaluator would not show up here. The
-  corpus is the accessible oracle — each case pairs policies and a trace with recorded expected
-  verdicts, and **455 `(trace, expected)` pairs** fall inside the `formerly`-only subset this spec
-  already models, needing no Rust build. That has **not** been done.
+- **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
+  here now agrees with the reference implementation on **204 recorded pairs** — see below. What is
+  still unchecked is everything this spec adds on top: the session model, the request/response
+  recording convention, and `Granted`.
 - **Bounded sessions.** `MaxAttempts = 3`, each attempt being two events. "Vacuous" here means *no
   session of up to three attempts fires it*. A permit needing a longer setup would be reported vacuous when it is merely deep. Raise
   the bound to trade runtime for confidence; this is the ordinary bounded-model-checking caveat and
@@ -149,3 +150,50 @@ stance every other spec here takes.
   config here exercises it.
 - **Nothing about the rest of the policy.** Time-based conditions, `count`/`sum` aggregations,
   `since within`, entity tags and multi-hop session propagation are all unmodelled.
+
+
+## Checked against the reference implementation
+
+The largest caveat on this spec used to be that it modelled the *documented* rules with nothing
+confirming the reading. Dogwood's own repository closes it: its temporal regression corpus is 521
+cases, each pairing a policy set and an event trace with **the verdicts their engine produced**.
+
+```bash
+python tests/strands/dogwood_differential.py
+```
+
+```
+checked   204 (trace, expected) pairs from 96 cases, in one TLC run
+  AGREE
+```
+
+Nothing is built or run from the Dogwood tree — the expected outputs are recorded, so the corpus is
+data. That keeps this inside the same no-network, no-credentials property as the rest of the suite.
+
+**The refusal count matters as much as the agreement count.** 425 cases are outside the modelled
+subset and are refused rather than approximated, because a translator that quietly mishandles a
+construct yields a disagreement it cannot attribute. The largest groups are policies with no
+`formerly` term, terms this parser does not recognise, and multi-term policies.
+
+### What it caught on the first run
+
+Two disagreements, and both were ours.
+
+A case whose `event.dwschema` declares:
+
+```
+pin callerPrincipal: principalType(A) = principal
+```
+
+The schema comment says what that does: *"The policy never writes `callerPrincipal`; the pin injects
+it, so the correlation cannot be bypassed by a directly-written predicate."*
+
+In that case's second trace, **bob logs in claiming to be alice**, then alice reads. The written
+condition matches — `input.user` correlates alice to alice — and Dogwood denies anyway, because the
+pin requires the login's `callerPrincipal` to equal the reader's `principal`.
+
+**A policy's meaning is not determined by its own text.** Reading the `.dw` and ignoring the schema
+is exactly the silent mishandling this harness exists to prevent, so schema-bearing cases are now
+refused. Modelling pins would be a real extension, and it is not done.
+
+The harness is mutation-checked: removing the metric bound from `TermHolds` turns the run red.
