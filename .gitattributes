@@ -1,0 +1,10 @@
+# Shell scripts must reach a Linux runner with LF endings and the executable bit set.
+#
+# CRLF is the failure that looks like nothing: bash reads the trailing CR as part of the
+# interpreter path and reports "/bin/bash^M: bad interpreter: No such file or directory", which
+# names a file that plainly exists. Committing from Windows with core.autocrlf=true is enough to
+# introduce it, so it is pinned here rather than left to each clone's config.
+#
+# The executable bit is tracked separately, in the index rather than here:
+#   git update-index --chmod=+x <script>
+*.sh text eol=lf
