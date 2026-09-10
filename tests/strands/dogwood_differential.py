@@ -23,10 +23,20 @@ What is trusted by reading, and what is not:
                            a semantics error would.
   - the expected outputs   not trusted, measured. They are Dogwood's own answers.
 
-THE SUBSET. `formerly within` only, one term per policy, binds of the form `input.F`/`output.F`
-against `context.input.G` or a literal. Anything else is REFUSED rather than guessed at, because a
-translator that quietly mishandles a construct produces a disagreement it cannot attribute. The run
-reports how many cases were refused and why.
+THE SUBSET. `formerly within`, `previous within` and `since within`, combined with `&&` and `!`,
+under `when temporal` or `unless temporal`. Binds may join a past event's field to the request's
+input, to a scope entity, to a literal, or to `_`. The grammar is parsed by recursive descent in
+`dogwood_parse.py`, not by regex — it nests.
+
+Anything else is REFUSED rather than guessed at, because a translator that quietly mishandles a
+construct produces a disagreement it cannot attribute. The run reports how many cases were refused
+and why. The largest refusal by far is `count`/`sum`, which are quantified aggregations with
+variable binders, `exists` and `tp()` markers: a sub-language big enough that approximating it
+would be guessing.
+
+`since` and `previous` are written as standard past-time MFOTL because **their semantics are not
+documented anywhere we could find**. That reading is checked here against 66 and 29 corpus cases
+respectively, which is the only reason to believe it.
 
     python tests/strands/dogwood_differential.py
 """
@@ -40,6 +50,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "TemporalPolicy"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
@@ -51,92 +63,16 @@ CORPUS = (REPO / "reference" / "projects" / "dogwood-main" / "dogwood-language"
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
-class Unsupported(Exception):
-    """The case uses a construct outside the modelled subset."""
-
-
-# ------------------------------------------------------------------------------------------------
-# Policies:  policy_*.dw -> TLA+ policy data
-# ------------------------------------------------------------------------------------------------
-def strip_comments(text: str) -> str:
-    return re.sub(r"//[^\n]*", "", text)
-
-
-def parse_duration(tok: str) -> int:
-    m = re.fullmatch(r"(\d+)([smhd])", tok)
-    if not m:
-        raise Unsupported(f"duration {tok!r}")
-    return int(m.group(1)) * UNITS[m.group(2)]
-
-
-def parse_bind(text: str) -> dict:
-    """`input.user: context.input.approver`, `output.approved: true`, `input.x: "lit"`."""
-    lhs, _, rhs = (p.strip() for p in text.partition(":"))
-
-    m = re.fullmatch(r"(input|output)\.(\w+)", lhs)
-    if not m:
-        # callerPrincipal / callerResource compare against the request scope entities, which this
-        # subset does not carry.
-        raise Unsupported(f"bind target {lhs!r}")
-    side, field = m.group(1), m.group(2)
-
-    if m2 := re.fullmatch(r"context\.input\.(\w+)", rhs):
-        return {"side": side, "field": field, "kind": "ctx", "name": m2.group(1), "value": ""}
-    if rhs in ("true", "false"):
-        return {"side": side, "field": field, "kind": "lit", "name": "", "value": rhs == "true"}
-    if m3 := re.fullmatch(r'"([^"]*)"', rhs):
-        return {"side": side, "field": field, "kind": "lit", "name": "", "value": m3.group(1)}
-    # `_` is a wildcard and a bare identifier is a pattern variable bound across terms; neither is
-    # a simple equality, so neither is modelled.
-    raise Unsupported(f"bind value {rhs!r}")
-
-
-def parse_policies(text: str) -> list[dict]:
-    policies = []
-    for m in re.finditer(r"(permit|forbid)\s*\((.*?)\)\s*(.*?);", strip_comments(text), re.S):
-        effect, scope, body = m.group(1), " ".join(m.group(2).split()), " ".join(m.group(3).split())
-
-        sm = re.fullmatch(r'principal,\s*action == \w+::Action::"([^"]+)",\s*resource', scope)
-        if not sm:
-            # A bare `action`, or a constrained `resource`, changes what the policy applies to.
-            raise Unsupported(f"scope {scope!r}")
-        action = sm.group(1)
-
-        if not body:
-            policies.append({"effect": effect, "action": action, "terms": []})
-            continue
-
-        bm = re.fullmatch(r"when temporal \{(.*)\}", body)
-        if not bm:
-            raise Unsupported(f"body {body[:48]!r}")
-        inner = bm.group(1).strip()
-
-        if inner.count("formerly") != 1:
-            raise Unsupported(f"{inner.count('formerly')} formerly terms in one policy")
-
-        tm = re.fullmatch(
-            r'formerly within (\S+) \w+::Action::"([^"]+)"::(\w+)\s*\{(.*)\}', inner)
-        if not tm:
-            raise Unsupported(f"term {inner[:48]!r}")
-
-        binds = [parse_bind(b) for b in split_binds(tm.group(4)) if b.strip()]
-        policies.append({
-            "effect": effect, "action": action,
-            "terms": [{"action": tm.group(2), "kind": tm.group(3),
-                       "window": parse_duration(tm.group(1)), "binds": binds}],
-        })
-    if not policies:
-        raise Unsupported("no policies parsed")
-    return policies
+from dogwood_parse import Unsupported, parse_policies  # noqa: E402
 
 
 def split_binds(text: str) -> list[str]:
     """Split on commas that are not inside quotes."""
-    out, depth, cur = [], 0, ""
+    out, quoted, cur = [], False, ""
     for ch in text:
         if ch == '"':
-            depth ^= 1
-        if ch == "," and not depth:
+            quoted = not quoted
+        if ch == "," and not quoted:
             out.append(cur)
             cur = ""
         else:
@@ -208,12 +144,18 @@ def parse_trace(text: str) -> list[dict]:
             m = re.search(r"\b" + name + r":\s*\{", rest)
             return parse_fields(braced(rest, m.end() - 1)[0]) if m else {}
 
+        # `scope(principal: NS::Type::"id", resource: NS::Type::"id")` -- needed by
+        # `callerPrincipal: principal` binds, which compare a past event's caller against
+        # the deciding request's scope.
+        sc = re.search(r'scope\(principal:\s*([^,]+),\s*resource:\s*([^)]+)\)', line)
         events.append({
             "time": int(tm.group(1)),
             "action": am.group(2),
             "kind": am.group(3),
             "input": section("input"),
             "output": section("output"),
+            "principal": sc.group(1).strip() if sc else "",
+            "resource": sc.group(2).strip() if sc else "",
             "decision": "request_context(" in line,
         })
     return events
@@ -237,7 +179,10 @@ def tla_value(v) -> str:
         return "TRUE" if v else "FALSE"
     if isinstance(v, int):
         return str(v)
-    return f'"{v}"'
+    # Entity references carry their own quotes — `Drupe::OAuthUser::"alice"` — so a naive
+    # f'"{v}"' closes the TLA+ literal early and the module stops parsing.
+    escaped = str(v).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def tla_record(fields: dict) -> str:
@@ -246,25 +191,41 @@ def tla_record(fields: dict) -> str:
     return "[" + ", ".join(f"{k} |-> {tla_value(v)}" for k, v in sorted(fields.items())) + "]"
 
 
+def tla_pred(pd: dict) -> str:
+    def bind(b):
+        return (f'[side |-> "{b["side"]}", field |-> "{b["field"]}", kind |-> "{b["kind"]}", '
+                f'name |-> "{b["name"]}", value |-> {tla_value(b["value"])}]')
+    return (f'[action |-> "{pd["action"]}", kind |-> "{pd["kind"]}", '
+            f'binds |-> <<{", ".join(bind(b) for b in pd["binds"])}>>]')
+
+
+DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
+DUMMY_TERM = (f'[op |-> "formerly", window |-> 0, pred |-> {DUMMY_PRED}, '
+              f'left |-> {DUMMY_PRED}, leftNeg |-> FALSE]')
+
+
+def tla_cond(c: dict) -> str:
+    """Every node carries every field, so nothing depends on a CASE arm being lazy."""
+    if c["op"] == "term":
+        t = c["term"]
+        term = (f'[op |-> "{t["op"]}", window |-> {t["window"]}, pred |-> {tla_pred(t["pred"])}, '
+                f'left |-> {tla_pred(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}]')
+        return f'[op |-> "term", args |-> <<>>, term |-> {term}]'
+    args = ", ".join(tla_cond(a) for a in c.get("args", []))
+    return f'[op |-> "{c["op"]}", args |-> <<{args}>>, term |-> {DUMMY_TERM}]'
+
+
 def case_record(name: str, policies: list[dict], trace: list[dict],
                 oracle: dict[int, bool]) -> str:
     events = ", ".join(
         f'[time |-> {e["time"]}, action |-> "{e["action"]}", kind |-> "{e["kind"]}", '
         f'input |-> {tla_record(e["input"])}, output |-> {tla_record(e["output"])}, '
+        f'principal |-> {tla_value(e["principal"])}, resource |-> {tla_value(e["resource"])}, '
         f'isDecision |-> {tla_value(e["decision"])}]'
         for e in trace)
 
-    def bind(b):
-        return (f'[side |-> "{b["side"]}", field |-> "{b["field"]}", kind |-> "{b["kind"]}", '
-                f'name |-> "{b["name"]}", value |-> {tla_value(b["value"])}]')
-
-    def term(t):
-        return (f'[action |-> "{t["action"]}", kind |-> "{t["kind"]}", window |-> {t["window"]}, '
-                f'binds |-> <<{", ".join(bind(b) for b in t["binds"])}>>]')
-
     pols = ", ".join(
-        f'[effect |-> "{p["effect"]}", action |-> "{p["action"]}", '
-        f'terms |-> <<{", ".join(term(t) for t in p["terms"])}>>]'
+        f'[effect |-> "{p["effect"]}", action |-> "{p["action"]}", cond |-> {tla_cond(p["cond"])}]'
         for p in policies)
 
     orc = " @@ ".join(f"{i} :> {tla_value(v)}" for i, v in sorted(oracle.items()))
@@ -393,7 +354,8 @@ def main() -> int:
             print(output[-800:])
         return 1
 
-    print(f"\nour reading of `formerly within` agrees with Dogwood on all {pairs} pairs")
+    print(f"\nour reading of Dogwood's temporal operators agrees with the reference\n"
+          f"implementation on all {pairs} pairs")
     return 0
 
 

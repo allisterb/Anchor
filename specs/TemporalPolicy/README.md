@@ -167,17 +167,33 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   204 (trace, expected) pairs from 96 cases, in one TLC run
+checked   465 (trace, expected) pairs from 208 cases, in one TLC run
   AGREE
 ```
+
+The subset covers `formerly within`, `previous within` and `since within`, combined with `&&` and
+`!`, under `when temporal` or `unless temporal`. All four are genuinely exercised — 194 accepted
+cases use `formerly`, 66 use `since`, 29 use `previous`, 23 use a negation — so the agreement means
+something for each rather than resting on the common one.
+
+**`since` and `previous` are inferred, not documented.** They are written as standard past-time
+MFOTL, and the corpus is the only reason to believe that reading. Each is mutation-checked
+independently: breaking the `previous` index, the `since` continuity condition, or the metric bound
+each turns the run red.
 
 Nothing is built or run from the Dogwood tree — the expected outputs are recorded, so the corpus is
 data. That keeps this inside the same no-network, no-credentials property as the rest of the suite.
 
-**The refusal count matters as much as the agreement count.** 425 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 313 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
-construct yields a disagreement it cannot attribute. The largest groups are policies with no
-`formerly` term, terms this parser does not recognise, and multi-term policies.
+construct yields a disagreement it cannot attribute. The largest group by far is **`count`/`sum`**
+(140 cases): quantified aggregations with variable binders, `exists` and `tp()` markers, which is a
+sub-language rather than an operator. After that: non-scalar field values, schema pins, and grouped
+predicates that only appear alongside the aggregations.
+
+**So `SessionRotation`'s aggregate is still untested.** That spec models a `sum`-shaped cap, and
+`sum` is exactly what this harness refuses. Widening to reach it means implementing the binder
+sub-language, which is the largest single piece of Dogwood left unmodelled.
 
 ### What it caught on the first run
 

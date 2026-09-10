@@ -82,9 +82,10 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
-    /// Our TLA+ reading of Dogwood's <c>formerly within</c> against the reference implementation's
-    /// own temporal regression corpus — policies and traces paired with the verdicts their engine
-    /// actually produced.
+    /// Our TLA+ reading of Dogwood's temporal operators — <c>formerly</c>, <c>previous</c> and
+    /// <c>since</c>, combined with <c>&amp;&amp;</c> and <c>!</c> — against the reference
+    /// implementation's own regression corpus, whose cases pair policies and traces with the
+    /// verdicts their engine actually produced.
     /// </summary>
     /// <remarks>
     /// This closes the largest caveat on <c>specs/TemporalPolicy</c>: that it modelled the
@@ -105,14 +106,14 @@ public class HarnessTests : TestsRuntime
         var run = await PythonHarness.RunAsync("tests/strands/dogwood_differential.py");
         Assert.True(run.ExitCode == 0, run.Output);
 
-        Assert.Contains("agrees with Dogwood on all", run.Output);
+        Assert.Contains("agrees with the reference", run.Output);
         Assert.DoesNotContain("DISAGREEMENT", run.Output);
 
         // Enough cases to be worth something. If the subset silently narrowed — a parser change
         // refusing more than it did — this notices rather than reporting a hollow success.
         var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) \(trace");
         Assert.True(m.Success, run.Output);
-        Assert.True(int.Parse(m.Groups[1].Value) >= 200,
+        Assert.True(int.Parse(m.Groups[1].Value) >= 450,
                     $"only {m.Groups[1].Value} pairs checked\n{run.Output}");
     }
 
