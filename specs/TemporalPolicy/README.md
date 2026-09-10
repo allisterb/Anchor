@@ -14,6 +14,10 @@ deploys, and the capability it exists to allow is simply gone.
 | `TemporalPolicy.cfg` | approvals permitted; the sell permit gated on `::response`. **Satisfiable** |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden, same permit. **Vacuous** |
 | `RequestGated_SurvivesForbid.cfg` | approvals forbidden, permit gated on `::request`. **Satisfiable — and that is the bad news** |
+| `SessionRotation.tla` | what a caller who controls the session id can do |
+| `SessionRotation.cfg` | aggregate cap, rotation allowed. **Cap violated** |
+| `NoRotation_CapHolds.cfg` | the control: same policy, rotation disabled. Cap holds |
+| `Rotation_ApprovalGateHolds.cfg` | approval gate, rotation allowed. Gate holds |
 
 New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
 
@@ -197,3 +201,64 @@ is exactly the silent mishandling this harness exists to prevent, so schema-bear
 refused. Modelling pins would be a real extension, and it is not done.
 
 The harness is mutation-checked: removing the metric bound from `TermHolds` turns the run red.
+
+
+## Session rotation, and which policy shapes survive it
+
+AgentCore scopes temporal history to a **policy session**, and the session id travels in a
+caller-supplied header. AWS says what follows, in their own security considerations:
+
+> Because temporal history is scoped to a session and the session ID is supplied by the caller, a
+> `count`-based limit such as "at most N calls per session" counts only the events recorded for that
+> session. Starting a new session begins a new count, so a temporal rate limit constrains activity
+> within a session rather than across all of a caller's sessions.
+
+So the behaviour is documented and this is **not a discovery**. What it adds is a trace, and a
+finding about policy *shapes* that is not written down anywhere.
+
+```
+SessionRotation                VIOLATED: Invariant GlobalCapHolds is violated.
+NoRotation_CapHolds            HOLDS
+Rotation_ApprovalGateHolds     HOLDS
+```
+
+The attack is three steps, against a cap of 3:
+
+```
+State 2: hist = <<[action |-> "Trade", amount |-> 2]>>   traded = 2
+State 3: hist = <<>>                                     traded = 2     \* rotate
+State 4: hist = <<[action |-> "Trade", amount |-> 2]>>   traded = 4
+```
+
+**The control is the load-bearing half.** `NoRotation_CapHolds` runs the same policy and the same
+adversary with rotation disabled, and the cap holds. Without it the violation could be any modelling
+error; with it, rotation is the only thing that differs.
+
+### The asymmetry
+
+On a fresh trajectory the history is empty, and the two policy shapes go in opposite directions from
+that single cause:
+
+| shape | on an empty trajectory | |
+|---|---|---|
+| **permit** gated on a prior event | does not fire → default deny | **fails closed** — rotation costs the caller the capability |
+| **forbid** on an aggregate (`count`, `sum`) | sees zero → does not fire → allowed | **fails open** — rotation hands the caller a fresh allowance |
+
+Budget caps, rate limits and mutual-exclusion rules are all the second shape. Approval gates are the
+first. Of the seven policies in the AgentCore banking example, roughly four are aggregates.
+
+**Self-referential inclusion is modelled**, because AgentCore documents that "when a temporal
+condition references the same action that is being authorized, the current request's own event is
+included in the evaluation". The aggregate therefore counts the trade being decided, which is what
+makes the cap bite at the right point rather than one trade late.
+
+### What this does not establish
+
+- **The engine is ours, not Dogwood's.** `DogwoodSemantics.tla` is differential-tested against the
+  reference corpus; this spec's aggregate is not — the corpus subset that harness covers is
+  `formerly`-only, and `count`/`sum` are among the refusals.
+- **Bounded.** Six steps, a cap of 3, trades of 1–2. Enough to exhibit the attack, not a claim about
+  larger configurations.
+- **Rotation is modelled as free.** In reality a caller must be able to set the header, and a
+  deployment that derives the session id server-side would not have this exposure at all. Whether
+  that is possible is a deployment question this spec cannot see.

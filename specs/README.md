@@ -71,6 +71,7 @@ directions, and neither is a refinement of the other.
 | `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden. **Vacuous** — a permit killed by an unrelated rule. |
 | `RequestGated_SurvivesForbid.cfg` | same forbid, gate on `::request`. Satisfiable, **and that is the bad news**. |
+| `SessionRotation.tla` | a caller who controls the session id. Rotation defeats an aggregate cap and cannot touch an approval gate — the two shapes fail in opposite directions. Three configs, one of them the control. |
 
 ## BoundedRetry
 

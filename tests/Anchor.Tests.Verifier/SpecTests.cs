@@ -240,6 +240,70 @@ public class SpecTests : TestsRuntime
 
     #endregion
 
+    #region Session rotation
+
+    /// <summary>
+    /// A caller who controls the session id walks straight past an aggregate cap: trade under the
+    /// limit, start a new session, trade again. The engine only ever sees one session's history.
+    /// </summary>
+    /// <remarks>
+    /// AWS documents the behaviour — "a temporal rate limit constrains activity within a session
+    /// rather than across all of a caller's sessions" — so this is not a discovery. What it adds is
+    /// the trace, and the finding that policy *shapes* split on it: see the two tests below.
+    /// </remarks>
+    [Fact]
+    public async Task SessionRotationDefeatsAnAggregateCap()
+    {
+        var run = await CheckAsync("TemporalPolicy/SessionRotation",
+                                   "TemporalPolicy/SessionRotation");
+        Assert.False(run.Verified);
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
+        Assert.Contains("GlobalCapHolds", string.Join("\n", run.Errors.Select(e => e.Text)));
+
+        // The shape, not the instance: the history is emptied at least once on the way.
+        Assert.Contains(run.Trace, s => s.Text.Contains("hist = <<>>"));
+    }
+
+    /// <summary>
+    /// The control. Same policy, same adversary, rotation disabled — and the cap holds.
+    /// </summary>
+    /// <remarks>
+    /// This pair is only meaningful together. Without it, the violation above could be any
+    /// modelling error rather than rotation; with it, rotation is the one thing that differs.
+    /// </remarks>
+    [Fact]
+    public async Task WithoutRotationTheAggregateCapHolds()
+    {
+        var run = await CheckAsync("TemporalPolicy/SessionRotation",
+                                   "TemporalPolicy/NoRotation_CapHolds");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    /// <summary>
+    /// The same move against an approval gate achieves nothing — it costs the caller the
+    /// capability instead.
+    /// </summary>
+    /// <remarks>
+    /// The asymmetry, and the part that is not written down anywhere. On a fresh trajectory the
+    /// history is empty, so a <b>permit</b> gated on a prior event does not fire and the request is
+    /// denied by default: it fails <i>closed</i>. A <b>forbid</b> on an aggregate sees a count of
+    /// zero, does not fire, and the request is allowed: it fails <i>open</i>.
+    /// <para>
+    /// Budget caps, rate limits and mutual-exclusion rules are all the second shape.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task RotationCannotDefeatAnApprovalGate()
+    {
+        var run = await CheckAsync("TemporalPolicy/SessionRotation",
+                                   "TemporalPolicy/Rotation_ApprovalGateHolds");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    #endregion
+
     #region Strands execution loop
 
     /// <summary>
