@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -241,11 +242,19 @@ def check(module_text: str) -> tuple[bool, str]:
     (SPECS / "CedarDifferential.tla").write_text(module_text, encoding="utf-8")
     (SPECS / "CedarDifferential.cfg").write_text(CONFIG, encoding="utf-8")
 
-    proc = subprocess.run(
-        ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
-         "-config", "CedarDifferential.cfg", "CedarDifferential.tla"],
-        cwd=SPECS, capture_output=True, text=True,
-    )
+    # A temp directory for TLC's own two scratch needs. Without `-Djava.io.tmpdir` parallel runs
+    # share one, and TLC unpacks the standard modules into it: one run reads a half-written
+    # `Naturals.tla` and SANY blames whichever unrelated spec lost the race, about one run in
+    # four. `TLCProcess.cs` carries the same fix. `-metadir` is the other half -- without it the
+    # state directory lands in the checked-in specs tree.
+    with tempfile.TemporaryDirectory(prefix="anchor-cedar-") as tmp:
+        proc = subprocess.run(
+            ["java", f"-Djava.io.tmpdir={tmp}",
+             "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
+             "-metadir", str(Path(tmp) / "states"),
+             "-config", "CedarDifferential.cfg", "CedarDifferential.tla"],
+            cwd=SPECS, capture_output=True, text=True,
+        )
     return proc.returncode == 0, proc.stdout + proc.stderr
 
 

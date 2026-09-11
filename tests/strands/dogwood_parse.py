@@ -1,4 +1,4 @@
-"""A recursive-descent parser for the modelled subset of Dogwood.
+r"""A recursive-descent parser for the modelled subset of Dogwood.
 
 Split out from the differential harness once the grammar stopped being regex-shaped: `&&`, `!`,
 parentheses and the infix `since within` nest, and a regex that appears to handle them is the
@@ -20,6 +20,7 @@ THE SUBSET, and everything outside it raises `Unsupported`:
     atom   := pred | "tp" "(" IDENT ")" | cmp | "!" atom | "(" atom ("&&" atom)* ")"
     pred   := NS "::Action::" STR "::" IDENT "{" binds "}"
     cmp    := CTX OP LITERAL | LITERAL OP CTX | CTX OP CTX | IDENT OP LITERAL
+            | CTX "like" PATTERN
     CTX    := "context.input." IDENT
     bind   := ("input"|"output") "." IDENT ":" rhs
             | ("callerPrincipal"|"callerResource") ":" ("principal"|"resource")
@@ -64,9 +65,19 @@ and `def cedar is_small(?n) { ... };`, declared inline or in a `macros.dw` besid
 `?s{ input.status: "approved" }` refines whatever predicate the caller passed, forcing a field onto
 an event the caller never mentioned.
 
+CEDAR'S `like` is modelled on a context field, and the PATTERN IS EVALUATED BY TLC, not here. A
+TLA+ string is a sequence and TLC's `Sequences` handles `Len`, `\o` and `SubSeq` on one; what it
+does not support is applying a string as a function, so `s[1]` fails and a character is read as
+`SubSeq(s, i, i)`. `LikeMatches` in `DogwoodSemantics.tla` is the matcher.
+
+`like_matches` below is therefore NOT the semantics -- it exists only to synthesise witness values
+for the vacuity checker's invented domains, where a candidate that is wrong can lose a witness but
+can never make a policy falsely live, because TLC still judges it.
+
 Still refused: information providers (`Lists::Allowed(...)` and friends -- sandboxed Rhai scripts,
 so a verdict is not a function of the policy and the trace at all, and REFUSING IS THE CORRECT
-ANSWER rather than a gap), `if`/`then`/`else`, Cedar's `like` / `has` / `in` / `is`, a `when`
+ANSWER rather than a gap), `if`/`then`/`else`, Cedar's `has` / `in` / `is`, `like` anywhere but on
+a context field, a `when`
 clause tagged with anything but `temporal`, nested temporal operators (`formerly` inside
 `formerly`), a constrained `principal` or `resource` scope, `null` values, non-ASCII field values
 (a TLA+ string literal cannot carry one), deep paths under `__drupe` beyond a single leaf, and
@@ -101,6 +112,62 @@ def parse_decimal(text: str) -> Dec:
     if len(frac) > 4:
         raise Unsupported(f"decimal {text!r} has more than four fractional digits")
     return Dec(sign * (int(whole or 0) * DECIMAL_SCALE + int((frac or "0").ljust(4, "0"))))
+
+# A `like` pattern is a list whose items are single characters, or WILDCARD for `*`.
+WILDCARD = None
+
+# Every escape Cedar's string grammar defines. `\*` is handled separately: it is the one escape
+# that is NOT a string escape -- Cedar's escaper reports it as invalid and the pattern layer
+# reinterprets it as a literal asterisk.
+PATTERN_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0",
+                   "\\": "\\", '"': '"', "'": "'"}
+
+
+def parse_like_pattern(body: str) -> list:
+    """The body of a `like` string literal, quotes stripped and escapes intact."""
+    out, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c == "*":
+            out.append(WILDCARD)
+            i += 1
+        elif c != "\\":
+            out.append(c)
+            i += 1
+        elif i + 1 >= len(body):
+            raise Unsupported("a `like` pattern ends in a backslash")
+        elif body[i + 1] == "*":
+            out.append("*")            # the literal asterisk
+            i += 2
+        elif body[i + 1] in PATTERN_ESCAPES:
+            out.append(PATTERN_ESCAPES[body[i + 1]])
+            i += 2
+        else:
+            # `\x41`, `\u{1F600}`: real Cedar, simply not modelled. Saying so beats guessing.
+            raise Unsupported(f"escape '\\{body[i + 1]}' in a `like` pattern is not modelled")
+    return out
+
+
+def like_matches(pattern: list, text: str) -> bool:
+    """Does `text` match the pattern? `*` is the only metacharacter, so a regex is exact."""
+    rx = "".join(".*" if e is WILDCARD else re.escape(e) for e in pattern)
+    return re.fullmatch(rx, text, re.DOTALL) is not None
+
+
+def pattern_witnesses(pattern: list) -> tuple[str, str | None]:
+    """One string the pattern matches and one it does not, for a synthesised value domain.
+
+    Without a matching witness a `like` guard can never be true, and everything behind it would
+    be reported vacuous when it is not. The non-matching one is what makes "the guard failed"
+    reachable. A pattern of nothing but wildcards matches everything, so it HAS no second
+    witness; the caller is told with None rather than handed a wrong one.
+    """
+    hit = "".join("" if e is WILDCARD else e for e in pattern)
+    for miss in ("\u0000none", "\u0000" + hit, hit + "\u0000", "zz" + hit):
+        if not like_matches(pattern, miss):
+            return hit, miss
+    return hit, None
+
 
 # `count` and `sum` bring binders, `exists` and `tp(...)`; a bare identifier bind value is a
 # pattern variable that only has meaning inside one. All refused together.
@@ -584,6 +651,17 @@ class Parser:
 
         if self.peek() == "context":
             field = self.context_field()
+
+            # `context.input.stock like "A*"`. Only this way round: Cedar's `like` takes the
+            # string on the left and a pattern LITERAL on the right, never an expression.
+            if self.peek() == "like":
+                self.take()
+                tok = self.take()
+                if not tok.startswith('"'):
+                    raise Unsupported(f"`like` pattern {tok!r} is not a string literal")
+                return {"op": "like", "field": field,
+                        "pattern": parse_like_pattern(tok[1:-1])}
+
             op = self.comparison_op()
 
             if self.peek() == "context":
@@ -612,7 +690,13 @@ class Parser:
 
     def comparison_op(self) -> str:
         op = self.take()
-        if op in ("like", "has", "in", "is"):
+        if op == "like":
+            # Reachable only where the left side is not a context field -- a bound variable, say.
+            # `context.input.x like "..."` is handled in `comparison` and never arrives here.
+            raise Unsupported(
+                "policy uses `like` on something other than a context field, which is not modelled",
+                "uses a Cedar operator we do not model")
+        if op in ("has", "in", "is"):
             raise Unsupported(f"policy uses Cedar's `{op}` operator, which is not modelled",
                               "uses a Cedar operator we do not model")
         if op not in ("==", "!=", ">=", "<=", ">", "<"):

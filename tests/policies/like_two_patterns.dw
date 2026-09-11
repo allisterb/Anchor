@@ -1,0 +1,19 @@
+// Two `like` patterns on ONE field, which needs a value satisfying both.
+//
+// "AAPL" satisfies both, so this permit is live. But each pattern contributes only a string IT
+// matches -- "A" and "L" -- and neither satisfies the other, so a domain built from those alone
+// makes the conjunction look unsatisfiable. The first version of this reported VACUOUS: a working
+// rule declared inert, the one answer this tool must never give.
+//
+// The fix is not a cleverer refusal, it is a joint witness. Because TLC evaluates the real
+// pattern, adding a candidate value can never make something falsely live -- it can only fail to
+// be found -- so the checker constructs "AL" from what the two patterns literally require and adds
+// it to the domain. `like_impossible.dw` is the case where that search comes up empty.
+
+@id("a_and_ends_l")
+permit (
+    principal,
+    action == Drupe::Action::"SellShares",
+    resource
+)
+when { context.input.stock like "A*" && context.input.stock like "*L" };

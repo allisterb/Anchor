@@ -160,6 +160,31 @@ CmpVarHolds(a, asg) ==
             [] a.cmp = "<=" -> v.k \in {"n", "d"} /\ v.v <= a.value.v
             [] OTHER        -> FALSE
 
+(***************************************************************************)
+(* CEDAR'S `like`. One metacharacter: `*` matches any run of characters,   *)
+(* including none. A pattern is a sequence of [wild, c] records because a  *)
+(* wildcard is not a character and cannot be smuggled into a string.       *)
+(*                                                                        *)
+(* Named LikeMatches because `Matches` is the PREDICATE matcher above --   *)
+(* a different question entirely, and one that already has the name.       *)
+(*                                                                        *)
+(* Backtracking, which the wildcard case needs: `*` either consumes        *)
+(* nothing and the rest of the pattern must match here, or it consumes one *)
+(* character and the SAME pattern must match the shorter string.           *)
+(***************************************************************************)
+RECURSIVE LikeMatches(_, _)
+LikeMatches(pat, s) ==
+    IF Len(pat) = 0
+      THEN Len(s) = 0
+      ELSE IF pat[1].wild
+        THEN \/ LikeMatches(SubSeq(pat, 2, Len(pat)), s)
+             \/ /\ Len(s) > 0
+                /\ LikeMatches(pat, SubSeq(s, 2, Len(s)))
+        ELSE /\ Len(s) > 0
+             \* SubSeq, not s[1]: TLC refuses to apply a string as a function.
+             /\ SubSeq(s, 1, 1) = pat[1].c
+             /\ LikeMatches(SubSeq(pat, 2, Len(pat)), SubSeq(s, 2, Len(s)))
+
 CmpHolds(a, dec) ==
     /\ a.field \in DOMAIN dec.input
     /\ LET v == dec.input[a.field] IN
@@ -180,6 +205,13 @@ AtomHolds(a, i, trace, dec, asg) ==
     CASE a.op = "pred" -> Matches(a.pred, trace[i], dec, asg)
       [] a.op = "tp"   -> /\ a.var \in DOMAIN asg
                           /\ SameVal(asg[a.var], TP(i))
+      \* Cedar's `like`, evaluated here rather than precomputed. A TLA+ string IS a sequence
+      \* and TLC's Sequences implementation handles `Len`, `\o` and `SubSeq` on one; only
+      \* function application is missing, which is why `Matches` reads a character as
+      \* SubSeq(s, i, i) and never s[i].
+      [] a.op = "like" -> /\ a.field \in DOMAIN dec.input
+                          /\ LET v == dec.input[a.field] IN
+                             v.k = "s" /\ LikeMatches(a.pattern, v.v)
       [] a.op = "cmp"  -> CmpHolds(a, dec)
       [] a.op = "cmp2" -> Cmp2Holds(a, dec)
       [] a.op = "cmpvar" -> CmpVarHolds(a, asg)

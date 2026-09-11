@@ -1,0 +1,18 @@
+// Cedar's `like`, the one string operator in the modelled subset.
+//
+// The pattern is evaluated by TLC, in `LikeMatches`. A TLA+ string is a sequence and TLC supports
+// `Len`, `\o` and `SubSeq` on one -- only function application is missing, so a character is read
+// as SubSeq(s, i, i) rather than s[i].
+//
+// This fixture exists to keep the answer `live`. The vacuity checker invents the values a field
+// can take, so it has to invent one the pattern MATCHES; without that the guard can never be true
+// and the permit reports VACUOUS -- a working rule declared inert, the one wrong answer this tool
+// must not give.
+
+@id("sell_a_prefixed")
+permit (
+    principal,
+    action == Drupe::Action::"SellShares",
+    resource
+)
+when { context.input.stock like "A*" };

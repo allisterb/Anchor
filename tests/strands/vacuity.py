@@ -43,7 +43,8 @@ SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
 from _toolchain import find_jar  # noqa: E402
 from dogwood_differential import tla_cond  # noqa: E402
-from dogwood_parse import Unsupported, parse_policies  # noqa: E402
+from dogwood_parse import (Unsupported, like_matches,  # noqa: E402
+                           parse_policies, pattern_witnesses)
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
 # and the outcome is `response` when the action completed, `error` when it was denied.
@@ -79,6 +80,19 @@ def walk(node, seen: dict) -> None:
         seen["input"].add(node["field"])
         seen["literals"].setdefault(("input", node["field"]), set()).add(node["value"])
 
+    if node.get("op") == "like":
+        # A pattern names no literal, so it must contribute the values that make it decidable:
+        # one the pattern matches, and one it does not. See this module's `like` note.
+        seen["input"].add(node["field"])
+        hit, miss = pattern_witnesses(node["pattern"])
+        lits = seen["literals"].setdefault(("input", node["field"]), set())
+        lits.add(hit)
+        if miss is not None:
+            lits.add(miss)
+        # Recorded so `vocabulary` can refuse a field carrying two of them; see the note there.
+        seen["patterns"].setdefault(("input", node["field"]), set()).add(
+            tuple(node["pattern"]))
+
     if node.get("op") == "cmp2":
         # Both sides are request fields. Neither names a literal, so both take the default
         # numeric range -- which needs at least two values for the comparison to go either way.
@@ -92,10 +106,30 @@ def walk(node, seen: dict) -> None:
 
 
 def vocabulary(policies: list[dict], amounts: int = 2, max_fields: int = 4) -> dict:
-    seen = {"actions": set(), "kinds": set(), "input": set(), "output": set(), "literals": {}}
+    seen = {"actions": set(), "kinds": set(), "input": set(), "output": set(),
+            "literals": {}, "patterns": {}}
     for p in policies:
         seen["actions"].add(p["action"])
         walk(p["cond"], seen)
+
+    # Two `like` patterns on ONE field need a value satisfying BOTH, or the conjunction looks
+    # unsatisfiable and the permit is reported VACUOUS though it is live -- `stock like "A*" &&
+    # stock like "*L"` is satisfied by "AAPL", while the per-pattern witnesses "A" and "L"
+    # satisfy one pattern each. A false VACUOUS tells someone to delete a working rule.
+    #
+    # Since TLC evaluates the real pattern, adding a candidate can never make something falsely
+    # live; it can only fail to be found. So look for one, and refuse only if the search fails,
+    # where "no such string exists" and "we did not look hard enough" are indistinguishable.
+    for (side, field), pats in seen["patterns"].items():
+        if len(pats) < 2:
+            continue
+        joint = joint_witness(pats)
+        if joint is None:
+            raise Unsupported(
+                f"{side}.{field} is constrained by {len(pats)} `like` patterns at once and no "
+                f"value satisfying all of them could be constructed; deciding that needs glob "
+                f"intersection, which is not modelled")
+        seen["literals"].setdefault((side, field), set()).add(joint)
 
     # Each field gets its own domain, so fields move independently. The bound is on state space,
     # not on soundness: the request space is the product of the domains, so it grows as
@@ -119,6 +153,30 @@ def _all_fields(seen: dict):
     for side in ("input", "output"):
         for field in sorted(seen[side]):
             yield (side, field), seen["literals"].get((side, field), set())
+
+
+def joint_witness(patterns) -> str | None:
+    """A string every one of `patterns` matches, or None if none was constructed.
+
+    The candidates are what each pattern literally requires -- its non-wildcard characters, in
+    order -- tried alone and concatenated in both orders. That is enough for the shapes a prefix
+    or suffix test produces (`A*` with `*L` gives "AL"), and deliberately not a decision
+    procedure: the caller treats None as "refuse", never as "unsatisfiable".
+    """
+    pats = sorted(patterns, key=len)
+    parts = ["".join(e for e in pat if e is not None) for pat in pats]
+
+    candidates = list(parts)
+    for i, a in enumerate(parts):
+        for j, b in enumerate(parts):
+            if i != j:
+                candidates.append(a + b)
+    candidates.append("".join(parts))
+
+    for cand in candidates:
+        if all(like_matches(list(pat), cand) for pat in pats):
+            return cand
+    return None
 
 
 def field_domain(literals: set, amounts: int) -> list:
@@ -267,7 +325,12 @@ def check_one(work: Path, target: int, attempts: int, amount: int,
         encoding="utf-8")
 
     proc = subprocess.run(
-        ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
+        # Its own java temp dir. TLC unpacks the standard modules there, and parallel runs
+        # sharing one leave a half-written `Naturals.tla` behind, which SANY reports as a failure
+        # in whichever unrelated spec lost the race -- about one run in four. Same fix, and same
+        # reason, as `TLCProcess.cs`.
+        ["java", f"-Djava.io.tmpdir={work}",
+         "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
          "-metadir", str(work / "states"), "-config", "Vacuity.cfg", "Vacuity.tla"],
         cwd=work, capture_output=True, text=True)
     out = proc.stdout + proc.stderr

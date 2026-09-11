@@ -1,0 +1,17 @@
+// Two `like` patterns that no string satisfies: it cannot both start with A and start with B.
+//
+// VACUOUS is the *correct* answer here, and the checker does not give it. The joint-witness
+// search comes up empty, and at that point "no such string exists" and "the search was not clever
+// enough" are indistinguishable -- so it refuses rather than guessing which.
+//
+// That asymmetry is deliberate. Reporting VACUOUS on a hunch tells someone to delete a rule; a
+// refusal tells them the checker declined. Deciding this properly needs glob intersection, which
+// no policy in either Dogwood corpus requires -- the regression corpus uses `like` zero times.
+
+@id("impossible")
+permit (
+    principal,
+    action == Drupe::Action::"SellShares",
+    resource
+)
+when { context.input.stock like "A*" && context.input.stock like "B*" };

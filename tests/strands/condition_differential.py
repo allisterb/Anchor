@@ -152,7 +152,12 @@ def check(module_text: str) -> tuple[bool, str]:
         (work / "ConditionDifferential.cfg").write_text(CONFIG, encoding="utf-8")
 
         proc = subprocess.run(
-            ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
+            # Its own java temp dir. TLC unpacks the standard modules there, and parallel
+            # runs sharing one leave a half-written `Naturals.tla` behind, which SANY reports as
+            # a failure in whichever unrelated spec lost the race -- about one run in four. Same
+            # fix, and same reason, as `TLCProcess.cs`.
+            ["java", f"-Djava.io.tmpdir={work}",
+             "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(work / "states"),
              "-config", "ConditionDifferential.cfg", "ConditionDifferential.tla"],
             cwd=work, capture_output=True, text=True,

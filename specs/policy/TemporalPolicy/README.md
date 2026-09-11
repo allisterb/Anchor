@@ -256,25 +256,25 @@ python tests/strands/dogwood_examples.py
 ```
 86 examples, 49 with a trace and expected output
 
-checked   31 of 49 runnable examples (63%)
+checked   32 of 49 runnable examples (65%)
   AGREE
 ```
 
-**63% is the honest number, and it is well below the unit corpus's 90%.** Both are true; they
+**65% is the honest number, and it is well below the unit corpus's 90%.** Both are true; they
 measure different things. The gap is the point, so the refusals are broken out by kind rather than
 buried:
 
 | refused | why |
 |---|---|
 | 10 | calls an information provider (a Rhai script) |
-| 8 | assorted: `if`/`then`/`else`, `like`, a `when guardrails` clause, a custom bind target, a set-valued scope, an unpinned schema |
+| 7 | assorted: `if`/`then`/`else`, a `when guardrails` clause, a custom bind target, a set-valued scope, an unpinned schema |
 
 **Ten of the eighteen are permanently out of scope, and refusing them is the correct answer rather
 than a gap.** An information provider is a sandboxed Rhai script, so a verdict that depends on one
 is not a function of the policy and the trace at all — there is nothing for any model to be right
 about. A checker that guessed here would be worse than one that declines.
 
-That leaves **8 of 49 — 16% — unreachable only because the work is not done**, and each is a
+That leaves **7 of 49 — 14% — unreachable only because the work is not done**, and each is a
 different small feature rather than one missing idea.
 
 Two conventions differ from the unit corpus, and either would misalign every verdict silently:
@@ -422,6 +422,71 @@ run red. It is caught by one decision, in one example, out of 31.
 Because the check's worth rests entirely on that count of 10, the harness prints it and the suite
 asserts a floor on it. A change that emptied the rule sets would otherwise leave every run still
 reporting AGREE.
+
+#### `like`, and a claim that was wrong
+
+TLA+ defines strings as sequences, and **TLC supports enough of that to match a glob**. The
+matcher is `LikeMatches` in `DogwoodSemantics.tla`: ordinary backtracking over `Len` and `SubSeq`.
+
+This section previously said the opposite — that TLA+ "has no string operations" and a string
+"cannot be indexed or sliced" — and used it to justify deciding patterns in Python before TLC ran.
+Half of that was false. What TLC does not support is applying a string as a **function**:
+
+```
+Len("hello")           = 5
+SubSeq("hello", 1, 2)  = "he"
+"hello"[1]             -> A non-function (a string) was applied as a function
+```
+
+So a string can be sliced but not indexed, and a character is read as `SubSeq(s, i, i)`. Lamport's
+[errata](../../../reference/books/current-tools.pdf) §2.2.2 documents the enhancement for `\o` and
+`Len`; that `SubSeq` also works was established by running TLC, as was the fact that its warning
+about `Len` misbehaving on backslash escapes does not reproduce for any escape this project emits.
+
+**The correction matters beyond the claim.** Precomputation was exact, so nothing gave a wrong
+answer — but it put `like`'s meaning in a Python helper while every other operator's meaning is in
+the spec, differentially validated against the reference implementation. The examples corpus
+happened to check that helper; the vacuity checker did not, so a wrong matcher would have made
+vacuity quietly wrong with no oracle. Now the artifact the differential validates is the artifact
+vacuity uses.
+
+The pattern rules are Cedar's, read off `parser/mod.rs::build_pattern`: unescaped `*` is a wildcard
+matching any run of characters, `\*` is a literal asterisk, other escapes follow the string
+grammar. A wildcard is not a character, so a pattern reaches TLC as a sequence of `[wild, c]`
+records rather than as a string with a reserved character a policy could then never match.
+
+**`sell_like_a_prefix` is a real check.** Its trace holds `AAPL`, `AMZN` and `MSFT`, and the
+expected verdicts are ALLOW, ALLOW, **DENY** — a pattern read as matching everything disagrees on
+the third.
+
+##### Inventing a value the pattern matches
+
+The differential has a trace, so the field's values are given. The vacuity checker has none: it
+synthesises a domain from the literals a policy names, and a pattern names none. So each `like`
+contributes its own — one string it matches and one it does not. Both are needed: without a match
+the guard can never be true and everything behind it reports VACUOUS; without a non-match, "the
+guard failed" is unreachable.
+
+Per-pattern witnesses are right for one pattern and wrong for two on a field:
+
+```
+when { context.input.stock like "A*" && context.input.stock like "*L" }
+```
+
+`"AAPL"` satisfies both, so the permit is live — but the witnesses are `"A"` and `"L"`, neither
+satisfies the other, and the first version of this **reported VACUOUS**. A working rule declared
+inert, the same species as the string-valued output field found earlier.
+
+Because TLC evaluates the real pattern, **an invented candidate can never make a policy falsely
+live** — it can only fail to be found. That asymmetry is what makes searching safe, so the checker
+constructs `"AL"` from what the two patterns literally require and the permit stays live.
+
+When the search comes up empty the checker **refuses**, and `like_impossible.dw` is that case:
+nothing starts with both `A` and `B`, so VACUOUS is the *correct* verdict and it declines to give
+it. At that point "no such string exists" and "the search was not clever enough" are
+indistinguishable, and reporting VACUOUS on a hunch tells someone to delete a rule. Deciding it
+properly needs glob intersection, which no policy in either corpus requires — **the regression
+corpus uses `like` zero times**.
 
 ### How `count` was decoded
 

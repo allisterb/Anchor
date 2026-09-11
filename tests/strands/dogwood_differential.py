@@ -67,7 +67,8 @@ from _toolchain import find_jar  # noqa: E402
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
-from dogwood_parse import Dec, Unsupported, parse_decimal, parse_policies  # noqa: E402
+from dogwood_parse import (Dec, Unsupported, WILDCARD,  # noqa: E402
+                           parse_decimal, parse_policies)
 from dogwood_schema import apply_pins, parse_schema  # noqa: E402
 
 
@@ -284,7 +285,34 @@ DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
 
 # Every atom carries every field, unused ones filled in. One record shape rather than a union:
 # TLC treats a missing field as a runtime error, so uniformity is cheaper than the alternative.
-NO_CMP = ('field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""], other |-> ""')
+NO_CMP = ('field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""], other |-> "", '
+          'pattern |-> <<>>')
+
+# A TLA+ string literal cannot carry a raw newline or a bare backslash, so a pattern character is
+# written the way the language spells it. Anything unprintable has no TLA+ spelling at all and is
+# refused rather than mangled into something that would match the wrong thing.
+TLA_CHAR_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\t": "\\t",
+                    "\r": "\\r", "\f": "\\f"}
+
+
+def tla_pattern(pattern: list) -> str:
+    """A `like` pattern as a sequence of [wild, c] records, which `Matches` walks.
+
+    A wildcard is not a character and cannot be smuggled into a string, so it gets its own flag
+    rather than a reserved character that a policy could then never match literally.
+    """
+    out = []
+    for e in pattern:
+        if e is WILDCARD:
+            out.append('[wild |-> TRUE, c |-> ""]')
+        elif e in TLA_CHAR_ESCAPES:
+            out.append(f'[wild |-> FALSE, c |-> "{TLA_CHAR_ESCAPES[e]}"]')
+        elif e.isprintable():
+            out.append(f'[wild |-> FALSE, c |-> "{e}"]')
+        else:
+            raise Unsupported(
+                f"a `like` pattern contains U+{ord(e):04X}, which a TLA+ string cannot carry")
+    return f'<<{", ".join(out)}>>' 
 
 
 def tla_atom(a: dict) -> str:
@@ -295,18 +323,26 @@ def tla_atom(a: dict) -> str:
     if a["op"] == "tp":
         return (f'[op |-> "tp", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
                 f'{NO_CMP}]')
+    if a["op"] == "like":
+        # The pattern travels to TLC, which evaluates it against the field's actual value.
+        # Nothing about the match is decided here.
+        return (f'[op |-> "like", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
+                f'field |-> "{a["field"]}", cmp |-> "", '
+                f'value |-> [k |-> "s", v |-> ""], other |-> "", '
+                f'pattern |-> {tla_pattern(a["pattern"])}]')
     if a["op"] == "cmp":
         return (f'[op |-> "cmp", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
-                f'value |-> {tla_scalar(a["value"])}, other |-> ""]')
+                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>]')
     if a["op"] == "cmp2":
         return (f'[op |-> "cmp2", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
-                f'value |-> [k |-> "s", v |-> ""], other |-> "{a["other"]}"]')
+                f'value |-> [k |-> "s", v |-> ""], other |-> "{a["other"]}", '
+                f'pattern |-> <<>>]')
     if a["op"] == "cmpvar":
         return (f'[op |-> "cmpvar", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
                 f'field |-> "", cmp |-> "{a["cmp"]}", '
-                f'value |-> {tla_scalar(a["value"])}, other |-> ""]')
+                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>]')
     # The op travels with the node. This used to be hardcoded to "and", which silently turned
     # a `not` atom into a conjunction of its single argument -- so `!(B)` read as `B`.
     args = ", ".join(tla_atom(x) for x in a["args"])
@@ -466,7 +502,12 @@ def check(module_text: str) -> tuple[bool, str]:
             (SPECS / "DogwoodSemantics.tla").read_text(encoding="utf-8"), encoding="utf-8")
 
         proc = subprocess.run(
-            ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
+            # Its own java temp dir. TLC unpacks the standard modules there, and parallel
+            # runs sharing one leave a half-written `Naturals.tla` behind, which SANY reports as
+            # a failure in whichever unrelated spec lost the race -- about one run in four. Same
+            # fix, and same reason, as `TLCProcess.cs`.
+            ["java", f"-Djava.io.tmpdir={work}",
+             "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(work / "states"), "-config", "DogwoodCases.cfg", "DogwoodCases.tla"],
             cwd=work, capture_output=True, text=True,
         )

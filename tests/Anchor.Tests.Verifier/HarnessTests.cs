@@ -119,6 +119,65 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Cedar's <c>like</c> is evaluated by TLC, and a field carrying two patterns gets a value
+    /// satisfying both — or a refusal, never a guess.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A TLA+ string is a sequence, and TLC's <c>Sequences</c> implementation supports
+    /// <c>Len</c>, <c>\o</c> and <c>SubSeq</c> on one. What it does not support is applying a
+    /// string as a function — <c>s[1]</c> fails — so <c>LikeMatches</c> reads a character as
+    /// <c>SubSeq(s, i, i)</c>. The pattern semantics therefore live in the spec, like every other
+    /// operator's, rather than in the harness.
+    /// </para>
+    /// <para>
+    /// The first assertion guards a false <b>VACUOUS</b>, the same species as
+    /// <see cref="FieldDomainsComeFromTheLiteralsThePolicyNames"/>: the vacuity checker invents
+    /// the values a field can take, so unless it invents one the pattern matches, the guard can
+    /// never be true and a working permit is declared inert.
+    /// </para>
+    /// <para>
+    /// The second is the case that needs a value satisfying two patterns at once.
+    /// <c>stock like "A*" &amp;&amp; stock like "*L"</c> is satisfied by <c>"AAPL"</c>, but the
+    /// per-pattern witnesses are <c>"A"</c> and <c>"L"</c> and neither satisfies the other. Since
+    /// TLC judges the real pattern, an invented candidate can never make a policy falsely live —
+    /// only fail to be found — so the checker constructs one and this stays <c>live</c>.
+    /// </para>
+    /// <para>
+    /// The third is where that search comes up empty. Nothing starts with both A and B, so
+    /// VACUOUS is the <i>correct</i> verdict and the checker still refuses: at that point "no such
+    /// string exists" is indistinguishable from "the search was not clever enough", and reporting
+    /// VACUOUS on a hunch tells someone to delete a rule.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task LikePatternsAreEvaluatedByTheModel()
+    {
+        var one = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/like_prefix.dw");
+
+        Assert.True(one.ExitCode == 0, one.Output);
+        Assert.Matches(@"permit #1\s+action == SellShares\s+live", one.Output);
+        Assert.DoesNotMatch(@"permit #\d+\s+action == \w+\s+VACUOUS", one.Output);
+
+        // Two patterns, jointly satisfiable: a witness is constructed and the permit stays live.
+        var two = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/like_two_patterns.dw");
+
+        Assert.True(two.ExitCode == 0, two.Output);
+        Assert.Matches(@"permit #1\s+action == SellShares\s+live", two.Output);
+        Assert.DoesNotMatch(@"permit #\d+\s+action == \w+\s+VACUOUS", two.Output);
+
+        // Two patterns no string satisfies: refused, and specifically not reported vacuous.
+        var none = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/like_impossible.dw");
+
+        Assert.Equal(2, none.ExitCode);
+        Assert.Contains("`like` patterns at once", none.Output);
+        Assert.DoesNotMatch(@"permit #\d+\s+action == \w+\s+VACUOUS", none.Output);
+    }
+
+    /// <summary>
     /// Our reading against Dogwood's own <b>documentation examples</b> — whole policies, rather
     /// than the unit corpus's one-construct-per-case.
     /// </summary>
@@ -163,7 +222,7 @@ public class HarnessTests : TestsRuntime
         // than it did — would otherwise still report a hollow success.
         var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) of (\d+)");
         Assert.True(m.Success, run.Output);
-        Assert.True(int.Parse(m.Groups[1].Value) >= 31,
+        Assert.True(int.Parse(m.Groups[1].Value) >= 32,
                     $"only {m.Groups[1].Value} examples translated\n{run.Output}");
     }
 
