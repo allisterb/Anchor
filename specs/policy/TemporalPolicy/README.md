@@ -251,33 +251,39 @@ Either way no network is touched and no credentials exist.
 subset and are refused rather than approximated, because a translator that quietly mishandles a
 construct yields a disagreement it cannot attribute.
 
-The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **776 pairs / 372 cases**, by
-adding three constructs:
+The subset was widened on 2026-09-11, from **654 pairs / 320 cases** to **776 pairs / 390 cases**,
+by adding six constructs:
 
 | construct | example | cases |
 |---|---|---|
 | a parenthesised left operand of `since` | `!(Login::response{..}) since within 1h Sync::request{..}` | 13 |
 | a comparison on the request's own context | `formerly within 1h (Login::request{..} && context.input.amount > 100)` | 24 |
 | an aggregate body with **no** temporal wrapper | `count for (t: Timepoint). where (Login::request{..} && tp(t))` | 36 |
-| an event schema that **pins** a scope field into every predicate | `pin callerPrincipal: principalType(A) = principal` | 20 |
+| an event schema that **pins** a scope field | `pin callerPrincipal: principalType(A) = principal` | 17 |
 | a pin on a nested reserved leaf | `__drupe: { pin session_id: String = context.__drupe.session_id }` | 3 |
 | a pin on a context field | `pin tenant_id: String = context.tenant_id` | 1 |
 
-The first needed **no semantics at all** — `DogwoodSemantics` already carried `left`/`leftNeg`; the
-parser had simply committed to reading `!(` as a negated group before anything looked for the
-`since` after it. The second is a genuine addition: a `cmp` atom that reads the **decision** event
-rather than the candidate one, so it evaluates identically at every candidate index and filters the
-request rather than the history.
+Two of them needed **no new semantics at all**, which is worth knowing before reaching for the
+evaluator. The `since` one was purely the parser: `DogwoodSemantics` already carried `left` and
+`leftNeg`, and `unary()` had simply committed to reading `!(` as a negated group before anything
+looked for the `since` after it. And `1122_pin_disagree_denies_despite_author_literal` — an author
+literal that contradicts a pin — falls straight out of partitioning, with no rule of its own.
 
-All three were chosen because their cases *discriminate*: 13 of 13, 22 of 24 and 24 of 36 have a
-`true` somewhere in their expected output. A case whose every verdict is false is nearly worthless
-as evidence, since a reading that never matches anything passes it too.
+## How the constructs were chosen, which is the transferable part
 
-**The third shows why that test earns its keep.** `0178_agg_no_temporal_counts_current_tp` states
-the rule in its own comment — *"Without a temporal wrapper on the body, the aggregation sees only
-same-tp events"* — and every one of its verdicts is `false`, so it cannot tell that reading apart
-from one that matches nothing. `0062_count_exact` settles it instead. Its policy **set** holds both
-`n == 2` and `n == 0`, and only "this timepoint" reproduces all five verdicts:
+Not by size. Each refusal bucket was first scored by whether its cases have a `true` **anywhere**
+in their expected output, because a case whose every verdict is `false` is nearly worthless as
+evidence: a reading that matches nothing passes it identically. The six above scored 13/13, 22/24,
+24/36, and all of the pin cases.
+
+**`0178_agg_no_temporal_counts_current_tp` is the trap that makes the test worth running.** It
+*states* the rule in its own comment — *"Without a temporal wrapper on the body, the aggregation
+sees only same-tp events"* — and every one of its verdicts is `false`, so it cannot tell that
+reading apart from one that never matches. Implementing from it would have been taking the corpus
+author's word and calling it verification.
+
+`0062_count_exact` settles it instead, and only because every `*.dw` in a case forms **one policy
+set** — so it tests `n == 2` and `n == 0` together:
 
 | decision | Logins at that timepoint | count | matches | expected |
 |---|---|---|---|---|
@@ -285,17 +291,32 @@ from one that matches nothing. `0062_count_exact` settles it instead. Its policy
 | @4 Alert | none | **0** | `n == 0` | **true** |
 | @12 Alert | none | **0** | `n == 0` | **true** |
 
-Counting the whole history instead gives 3 at @12, where the expected answer needs 0.
+Counting the whole history gives 3 at @12 where the answer needs 0. A timepoint is a trace
+**index**, not a timestamp — the corpus prints `@12 (time point 8)` for one event — so "same tp" is
+the decision event's own index.
 
-A timepoint is a trace **index**, not a timestamp — the corpus prints `@12 (time point 8)` for one
-event — so "same tp" is the decision event's own index. Mutating the `at` arm to search `1..upto`,
-which is exactly that competing reading, turns the run red: the semantics is held up by the corpus
-rather than by one person's reading of one case.
+**Every construct is mutation-checked against its most plausible wrong reading**, not against an
+arbitrary break:
 
-**131 cases still stand refused**: macro calls and parameter sigils, the 30 schema-pin cases,
-`since` nested inside an aggregate body, `count`/`sum` bodies written without parentheses,
-comparisons against something other than a literal, and ten `Long` values outside TLC's integer
-range, which no amount of modelling will fix.
+| construct | mutation | what it would have meant |
+|---|---|---|
+| `since` left operand | ignore `leftNeg` | `!A since B` read as `A since B` |
+| context comparison | `>` reads as `>=` | an off-by-one on a threshold |
+| no-wrapper aggregate | `at` searches `1..upto` | counting the whole history |
+| pins | treat every pin as universal | granting isolation a partial pin did not earn |
+| pins | drop partitioning, keep conjuncts | the reading that passes every existential case |
+| non-scope pins | key on principal instead | session/tenant partitioning silently wrong |
+
+All six turn the run red. The third and fourth matter most: each is what a reasonable
+implementation would do first.
+
+
+**131 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
+that remain contain **no pin at all** -- they are in the corpus for renamed reserved fields, deep
+paths and injected slots, each a separate feature. The rest: macro calls and parameter sigils,
+custom event kinds, deeper `__drupe` paths, `since` nested inside an aggregate body, `count`/`sum`
+bodies written without parentheses, comparisons against something other than a literal, and ten
+`Long` values outside TLC's integer range, which no amount of modelling will fix.
 
 **`SessionRotation` checks a real Dogwood policy, end to end.** Neither the decision nor the
 policy is written in that spec any more:

@@ -53,7 +53,19 @@ public class TLCProcess : Runtime
         // directory instead, so a check never writes into the directory holding the spec.
         var metadir = Path.Combine(Path.GetTempPath(), "anchor-tlc", Path.GetRandomFileName());
         Directory.CreateDirectory(metadir);
-        var argv = new List<string> { "-cp", tools.Value, "tlc2.TLC", "-tool", "-metadir", metadir };
+
+        // -Djava.io.tmpdir must come BEFORE the class name, and it is not optional. TLC extracts
+        // the TLA+ standard modules -- Naturals.tla and friends -- into the JVM temp directory, so
+        // without this every concurrent TLC writes the same files into the one shared %TEMP%. Two
+        // racing runs leave one of them reading a half-written Naturals.tla, and SANY reports it as
+        // a NullPointerException followed by "Module-Table lookup failure" naming whichever spec
+        // happened to lose: a failure that points at an unrelated, perfectly good file. It cost
+        // about one run in four before this line.
+        var argv = new List<string>
+        {
+            $"-Djava.io.tmpdir={metadir}",
+            "-cp", tools.Value, "tlc2.TLC", "-tool", "-metadir", metadir
+        };
         if (config is not null)
         {
             argv.AddRange(["-config", Path.GetFullPath(config)]);

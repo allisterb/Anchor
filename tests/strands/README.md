@@ -29,6 +29,8 @@ no network call, no credentials, and no AWS.
 | `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
 | `vacuity.py` | **the tool**: point it at any `.dw` file and it model-checks every permit in it for vacuity, one TLC run each, reporting a witness session or a VACUOUS verdict. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
+| `dogwood_schema.py` | reads an `event.dwschema` for the one thing in it that changes what a policy **means**: a `pin`, which forces a field of every event to equal something about the decision. A policy cannot see or bypass it. |
+| `_toolchain.py` | finds the TLA+ tools jar by glob, so its version lives only in `build.sh` next to the sha256 that checks it. |
 | `dw_to_tla.py` | translates a `.dw` policy file into the TLA+ data a spec checks, so a policy is model-checked as written rather than as paraphrased. `--check` fails if the generated module has drifted. |
 
 ## Translating a workflow, rather than paraphrasing one
