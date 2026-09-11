@@ -53,7 +53,12 @@ DECISION_KIND = "request"
 
 # ---------------------------------------------------------------------------- vocabulary
 def walk(node, seen: dict) -> None:
-    """Collect the vocabulary a policy actually reads, so nothing unused is modelled."""
+    """Collect the vocabulary a policy actually reads, so nothing unused is modelled.
+
+    Field LITERALS are collected too. A field's domain is the values the policy compares it
+    against plus one it does not, so both matching and not-matching stay reachable -- which is
+    what lets fields move independently instead of sharing one domain.
+    """
     if not isinstance(node, dict):
         return
 
@@ -63,7 +68,16 @@ def walk(node, seen: dict) -> None:
         if pred.get("kind"):
             seen["kinds"].add(pred["kind"])
         for b in pred.get("binds", []):
-            seen["input" if b["side"] == "input" else "output"].add(b["field"])
+            side = "input" if b["side"] == "input" else "output"
+            if b["side"] not in ("input", "output"):
+                continue
+            seen[side].add(b["field"])
+            if b["kind"] == "lit":
+                seen["literals"].setdefault((side, b["field"]), set()).add(b["value"])
+
+    if node.get("op") == "cmp":
+        seen["input"].add(node["field"])
+        seen["literals"].setdefault(("input", node["field"]), set()).add(node["value"])
 
     for key in ("term", "atom", "left", "cond", "agg"):
         walk(node.get(key), seen)
@@ -71,30 +85,96 @@ def walk(node, seen: dict) -> None:
         walk(child, seen)
 
 
-def vocabulary(policies: list[dict]) -> dict:
-    seen = {"actions": set(), "kinds": set(), "input": set(), "output": set()}
+def vocabulary(policies: list[dict], amounts: int = 2, max_fields: int = 4) -> dict:
+    seen = {"actions": set(), "kinds": set(), "input": set(), "output": set(), "literals": {}}
     for p in policies:
         seen["actions"].add(p["action"])
         walk(p["cond"], seen)
 
-    # Refuse rather than approximate. Every input field shares one numeric domain below, so with
-    # two of them the model cannot set them independently and would silently UNDER-explore --
-    # reporting "vacuous" for a permit that a state we never visited would have fired. A false
-    # "vacuous" is the one wrong answer this tool must not give.
-    if len(seen["input"]) > 1:
+    # Each field gets its own domain, so fields move independently. The bound is on state space,
+    # not on soundness: the request space is the product of the domains, so it grows as
+    # values^fields. Refused above the bound rather than run until it is hopeless.
+    fields = len(seen["input"]) + len(seen["output"])
+    if fields > max_fields:
         raise Unsupported(
-            f"policy reads {len(seen['input'])} input fields ({', '.join(sorted(seen['input']))}); "
-            "the model gives every input field one shared domain, so this would under-explore")
+            f"policy reads {fields} input/output fields; the request space is the product of "
+            f"their domains, so this would explode (limit {max_fields}, raise with --max-fields)")
 
     unknown = seen["kinds"] - set(KINDS)
     if unknown:
         raise Unsupported(f"event kinds outside AgentCore's convention: {', '.join(sorted(unknown))}")
 
+    seen["domains"] = {key: field_domain(lits, amounts)
+                       for key, lits in _all_fields(seen)}
     return seen
+
+
+def _all_fields(seen: dict):
+    for side in ("input", "output"):
+        for field in sorted(seen[side]):
+            yield (side, field), seen["literals"].get((side, field), set())
+
+
+def field_domain(literals: set, amounts: int) -> list:
+    """The values one field may take: every literal the policy names, plus one it does not.
+
+    The extra value is what makes "this field does not match" reachable. Without it a field
+    compared only against `true` would always be true, and a policy that depends on it being
+    false would be reported vacuous when it is not.
+
+    A field with no literals -- bound only by `_` or by a join with the request's own context --
+    gets a small numeric range, which needs at least two values for a join to mean anything.
+    """
+    if not literals:
+        return [("n", x) for x in range(1, max(2, amounts) + 1)]
+
+    kinds = {type(v) is bool and "b" or (type(v) is int and "n" or "s") for v in literals}
+    if len(kinds) > 1:
+        raise Unsupported(f"field compared against mixed value kinds: {sorted(kinds)}")
+    kind = kinds.pop()
+
+    values = [(kind, v) for v in sorted(literals, key=str)]
+    if kind == "b":
+        # A boolean has only the two, and both are already reachable.
+        return [("b", False), ("b", True)]
+    values.append(("n", max(v for v in literals) + 1) if kind == "n" else ("s", "\u0000none"))
+    return values
 
 
 def tla_set(names) -> str:
     return "{" + ", ".join(f'"{n}"' for n in sorted(names)) + "}"
+
+
+def tla_val(kind: str, value) -> str:
+    """One tagged scalar. Kind travels with the value so TLC never compares across kinds."""
+    if kind == "b":
+        return f'[k |-> "b", v |-> {"TRUE" if value else "FALSE"}]'
+    if kind == "n":
+        return f'[k |-> "n", v |-> {value}]'
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'[k |-> "s", v |-> "{escaped}"]'
+
+
+def tla_domains(vocab: dict, side: str) -> str:
+    """`[field |-> {values}, ...]` -- what each field of one side may take."""
+    fields = sorted(vocab[side])
+    if not fields:
+        # An empty record. `[f \in {} |-> ...]` is the only way to write one in TLA+.
+        return '[f \\in {} |-> {}]'
+    entries = ", ".join(
+        f"{f} |-> {{" + ", ".join(tla_val(k, v) for k, v in vocab["domains"][(side, f)]) + "}"
+        for f in fields)
+    return f"[{entries}]"
+
+
+def tla_all_values(vocab: dict) -> str:
+    seen, out = set(), []
+    for key in sorted(vocab["domains"]):
+        for k, v in vocab["domains"][key]:
+            if (k, v) not in seen:
+                seen.add((k, v))
+                out.append(tla_val(k, v))
+    return "{" + ", ".join(out) + "}" if out else "{}"
 
 
 def policy_seq(policies: list[dict]) -> str:
@@ -132,6 +212,13 @@ Kinds        == {tla_set(vocab["kinds"] | {DECISION_KIND})}
 InputFields  == {tla_set(vocab["input"])}
 OutputFields == {tla_set(vocab["output"])}
 DecisionKind == "{DECISION_KIND}"
+
+\\* Each field's own domain: every literal the policy compares it against, plus one it does not,
+\\* so that both matching and not-matching are reachable. Fields move independently, which is
+\\* what lets a policy reading several of them be explored at all.
+InputDomain  == {tla_domains(vocab, "input")}
+OutputDomain == {tla_domains(vocab, "output")}
+AllValues    == {tla_all_values(vocab)}
 
 Policies ==
   <<
@@ -248,6 +335,10 @@ def main() -> int:
     ap.add_argument("--attempts", type=int, default=3, help="session length bound (default 3)")
     ap.add_argument("--amount", type=int, default=2,
                     help="numeric domain for input fields, 1..N (default 2)")
+    ap.add_argument("--max-fields", type=int, default=4, metavar="N",
+                    help="refuse a policy reading more than N input/output fields. The"
+                         " request space is the product of their domains, so this bounds"
+                         " state space rather than soundness (default 4)")
     ap.add_argument("--verbose", action="store_true", help="print the TLC output for each permit")
     args = ap.parse_args()
 
@@ -262,7 +353,7 @@ def main() -> int:
         # The vocabulary must span BOTH files. A version that adds a permit for an action the
         # other never mentions would otherwise never have that action attempted, and the run
         # would report "no difference" having not looked -- the one wrong answer that matters.
-        vocab = vocabulary(policies + (other or []))
+        vocab = vocabulary(policies + (other or []), args.amount, args.max_fields)
     except Unsupported as e:
         # The house rule: refuse rather than approximate. A translator that quietly mishandles a
         # construct produces a verdict nobody can attribute.

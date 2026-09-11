@@ -548,15 +548,24 @@ someone to delete a control that works. Three things are done about it:
   the approval being denied rather than to the model being unable to reach a `response` at all.
 - Anything that is **not an answer** — a parse error, an unsupported construct, a `TypeOK` failure
   — raises rather than being reported as vacuous. Silence must never read as a finding.
-- Constructs outside the modelled subset are **refused**, with the reason. A policy reading two
-  input fields is refused rather than checked, because every input field shares one numeric domain
-  in the model and two would silently under-explore:
+- Constructs outside the modelled subset are **refused**, with the reason, rather than
+  approximated. What is left to refuse is a bound on state space rather than on soundness: the
+  request space is the product of the fields' domains, so `--max-fields` caps how many a policy
+  may read (default 4).
 
-```
-REFUSED: two_fields.dw is outside the modelled subset
-  policy reads 2 input fields (amount, stock); the model gives every input field one shared
-  domain, so this would under-explore
-```
+**Each field carries its own domain**, and that domain is derived from the literals the policy
+actually compares the field against, plus one it does not — so both matching and not-matching stay
+reachable. Two things turned on this:
+
+| before | after |
+|---|---|
+| one shared domain moved every field together, so a policy reading two was **refused** — 142 of 419 parseable corpus policies, **34%** | fields move independently; **419 of 419** accepted |
+| every output field was a **boolean**, so a gate on a string output could never match | the domain follows the literal, so `output.result: "ok"` matches |
+
+That second row was a **false VACUOUS** — a working permit reported inert, which is the one wrong
+answer this tool must not give, and eight output binds in Dogwood's own corpus compare against a
+string. [`string_output.dw`](../../../tests/policies/string_output.dw) pins it. Mutation-checked:
+ignoring the literals a policy names brings the false VACUOUS straight back.
 
 A `live` verdict needs no such care: it comes with a witness session, which is evidence rather
 than an absence.

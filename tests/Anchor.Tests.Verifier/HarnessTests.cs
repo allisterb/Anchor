@@ -241,6 +241,43 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Each field carries its own domain, derived from the literals the policy names — so a policy
+    /// reading several fields can be explored, and a field's <em>type</em> is not assumed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both halves fix a real limit. One shared domain moved every field together, so a policy
+    /// reading two of them had to be refused rather than under-explored — <b>34%</b> of the
+    /// parseable corpus. And every output field was modelled as a boolean, so a gate on a string
+    /// output could never match and was reported <b>VACUOUS</b>: a working permit declared inert,
+    /// which is the one wrong answer this tool must not give. Eight output binds in Dogwood's own
+    /// corpus compare against a string.
+    /// </para>
+    /// <para>
+    /// Mutation-checked: ignoring the literals a policy names brings the false VACUOUS straight
+    /// back, which is what this test's <c>live</c> assertion catches.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task FieldDomainsComeFromTheLiteralsThePolicyNames()
+    {
+        var strings = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/string_output.dw");
+
+        Assert.True(strings.ExitCode == 0, strings.Output);
+        Assert.Matches(@"permit #2\s+action == Read\s+live", strings.Output);
+        Assert.DoesNotMatch(@"permit #\d+\s+action == \w+\s+VACUOUS", strings.Output);
+
+        // The docs' trading example reads an input field and an output field, and joins on the
+        // input — so it only works if the two move independently.
+        var trading = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw");
+
+        Assert.True(trading.ExitCode == 0, trading.Output);
+        Assert.Matches(@"permit #2\s+action == SellShares\s+live", trading.Output);
+    }
+
+    /// <summary>
     /// Policy diff: is there a session two versions of a policy set decide differently? The
     /// question a policy author actually has when editing a set somebody else wrote.
     /// </summary>

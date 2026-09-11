@@ -1,0 +1,31 @@
+// A gate on an output field whose value is a STRING, not a boolean.
+//
+// This exists because the checker got it wrong. Every output field used to be modelled as a
+// boolean, so `output.result: "ok"` could never match anything the model could produce, and the
+// permit below was reported **VACUOUS** — a permit that works perfectly, declared inert.
+//
+//     python tests/strands/vacuity.py tests/policies/string_output.dw
+//     ==> permit #2  action == Read   live   witness: Login -> Read
+//
+// A false VACUOUS is the one wrong answer this tool must not give: it tells someone a working
+// control is dead, and the obvious response is to delete it. The fix was to derive each field's
+// domain from the literals the policy actually names rather than assuming a type — mutation-checked
+// by ignoring those literals, which brings the false VACUOUS straight back.
+//
+// Eight output binds in Dogwood's own corpus compare against a string, so this was not a corner
+// nobody reaches.
+
+permit (
+    principal,
+    action == Anchor::Action::"Login",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"Read",
+    resource
+)
+when temporal {
+    formerly within 1h Anchor::Action::"Login"::response{ output.result: "ok" }
+};

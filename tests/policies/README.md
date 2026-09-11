@@ -38,6 +38,7 @@ in `specs/`; a reader looking for *what Anchor can be pointed at* should look he
 | [`redundant_permit.dw`](redundant_permit.dw) | `vacuity.py` | a gated permit under an unconditional one — **REDUNDANT**, and pointedly not vacuous |
 | [`redundant_permit_minimal.dw`](redundant_permit_minimal.dw) | `vacuity.py --against` | the same file with the redundant rule deleted. Diffs clean, confirming the advice was safe |
 | [`added_action.dw`](added_action.dw) | `vacuity.py --against` | permits an action the other file never mentions. Pins the vocabulary union that keeps *no difference* honest |
+| [`string_output.dw`](string_output.dw) | `vacuity.py` | a gate on a **string** output field. Was reported VACUOUS when every output was modelled as a boolean — pins that false alarm |
 | [`anchor.cedarschema`](anchor.cedarschema) | `dogwood_replay.py` | the Cedar schema the real engine needs to replay a trace |
 
 The three `approval_gate_*.dw` differ by exactly **one word**, which is the point: two of them are

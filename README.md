@@ -28,7 +28,8 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 | **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
-Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 43 tests, all green.
+Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 53 tests, all
+green, on Windows and Linux.
 
 **A live Strands `Graph` is translated into a model, rather than described by one.** `GraphBuilder`
 is a construction API, so the object *is* the workflow and the runtime executes that same object;
@@ -49,12 +50,15 @@ Dafny loop invariant can express.
 
 **Authorization policies are checked too, and this is where it generalises.** A policy constrains
 what an agent *does* even when nothing constrains what it decides, so it applies to every
-coordination pattern rather than one. [`specs/policy/TemporalPolicy`](specs/policy/TemporalPolicy) asks whether a
-session-aware permit can ever grant anything — and whether a rule can be deleted, and whether an
-edit changed a decision — AWS notes that temporal policies "do not currently
-support the powerful automated reasoning analysis tools that Cedar provides" — and its reading of
-those semantics is held against the reference implementation's own corpus — **786 recorded cases**,
-covering every temporal operator including the `count`/`sum` aggregations.
+coordination pattern rather than one — and it is the one part of this that ships as a tool you can
+point at your own file. AWS notes that temporal policies "do not currently support the powerful
+automated reasoning analysis tools that Cedar provides"; this answers three questions about one.
+See [Checking an authorization policy](#checking-an-authorization-policy).
+
+**The reading of Dogwood behind it is differential-tested against Dogwood**, on **786 (trace,
+expected) pairs from 398 cases** of the reference implementation's own regression corpus, and
+against the **built engine** on traces that corpus never recorded. Every operator is covered, each
+mutation-checked against the wrong reading a reasonable implementation would have picked.
 
 ## Which part of Strands this applies to
 
@@ -124,6 +128,52 @@ Worth stating plainly, because a framework like this invites overclaiming:
   spec here has an opinion about it.
 - **Nothing about code paths outside the graph.**
 
+## Checking an authorization policy
+
+```bash
+python tests/strands/vacuity.py my_policy.dw
+```
+
+Three questions about a Dogwood policy set, each answered with a **witness session** or a bounded
+no — nothing to configure, and no statement of intent required:
+
+| question | verdicts |
+|---|---|
+| Can this permit ever grant anything? | live / **VACUOUS** |
+| Is this rule load-bearing, or can it be deleted? | live / **REDUNDANT** / **DEAD** |
+| `--against other.dw` — did this edit change a decision? | **THEY DIFFER** / no difference |
+
+```
+  permit #1  action == Trade         live        witness: Approve -> Trade
+  permit #2  action == Trade         REDUNDANT   deleting it changes no verdict in any session
+  forbid #3  action == Approve       DEAD        deleting it changes no verdict in any session
+```
+
+Nothing about the policy is hand-modelled. The `.dw` text is parsed by the same parser whose reading
+agrees with the reference implementation on 786 recorded pairs, and evaluated by the same
+`DogwoodSemantics!Decide`, so what is model-checked is the policy **as written** rather than as
+paraphrased.
+
+### What it finds that reading the file does not
+
+| | |
+|---|---|
+| **One word apart, opposite security properties** | a gate on `Approve::response` requires an approval that *completed*; the same rule on `::request` matches somebody having *tried*. AgentCore records a request for every attempt, so the second grants exactly the capability the approval existed to protect — off a run of refusals. `::request` is the conventional form, 555 policy files to `::response`'s 94. |
+| **A permit killed by an unrelated rule** | forbid the approval and the sell permit still parses, still validates, still names the action — and authorizes nothing. It is not a weak control, it is zero control, and nothing in its own text says so. |
+| **A policy's meaning is not in its own text** | an `event.dwschema` can `pin` a field into every predicate. The policy never writes it, cannot see it, and cannot bypass it. Declared on *every* event kind it also partitions the trace, which changes what `previous` means — two files with the same policy and the same trace get opposite verdicts. |
+
+**Read the result backwards.** TLA+ is linear-time and has no `EF`, so reachability is asked by
+checking the negation and reading the counterexample as the witness. A TLC *violation* means the
+permit can grant — the good outcome. The tool inverts that before printing, because the raw reading
+is a trap.
+
+**VACUOUS is the answer that must never be wrong**, since it tells someone a control is dead and
+the obvious response is to delete it. It is falsification-tested rather than merely observed, and
+anything that is not an answer — a parse error, an unsupported construct — raises rather than
+reporting vacuous. Constructs outside the modelled subset are refused with a reason, never
+approximated.
+
+
 ## Prerequisites
 
 - **.NET 10 SDK.** The projects target `net10.0` and use C# 14.
@@ -134,9 +184,14 @@ Worth stating plainly, because a framework like this invites overclaiming:
 ## Building
 
 ```
-./build.sh -t          # Linux, macOS, or git bash on Windows
-./build.ps1 -Test      # PowerShell
+git clone --recursive <url>          # or: git submodule update --init
+./build.sh -t                        # Linux, macOS, or git bash on Windows
+./build.ps1 -Test                    # PowerShell
 ```
+
+**`--recursive` matters.** `ext/dogwood` is a submodule pinned at a verified commit, and two
+harnesses read from it — the Dogwood corpus and, once built, its engine. Without it they **skip**
+rather than fail, so the suite still reports green having not run them.
 
 Run either with `-h` for the full options. Both scripts fetch the native dependencies into `lib/`,
 verify them, build the solution, and — with `-t` / `-Test` — run the tests. `lib/` is gitignored, so
@@ -178,12 +233,16 @@ and explain how to record a hash rather than installing an unverified solver.
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |
 | `tests/Anchor.Tests.Verifier` | tests for both verifiers, and for the Python harnesses below |
-| `tests/strands/` | the graph translator and the differential tests, run against the real SDK |
-| `specs/` | models of agent workflows, one directory per subject, all checked by the test suite |
+| `tests/strands/` | the graph translator, the differential tests and the policy tool, run against the real SDK |
+| `tests/policies/` | `.dw` policy fixtures the harnesses are pointed at — inputs, not models |
+| `specs/strands/` | models of the SDK's own behaviour: graph readiness, the executor loop, the tool hook |
+| `specs/policy/` | what an authorization decision means: Cedar, and Dogwood's temporal policies |
+| `specs/foundations/` | properties any agent has: budgets, retry, the task lifecycle |
 | `docs/` | framework documentation; `docs/agent/` holds internal working notes — handoffs and task writeups |
 | `requirements/` | dependency pins: `strands/` for Python (hash-locked), `dogwood/` for the Rust lockfile |
 | `python/` | the Python venv the Strands SDK is installed into (gitignored) |
 | `lib/` | native dependencies, fetched by the build scripts (gitignored) |
+| `ext/dogwood` | the Dogwood source, a git submodule pinned at a commit verified byte-for-byte against the snapshot that was scanned and audited. Built by CI on Linux. **Never edit** |
 | `reference/` | third-party source read for reference, never built (gitignored) |
 
 ## Python

@@ -75,8 +75,31 @@ Anon == Str("caller")
 Amounts == 1..MaxAmount
 
 \* The domain a bound variable of non-Timepoint type ranges over -- what
-\* `count`/`sum ... for (a: Long)` quantifies across.
-Values == {Num(x) : x \in Amounts}
+\* `count`/`sum ... for (a: Long)` quantifies across. Every value any field can take, so a
+\* binder ranges over values that actually occur rather than over an invented range.
+Values == AllValues
+
+(***************************************************************************)
+(* THE REQUESTS THE AGENT MAY MAKE.                                        *)
+(*                                                                         *)
+(* Each field carries its OWN domain, generated from the literals the      *)
+(* policy compares it against plus one it does not, so that both matching  *)
+(* and not-matching are reachable. One shared domain would move every      *)
+(* field together, and a policy reading two of them could then never be    *)
+(* explored -- which is why such policies used to be refused outright.     *)
+(*                                                                         *)
+(* TLA+ has no dependent function space, so this is the full function      *)
+(* space over every value, filtered to the records each field allows.      *)
+(***************************************************************************)
+Inputs == {g \in [InputFields -> AllValues] :
+              \A f \in InputFields : g[f] \in InputDomain[f]}
+
+Outputs == {g \in [OutputFields -> AllValues] :
+               \A f \in OutputFields : g[f] \in OutputDomain[f]}
+
+\* A request carries no outputs -- only its outcome does. The corpus traces are written that
+\* way, and a predicate binding an output field must not match a request event.
+NoOutput == [f \in {} |-> Str("")]
 
 MaxTime == 2 * MaxAttempts
 
@@ -105,15 +128,12 @@ Init ==
 (* only fields some condition actually reads are modelled, so a policy     *)
 (* that joins on nothing costs nothing to check.                           *)
 (***************************************************************************)
-Input(amount)    == [f \in InputFields  |-> Num(amount)]
-Output(approved) == [f \in OutputFields |-> Bool(approved)]
-
-Event(action, kind, amount, approved, t) ==
+Event(action, kind, input, output, t) ==
     [time      |-> t,
      action    |-> action,
      kind      |-> kind,
-     input     |-> Input(amount),
-     output    |-> Output(approved),
+     input     |-> input,
+     output    |-> output,
      principal |-> Anon,
      resource  |-> Anon]
 
@@ -178,14 +198,16 @@ Granted(h, idx) ==
 (* fire off nothing but refusals. Requiring the decision here would hide   *)
 (* precisely the case worth finding.                                       *)
 (***************************************************************************)
-Attempt(action, amount, approved) ==
+Attempt(action, input, output) ==
     /\ Len(trace) + 2 <= MaxTime
     /\ LET t       == Len(trace) + 1
-           withReq == Append(trace, Event(action, DecisionKind, amount, FALSE, t))
+           withReq == Append(trace, Event(action, DecisionKind, input, NoOutput, t))
            idx     == Len(withReq)
            ok      == Allowed(withReq, idx)
-           outcome == IF ok THEN Event(action, "response", amount, approved, t + 1)
-                            ELSE Event(action, "error", amount, FALSE, t + 1)
+           \* A denied action produces no outputs either -- AgentCore records the failure,
+           \* not a result.
+           outcome == IF ok THEN Event(action, "response", input, output, t + 1)
+                            ELSE Event(action, "error", input, NoOutput, t + 1)
        IN /\ trace' = Append(withReq, outcome)
           /\ fired' = fired \union Granted(withReq, idx)
           \* Compared on the history `Policies` produced. Sound for both questions: the two
@@ -198,8 +220,8 @@ Attempt(action, amount, approved) ==
 \* either verdict. All of it is behaviour, so a VACUOUS result holds whatever
 \* the agent and the approver do -- which is what makes it worth stating.
 Next ==
-    \E action \in Actions, amount \in Amounts, approved \in BOOLEAN :
-        Attempt(action, amount, approved)
+    \E action \in Actions, input \in Inputs, output \in Outputs :
+        Attempt(action, input, output)
 
 \* No fairness. Vacuity is a reachability question -- does ANY session make this
 \* permit grant -- so nothing needs to be forced to happen.
