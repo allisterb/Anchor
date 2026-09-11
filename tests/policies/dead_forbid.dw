@@ -1,0 +1,25 @@
+// A forbid that denies nothing, because nothing was ever going to be allowed.
+//
+// `Approve` has no permit, so it is denied by default. The forbid below then changes no verdict
+// in any session: delete it and every decision comes out the same. It reads like a control and is
+// not one.
+//
+//     python tests/strands/vacuity.py tests/policies/dead_forbid.dw
+//     ==> forbid #2  action == Approve   DEAD   deleting it changes no verdict in any session
+//
+// Worth separating from the tidiness argument. A dead forbid is not merely surplus: somebody wrote
+// it believing they were closing something, and the thing they meant to close was already shut for
+// an unrelated reason. If the permit it was guarding against is ever added, the forbid starts
+// mattering — and nobody will connect the two changes.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+forbid (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+);

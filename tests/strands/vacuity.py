@@ -142,16 +142,22 @@ CONSTANTS
 
 INVARIANT TypeOK
 
-\\* MEANT TO FAIL. A violation is the witness session proving this permit can grant
-\\* something; a clean run means it never does. See the header of Vacuity.tla.
-INVARIANT NeverFires
+\\* MEANT TO FAIL. A violation is the witness session; a clean run means there is none.
+\\* See the header of Vacuity.tla for why the reading is inverted.
+INVARIANT {invariant}
 """
 
 
-def check_one(work: Path, target: int, attempts: int, amount: int) -> tuple[bool, str]:
-    """Returns (permit can fire, TLC output). Raises if TLC could not answer."""
+def check_one(work: Path, target: int, attempts: int, amount: int,
+              invariant: str = "NeverFires") -> tuple[bool, str]:
+    """Returns (a witness exists, TLC output). Raises if TLC could not answer.
+
+    `NeverFires`   a witness means the permit CAN grant something -- it is live.
+    `NeverMatters` a witness means deleting the rule WOULD change a verdict -- it is load-bearing.
+    """
     (work / "Vacuity.cfg").write_text(
-        CONFIG.format(attempts=attempts, amount=amount, target=target), encoding="utf-8")
+        CONFIG.format(attempts=attempts, amount=amount, target=target, invariant=invariant),
+        encoding="utf-8")
 
     proc = subprocess.run(
         ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
@@ -159,7 +165,7 @@ def check_one(work: Path, target: int, attempts: int, amount: int) -> tuple[bool
         cwd=work, capture_output=True, text=True)
     out = proc.stdout + proc.stderr
 
-    if "Invariant NeverFires is violated" in out:
+    if f"Invariant {invariant} is violated" in out:
         return True, out
     if proc.returncode == 0 and "Model checking completed" in out:
         return False, out
@@ -206,16 +212,16 @@ def main() -> int:
         return 2
 
     permits = [i + 1 for i, p in enumerate(policies) if p["effect"] == "permit"]
-    forbids = len(policies) - len(permits)
+    forbids = [i + 1 for i, p in enumerate(policies) if p["effect"] == "forbid"]
 
-    print(f"{args.policy.name}: {len(permits)} permit(s), {forbids} forbid(s), "
+    print(f"{args.policy.name}: {len(permits)} permit(s), {len(forbids)} forbid(s), "
           f"bound {args.attempts} attempts\n")
 
-    if not permits:
-        print("nothing to check -- a file with no permit grants nothing by construction")
+    if not policies:
+        print("nothing to check -- the file declares no rules")
         return 0
 
-    vacuous = []
+    findings = []
     with tempfile.TemporaryDirectory(prefix="anchor-vacuity-") as tmp:
         work = Path(tmp)
         (work / "PolicyUnderTest.tla").write_text(
@@ -223,29 +229,59 @@ def main() -> int:
         for module in ("Vacuity.tla", "DogwoodSemantics.tla"):
             shutil.copyfile(SPECS / module, work / module)
 
-        for i in permits:
-            fires, out = check_one(work, i, args.attempts, args.amount)
-            p = policies[i - 1]
-            label = f'permit #{i}  action == {p["action"]}'
+        for i, rule in enumerate(policies, 1):
+            label = f'{rule["effect"]} #{i}  action == {rule["action"]}'
 
-            if fires:
-                print(f"  {label:34} live      witness: {witness(out)}")
+            # Does deleting this rule change any verdict? One question, both shapes: a forbid
+            # that never denies, and a permit some other permit always covers.
+            matters, out = check_one(work, i, args.attempts, args.amount, "NeverMatters")
+
+            # For a permit, ask the sharper question too. Vacuous implies redundant, so a
+            # permit reported vacuous is also deletable -- but "never fires at all" is a more
+            # useful thing to be told than "something else covers it".
+            fires = None
+            if rule["effect"] == "permit":
+                fires, fout = check_one(work, i, args.attempts, args.amount, "NeverFires")
+                if fires:
+                    out = fout
+
+            if rule["effect"] == "permit" and not fires:
+                verdict, note = "VACUOUS", f"no session of up to {args.attempts} attempts makes it grant"
+            elif not matters:
+                verdict = "REDUNDANT" if rule["effect"] == "permit" else "DEAD"
+                note = "deleting it changes no verdict in any session"
             else:
-                print(f"  {label:34} VACUOUS   no session of up to {args.attempts} "
-                      "attempts makes it grant")
-                vacuous.append(i)
+                verdict, note = "live", f"witness: {witness(out)}"
+
+            findings.append((i, rule["effect"], verdict))
+            print(f"  {label:34} {verdict:10}{note}")
 
             if args.verbose:
                 print("\n".join(f"      {line}" for line in out.splitlines()))
 
     print()
-    if vacuous:
-        print(f"{len(vacuous)} vacuous permit(s): {', '.join(f'#{i}' for i in vacuous)}.\n"
-              "A vacuous permit authorizes nothing. If it is the control someone is relying on,\n"
-              "the capability it was meant to grant is unreachable -- and if it is a gate someone\n"
-              "is relying on, whatever it guards is protected by accident rather than by design.")
+    dead = [(i, e, v) for i, e, v in findings if v != "live"]
+    if dead:
+        for i, effect, verdict in dead:
+            print(f"{verdict} {effect} #{i}")
+        print()
+        print("A rule that changes no verdict can be deleted, and a policy set is easier to reason")
+        print("about the fewer of them it has.")
+
+        # Only the verdicts actually reported. Explaining one that did not occur is noise, and it
+        # also makes the output awkward to assert on.
+        seen = {v for _, _, v in dead}
+        legend = {
+            "VACUOUS": ("  VACUOUS    the permit never fires at all -- whatever it was meant to\n"
+                        "             allow is unreachable, a bug rather than untidiness"),
+            "REDUNDANT": "  REDUNDANT  it fires, but another permit always would too",
+            "DEAD": "  DEAD       the forbid never denies anything the rest of the set would allow",
+        }
+        for verdict in ("VACUOUS", "REDUNDANT", "DEAD"):
+            if verdict in seen:
+                print(legend[verdict])
     else:
-        print(f"every permit can grant something within {args.attempts} attempts.\n"
+        print(f"every rule is load-bearing within {args.attempts} attempts.\n"
               "That is not a proof of correctness -- only that none of them is inert.")
 
     # Vacuity is a finding, not an error. The exit code says whether the run ANSWERED.

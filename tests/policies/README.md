@@ -34,6 +34,8 @@ in `specs/`; a reader looking for *what Anchor can be pointed at* should look he
 | [`approval_gate_request.dw`](approval_gate_request.dw) | `vacuity.py`, `dogwood_replay.py` | one word different, and live. The weak form, and the conventional one |
 | [`approval_gate_error.dw`](approval_gate_error.dw) | `dogwood_replay.py` | matches the denial itself — rules out "error events are invisible" |
 | [`overridden_permit.dw`](overridden_permit.dw) | `vacuity.py` | matches everything, grants nothing. The second shape of vacuity |
+| [`dead_forbid.dw`](dead_forbid.dw) | `vacuity.py` | a forbid on an action no permit covers — **DEAD**, it denies nothing |
+| [`redundant_permit.dw`](redundant_permit.dw) | `vacuity.py` | a gated permit under an unconditional one — **REDUNDANT**, and pointedly not vacuous |
 | [`anchor.cedarschema`](anchor.cedarschema) | `dogwood_replay.py` | the Cedar schema the real engine needs to replay a trace |
 
 The three `approval_gate_*.dw` differ by exactly **one word**, which is the point: two of them are

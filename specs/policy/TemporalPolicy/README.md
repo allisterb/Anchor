@@ -314,6 +314,11 @@ All six turn the run red. The third and fourth matter most: each is what a reaso
 implementation would do first.
 
 
+**Widening stopped here on 2026-09-11.** The remaining corpus is about **17%** of the evidence —
+102 cases / 168 traces / 535 verdict lines, against 419 / 834 / 2770 accepted. Every temporal
+operator, both aggregations, all four pin shapes and the partition semantics are validated; what is
+left is mostly literal syntax, which exercises the parser rather than the reading of the language.
+
 **123 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
 that remain contain **no pin at all** -- they are in the corpus for renamed reserved fields, deep
 paths and injected slots, each a separate feature. The rest: macro calls and parameter sigils,
@@ -511,6 +516,48 @@ exactly that reason.
 It also exercises the two constructs the smaller cases do not: the first-order join
 (`input.stock: context.input.stock` — *an approval for **this** stock*, which a propositional
 temporal logic cannot express) and an output-field bind (`output.approved: true`).
+
+### Beyond vacuity: is each rule load-bearing?
+
+Vacuity asks whether a permit can ever grant. The wider question is whether a rule **decides
+anything at all**, and it has one definition:
+
+> A rule is load-bearing when **deleting it changes some verdict**. If no session notices its
+> removal, it can go.
+
+That covers both of the things worth reporting about an inert rule, with the same machinery:
+
+| verdict | what it means | why it matters |
+|---|---|---|
+| **VACUOUS** | the permit never fires in any session | a **bug** — whatever it was meant to allow is unreachable |
+| **REDUNDANT** | it fires, but another permit always would too | works fine, and the next reader still has to work out that it decides nothing |
+| **DEAD** | the forbid never denies anything the rest would have allowed | somebody wrote it believing they were closing something already shut |
+
+**The three are not collapsed, because they are different findings.** Vacuous *implies* redundant,
+so a checker that only asked the wider question would answer "redundant" for a broken permit and
+bury a bug under a tidiness note. [`redundant_permit.dw`](../../../tests/policies/redundant_permit.dw)
+is the case that pins the distinction: its second permit fires perfectly well and is still
+deletable, and the suite asserts it is *not* reported vacuous.
+
+A dead forbid deserves one more sentence than tidiness allows. It is inert **given the rest of the
+set** — so if the permit it was guarding against is ever added, it silently starts mattering, and
+nobody will connect the two changes.
+
+```bash
+python tests/strands/vacuity.py tests/policies/dead_forbid.dw
+```
+```
+  permit #1  action == Trade         live      witness: Trade
+  forbid #2  action == Approve       DEAD      deleting it changes no verdict in any session
+```
+
+**The comparison is exact, not an approximation.** `Vacuity.tla` evaluates both the full policy set
+and the set without `Target` at each decision, on histories the **full** set produced. If they agree
+at every decision along every such history, the reduced set would have produced those same
+histories — by induction on the trace — so agreeing everywhere really does mean the rule is
+deletable. Mutation-checked where it would silently over-report: make the "set without this rule" a
+no-op and every rule reports redundant, which the `live` assertion catches.
+
 
 ### The two shapes of vacuity
 

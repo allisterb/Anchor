@@ -201,6 +201,57 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Beyond vacuity: is each rule <b>load-bearing</b> — does deleting it change any verdict?
+    /// One question, and it covers a dead <c>forbid</c> and a redundant <c>permit</c> alike.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three verdicts are deliberately not collapsed, because they are different findings.
+    /// <b>VACUOUS</b> means the permit never fires at all — whatever it was meant to allow is
+    /// unreachable, which is a bug rather than untidiness. <b>REDUNDANT</b> means it fires
+    /// perfectly well and another permit always would too. <b>DEAD</b> means the forbid never
+    /// denies anything the rest of the set would have allowed. Vacuous implies redundant; the
+    /// converse does not hold, and <c>redundant_permit.dw</c> is the case that proves the
+    /// checker tells them apart rather than reporting the weaker answer for both.
+    /// </para>
+    /// <para>
+    /// Mutation-checked where it would silently over-report: making the "policy set without this
+    /// rule" a no-op turns every rule redundant, and this test's <c>live</c> assertion catches it.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task LoadBearingCheckSeparatesDeadRedundantAndLive()
+    {
+        // A forbid on an action no permit covers. It reads like a control and denies nothing,
+        // because default-deny had already shut that door.
+        var forbid = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/dead_forbid.dw");
+
+        Assert.True(forbid.ExitCode == 0, forbid.Output);
+        Assert.Matches(@"permit #1\s+action == Trade\s+live", forbid.Output);
+        Assert.Matches(@"forbid #2\s+action == Approve\s+DEAD", forbid.Output);
+
+        // A gated permit sitting under an unconditional one. It fires — so it is NOT vacuous —
+        // and it still decides nothing.
+        var redundant = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/redundant_permit.dw");
+
+        Assert.True(redundant.ExitCode == 0, redundant.Output);
+        Assert.Matches(@"permit #2\s+action == Trade\s+REDUNDANT", redundant.Output);
+        // Targets the verdict column, not the prose. A bare DoesNotContain matched the legend
+        // that explains the word, which is a different thing from reporting it.
+        Assert.DoesNotMatch(@"permit #\d+\s+action == \w+\s+VACUOUS", redundant.Output);
+
+        // And the distinction survives: a permit a forbid always overrides is still VACUOUS,
+        // not merely redundant.
+        var vacuous = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/overridden_permit.dw");
+
+        Assert.True(vacuous.ExitCode == 0, vacuous.Output);
+        Assert.Matches(@"permit #1\s+action == Trade\s+VACUOUS", vacuous.Output);
+    }
+
+    /// <summary>
     /// The generic checker, run on the AgentCore documentation's own trading example, reproduces
     /// the finding <c>TemporalPolicy.tla</c> reaches by hand — from the policy text, with nobody
     /// translating anything.

@@ -52,7 +52,6 @@ ASSUME VacuityAssumption ==
     /\ MaxAttempts \in Nat /\ MaxAttempts > 0
     /\ MaxAmount \in Nat /\ MaxAmount > 0
     /\ Target \in DOMAIN Policies
-    /\ Policies[Target].effect = "permit"
 
 \* `Cases` is only read by DogwoodSemantics!Agree, which this module never calls;
 \* the evaluator's Decide takes its trace and policies as arguments.
@@ -82,17 +81,20 @@ MaxTime == 2 * MaxAttempts
 
 VARIABLES
     trace,      \* the session's recorded trajectory -- all the engine can see
-    fired       \* indices of permits that have actually GRANTED something
+    fired,      \* indices of permits that have actually GRANTED something
+    mattered    \* TRUE once removing Target would have changed a verdict
 
-vars == <<trace, fired>>
+vars == <<trace, fired, mattered>>
 
 TypeOK ==
     /\ fired \subseteq DOMAIN Policies
+    /\ mattered \in BOOLEAN
     /\ Len(trace) \in 0..MaxTime
 
 Init ==
     /\ trace = << >>
     /\ fired = {}
+    /\ mattered = FALSE
 
 (***************************************************************************)
 (* Events carry exactly the fields the evaluator reads: action, kind,      *)
@@ -123,6 +125,24 @@ Hit(h, idx) ==
     {k \in DOMAIN Policies : D!PolicyMatches(Policies[k], h, idx, h[idx], Values)}
 
 Allowed(h, idx) == D!Decide(h, Policies, idx, Values)
+
+(***************************************************************************)
+(* THE POLICY SET WITHOUT `Target`, and the verdict it would give.         *)
+(*                                                                         *)
+(* A rule is LOAD-BEARING when deleting it changes something. That one     *)
+(* question covers both shapes worth reporting:                            *)
+(*                                                                         *)
+(*   a DEAD forbid      never denies anything the rest would have allowed  *)
+(*   a REDUNDANT permit fires, but another permit always would too         *)
+(*                                                                         *)
+(* Distinct from vacuity, and the diagnoses are worth keeping apart: a     *)
+(* vacuous permit never fires at all where a redundant one fires and is    *)
+(* covered. Vacuous implies redundant; the converse does not.              *)
+(***************************************************************************)
+Without == [j \in 1..(Len(Policies) - 1) |->
+               IF j < Target THEN Policies[j] ELSE Policies[j + 1]]
+
+AllowedWithout(h, idx) == D!Decide(h, Without, idx, Values)
 
 \* A permit GRANTED only when it matched and the request was allowed. A permit
 \* that matches but is always overridden by a forbid authorizes nothing, and
@@ -157,6 +177,10 @@ Attempt(action, amount, approved) ==
                             ELSE Event(action, "error", amount, FALSE, t + 1)
        IN /\ trace' = Append(withReq, outcome)
           /\ fired' = fired \union Granted(withReq, idx)
+          \* Compared on the history the FULL set produced, which is the one that really
+          \* happens. If the two never differ along any such history they never differ at
+          \* all, because the reduced set would have produced the same history.
+          /\ mattered' = (mattered \/ (ok # AllowedWithout(withReq, idx)))
 
 \* The agent may attempt anything, with any input, and an approver may return
 \* either verdict. All of it is behaviour, so a VACUOUS result holds whatever
@@ -173,5 +197,11 @@ Spec == Init /\ [][Next]_vars
 (* THE PROPERTY. Checked as an invariant and MEANT TO FAIL; see the header.*)
 (***************************************************************************)
 NeverFires == Target \notin fired
+
+\* Also checked as an invariant and also MEANT TO FAIL. A violation is the witness
+\* session where deleting the rule would have changed the verdict -- so the rule is
+\* load-bearing. A clean run means it can be deleted without any session noticing:
+\* a dead forbid, or a redundant permit.
+NeverMatters == ~mattered
 
 =============================================================================

@@ -1,0 +1,31 @@
+// A permit that fires, and grants nothing the set would not have granted anyway.
+//
+// The second permit is the interesting one. It is NOT vacuous -- give it an approval and its
+// condition holds, so it fires. It is redundant: the first permit already allows every Trade
+// unconditionally, so deleting the second changes no verdict in any session.
+//
+//     python tests/strands/vacuity.py tests/policies/redundant_permit.dw
+//     ==> permit #2  action == Trade   REDUNDANT   deleting it changes no verdict in any session
+//
+// That distinction is the reason both questions are asked rather than one. A VACUOUS permit never
+// fires at all and is a bug: whatever it was meant to allow is unreachable. A REDUNDANT permit
+// works perfectly and is still worth deleting, because the next person has to read it and work out
+// that it never decides anything.
+//
+// This shape arrives by accretion rather than by anyone writing it: a broad rule is added later
+// "temporarily", and the careful gated rule underneath it quietly stops mattering.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Approve"::request{ }
+};
