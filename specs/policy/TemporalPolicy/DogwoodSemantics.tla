@@ -362,9 +362,9 @@ CondHolds(c, trace, upto, dec, asg, values) ==
 (* forbid overrides permit.                                                *)
 (***************************************************************************)
 PolicyMatches(p, trace, upto, dec, values) ==
-    \* A bare `action` in the scope names nothing and so constrains nothing. Carried as the
-    \* empty string, which no real action is called.
-    /\ p.action = "" \/ p.action = dec.action
+    \* The actions this policy applies to. EMPTY means every action -- a bare `action` scope
+    \* constrains nothing -- and a set with more than one is `action in [A, B]`.
+    /\ p.actions = {} \/ dec.action \in p.actions
     /\ CondHolds(p.cond, trace, upto, dec, << >>, values)
 
 Decide(trace, policies, idx, values) ==

@@ -222,7 +222,7 @@ public class HarnessTests : TestsRuntime
         // than it did — would otherwise still report a hollow success.
         var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) of (\d+)");
         Assert.True(m.Success, run.Output);
-        Assert.True(int.Parse(m.Groups[1].Value) >= 32,
+        Assert.True(int.Parse(m.Groups[1].Value) >= 37,
                     $"only {m.Groups[1].Value} examples translated\n{run.Output}");
     }
 

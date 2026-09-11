@@ -43,7 +43,9 @@ evaluation -- the machinery enumerating an aggregate's satisfying assignments al
 
 `phi` is either a temporal term or -- with NO temporal operator anywhere in it -- a bare
 conjunction of atoms, which means "at the decision's own timepoint". An unwrapped aggregate counts
-what is happening now rather than what has happened. The two are told apart by looking for a
+what is happening now rather than what has happened. A bare predicate at the TOP level of a
+`when temporal` block means the same thing, which the built engine was asked directly rather than
+inferred: one naming an action the decision is not denies, even with such an event in the trace. The two are told apart by looking for a
 temporal keyword in the body, not by parsing and backtracking: a failure inside the temporal
 reading can mean "this is the bare form" or "this uses something unsupported", and catching it
 would conflate them.
@@ -180,7 +182,7 @@ TOKEN = re.compile(r"""
     | (?P<param>\?[A-Za-z_][A-Za-z0-9_]*)
     | (?P<binder>\$[A-Za-z_][A-Za-z0-9_]*)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
-    | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}\[\]:.,<>=+?$-])
+    | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}\[\]:.,<>=+?$*-])
     | (?P<ws>\s+)
 """, re.X)
 
@@ -502,6 +504,20 @@ class Parser:
         return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
 
     def cedar_unary(self) -> dict:
+        # `if C then A else B` is `(C && A) || (!C && B)`. Both branches are boolean here, so the
+        # identity is exact; desugaring keeps the condition vocabulary the model checks unchanged.
+        if self.peek() == "if":
+            self.take()
+            cond = self.cedar_expr()
+            self.expect("then")
+            yes = self.cedar_expr()
+            self.expect("else")
+            no = self.cedar_expr()
+            return {"op": "or", "args": [
+                {"op": "and", "args": [cond, yes]},
+                {"op": "and", "args": [{"op": "not", "args": [cond]}, no]},
+            ]}
+
         if self.peek() == "!":
             self.take()
             return {"op": "not", "args": [self.cedar_unary()]}
@@ -535,9 +551,6 @@ class Parser:
         produces it; see the module header for why that mattered.
         """
         head, nxt = self.peek(), self.peek(1)
-
-        if head == "if":
-            raise Unsupported("policy uses an if/then/else expression, which is not modelled")
 
         if nxt == "::":
             # Walk the `::` chain. `Lists::Allowed(...)` is an information provider -- a
@@ -590,8 +603,16 @@ class Parser:
         # An atom, like the right operand: a predicate, a group, a comparison. `!(A) since ...`
         # negates that operand rather than the whole term.
         left = self.atom()
+
+        # No `since` after it, so this is a BARE predicate: an anti-join at the decision's own
+        # timepoint rather than anything about history. The engine settles the reading -- a bare
+        # predicate naming an action the decision is not denies, even when the trace contains one.
+        # Same `at` shape the unwrapped-aggregate body uses.
         if self.peek() != "since":
-            raise Unsupported(f"bare predicate with no temporal operator (next: {self.peek()!r})")
+            at = {"op": "not", "args": [left]} if neg else left
+            return {"op": "term",
+                    "term": {"op": "at", "window": 0, "atom": at,
+                             "left": at, "leftNeg": False}}
         self.take()
         self.expect("within")
         window = self.duration(self.take())
@@ -793,7 +814,10 @@ class Parser:
         self.expect(":")
 
         nxt = self.peek()
-        if nxt == "_":
+        # `_` and `*` are both "matches anything, binds nothing". The grammar gives `*` its own
+        # rule and `_` falls out of `ident` as a variable no one else names; the two coincide, and
+        # the corpus writes `_` while the examples write `*`.
+        if nxt in ("_", "*"):
             self.take()
             return {"side": lhs, "field": field, "kind": "any", "name": "", "value": ""}
         if nxt == "context":
@@ -978,19 +1002,26 @@ def parse_policies(text: str, macros_text: str = "") -> list[dict]:
         effect, scope, body = m.group(1), " ".join(m.group(2).split()), " ".join(m.group(3).split())
 
         sm = re.fullmatch(r'principal,\s*action == \w+::Action::"([^"]+)",\s*resource', scope)
+        im = re.fullmatch(r"principal,\s*action in \[([^\]]*)\],\s*resource", scope)
         if sm:
-            action = sm.group(1)
+            actions = [sm.group(1)]
+        elif im:
+            # `action in [Drupe::Action::"Read", Drupe::Action::"Write"]` -- the policy applies to
+            # any of them. A set, so this is not a third shape.
+            actions = re.findall(r'\w+::Action::"([^"]+)"', im.group(1))
+            if not actions:
+                raise Unsupported(f"action set {im.group(1)!r} names no actions")
         elif re.fullmatch(r"principal,\s*action,\s*resource", scope):
-            # A bare `action` constrains nothing: the policy applies to EVERY action. Carried as
-            # the empty string, which PolicyMatches reads as "any" -- no action is named "".
-            action = ""
+            # A bare `action` constrains nothing: the policy applies to EVERY action. The empty
+            # SET says that, where an empty string was a sentinel a real action could collide with.
+            actions = []
         else:
             # A constrained `principal` or `resource` changes what the policy applies to, and
             # scope entities beyond the pin correlation are not modelled.
             raise Unsupported(f"scope {scope!r}")
 
         if not body:
-            policies.append({"effect": effect, "action": action,
+            policies.append({"effect": effect, "actions": actions,
                              "cond": {"op": "true", "args": []}})
             continue
 
@@ -999,7 +1030,7 @@ def parse_policies(text: str, macros_text: str = "") -> list[dict]:
         if p.peek() is not None:
             raise Unsupported(f"trailing tokens from {p.peek()!r}")
 
-        policies.append({"effect": effect, "action": action, "cond": cond})
+        policies.append({"effect": effect, "actions": actions, "cond": cond})
 
     if not policies:
         raise Unsupported("no policies parsed")

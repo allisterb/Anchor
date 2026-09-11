@@ -185,13 +185,19 @@ def tla_cond(c: dict) -> str:
     return f'[op |-> "{c["op"]}", args |-> <<{args}>>, term |-> {DUMMY_TERM}]'
 
 
-def policy_seq(policies: list[dict], indent: str = "    ") -> str:
+def policy_seq(policies: list[dict], indent: str = "    ", sep: str = ",\n") -> str:
     """A policy list as the TLA+ sequence `Decide` walks.
 
-    This lived in two places -- `dw_to_tla` and `vacuity` -- character for character, which is what
-    a missing library layer looks like from the outside.
+    This lived in THREE places -- `dw_to_tla`, `vacuity` and `dogwood_differential` -- character
+    for character, which is what a missing library layer looks like from the outside. It matters
+    beyond tidiness: `actions` replacing `action` had to agree across all three at once.
+
+    `actions` is a SET, and the empty set means the policy applies to every action. A bare `action`
+    scope and an `action in [...]` scope are then the same shape, and there is no sentinel string
+    a real action name could collide with.
     """
-    return ",\n".join(
-        f'{indent}[effect |-> "{p["effect"]}", action |-> "{p["action"]}", '
+    return sep.join(
+        f'{indent}[effect |-> "{p["effect"]}", '
+        f'actions |-> {{{", ".join(chr(34) + a + chr(34) for a in p["actions"])}}}, '
         f'cond |-> {tla_cond(p["cond"])}]'
         for p in policies)

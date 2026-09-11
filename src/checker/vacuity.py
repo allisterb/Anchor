@@ -106,7 +106,7 @@ def vocabulary(policies: list[dict], amounts: int = 2, max_fields: int = 4) -> d
     seen = {"actions": set(), "kinds": set(), "input": set(), "output": set(),
             "literals": {}, "patterns": {}}
     for p in policies:
-        seen["actions"].add(p["action"])
+        seen["actions"].update(p["actions"])
         walk(p["cond"], seen)
 
     # Two `like` patterns on ONE field need a value satisfying BOTH, or the conjunction looks
@@ -433,7 +433,8 @@ def main() -> int:
             shutil.copyfile(SPECS / module, work / module)
 
         for i, rule in enumerate(policies, 1):
-            label = f'{rule["effect"]} #{i}  action == {rule["action"]}'
+            shown = " | ".join(rule["actions"]) or "(any)"
+            label = f'{rule["effect"]} #{i}  action == {shown}'
 
             # Does deleting this rule change any verdict? One question, both shapes: a forbid
             # that never denies, and a permit some other permit always covers.

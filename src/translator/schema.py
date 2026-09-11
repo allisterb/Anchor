@@ -54,6 +54,19 @@ EVENT = re.compile(r"^\s*(decision\s+)?event\s+<A>::([A-Za-z_]\w*)\s*\{", re.M)
 
 CONVENTIONAL = {"request", "response", "error"}
 
+# The fields the default AgentCore event schema declares. A schema carrying only these, pinned or
+# not, tells the model nothing it does not already assume; one carrying anything else is declaring
+# a feature -- an injected slot, a renamed slot, a nested or deep group -- and every such feature
+# changes what a policy means.
+#
+# Read off the corpus rather than off the documentation: all nine schema-bearing cases with no pin
+# declare a field outside this set, and that is what each of them is in the corpus to test.
+CONVENTIONAL_FIELDS = {"...inputs", "...outputs", "callerPrincipal", "callerResource",
+                       "requestId", "sessionId"}
+
+# A top-level entry in an event block: `name: type`, `pin name: type = source`, or `...inputs(A)`.
+FIELD = re.compile(r"^\s*(?:pin\s+)?(\.\.\.[A-Za-z_]\w*|[A-Za-z_]\w*)\s*[:(]", re.M)
+
 # The two SCOPE fields. These partition on something the event carries in its `scope(...)`
 # envelope rather than in its payload, which is why they stay special everywhere below.
 SCOPE_PINS = {"callerPrincipal": "principal", "callerResource": "resource"}
@@ -89,17 +102,23 @@ def parse_schema(text: str) -> dict:
     """
     text = re.sub(r"//[^\n]*", "", text)
 
-    kinds, pins = [], {}
+    kinds, pins, blocks, pinned = [], {}, {}, {}
     for m in EVENT.finditer(text):
         kind = m.group(2)
         kinds.append(kind)
         block = _block(text, m.end())
+        blocks[kind] = block
         declared = dict(PIN.findall(block))
+        # The names a pin is attached to, whatever their shape. A field outside the default set
+        # is the modelled feature when it carries one, and an unmodelled one when it does not.
+        names = set(declared)
         # `__drupe: { pin session_id: String = context.__drupe.session_id }` -- a pin on a leaf
         # inside a reserved group, which reads as the dotted path it names.
         for group, leaf, source in NESTED_PIN.findall(block):
             declared[f"{group}.{leaf}"] = source
+            names.add(group)
         pins[kind] = declared
+        pinned[kind] = names
 
     if not kinds:
         raise Unsupported("event schema declares no event kinds")
@@ -108,11 +127,18 @@ def parse_schema(text: str) -> dict:
     if unknown:
         raise Unsupported(f"schema declares custom event kinds: {', '.join(sorted(unknown))}")
 
+    # What the schema declares beyond the default shape. A pin on a conventional field is the
+    # modelled feature; anything else is a different one, and is named rather than lumped in.
+    for kind, block in blocks.items():
+        extra = sorted({f for f in FIELD.findall(block)
+                        if f not in CONVENTIONAL_FIELDS and f not in pinned[kind]})
+        if extra:
+            raise Unsupported(
+                f"event schema declares {', '.join(extra)} on <A>::{kind}, which is an injected, "
+                f"renamed or nested slot rather than a pin -- a separate feature, not modelled",
+                "schema declares a field beyond the default shape")
+
     declared = set().union(*pins.values()) if pins else set()
-    if not declared:
-        # The other ten schema cases -- renamed slots, deep paths, injected fields. Each is a
-        # separate feature, and none of them is this one.
-        raise Unsupported("event schema declares no pin (it is in the corpus for another feature)")
 
 
 

@@ -210,7 +210,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   914 (trace, expected) pairs from 471 cases, in one TLC run
+checked   919 (trace, expected) pairs from 476 cases, in one TLC run
   AGREE
 ```
 
@@ -256,26 +256,28 @@ python tests/strands/dogwood_examples.py
 ```
 86 examples, 49 with a trace and expected output
 
-checked   32 of 49 runnable examples (65%)
+checked   37 of 49 runnable examples (76%)
   AGREE
 ```
 
-**65% is the honest number, and it is well below the unit corpus's 90%.** Both are true; they
-measure different things. The gap is the point, so the refusals are broken out by kind rather than
-buried:
+**76%, and the remaining 24% is almost entirely a wall rather than a backlog:**
 
 | refused | why |
 |---|---|
 | 10 | calls an information provider (a Rhai script) |
-| 7 | assorted: `if`/`then`/`else`, a `when guardrails` clause, a custom bind target, a set-valued scope, an unpinned schema |
+| 1 | a custom event kind with a renamed scope bind |
+| 1 | a `when guardrails` clause — whose body is itself a provider call |
 
-**Ten of the eighteen are permanently out of scope, and refusing them is the correct answer rather
-than a gap.** An information provider is a sandboxed Rhai script, so a verdict that depends on one
-is not a function of the policy and the trace at all — there is nothing for any model to be right
-about. A checker that guessed here would be worse than one that declines.
+**An information provider is permanently out of scope, and refusing is the correct answer rather
+than a gap.** It is a sandboxed Rhai script, so a verdict depending on one is not a function of the
+policy and the trace at all; there is nothing for any model to be right about, and a checker that
+guessed would be worse than one that declines. The `when guardrails` case is the same wall behind a
+different door — implementing the clause keyword would land on `Strings::Matches(...)`.
 
-That leaves **7 of 49 — 14% — unreachable only because the work is not done**, and each is a
-different small feature rather than one missing idea.
+So the honest denominator is not 49. **Of the 39 examples that can be modelled at all, 37 are —
+95%**, and the last two need one schema feature between them. Both framings are true and the first
+is the one to quote, because a user pointing this at a policy set full of providers really will get
+refusals.
 
 Two conventions differ from the unit corpus, and either would misalign every verdict silently:
 the oracle is the CLI's `ALLOW`/`DENY` rather than `true`/`false`, and "time point N" counts
@@ -487,6 +489,34 @@ it. At that point "no such string exists" and "the search was not clever enough"
 indistinguishable, and reporting VACUOUS on a hunch tells someone to delete a rule. Deciding it
 properly needs glob intersection, which no policy in either corpus requires — **the regression
 corpus uses `like` zero times**.
+
+#### A bare predicate, and asking the engine instead of guessing
+
+`when temporal { formerly within 1h Login{...} && !Logout{...} }` — the second conjunct carries no
+temporal operator at all. It is grammatically fine; what it *means* the grammar does not say.
+
+The one example that uses it cannot settle the question, and says so itself: its README notes that
+the decision event is always a `Read`, so `!Logout` is trivially true there and the verdict is
+driven entirely by the `formerly` beside it. **Agreeing with that example would have been evidence
+about `formerly`.** Taking the reading from a prose comment and calling the agreement confirmation
+is the exact move this spec exists to avoid.
+
+The built engine is a live oracle, so it was asked. Three constructed traces, pinning the reading
+from three directions:
+
+| policy | verdict |
+|---|---|
+| bare predicate names the decision's own action, bind matches | **ALLOW** |
+| names a *different* action — and the trace contains one | **DENY** |
+| names its own action, bind does not match | **DENY** |
+
+The middle row is the discriminating one: under a "search the whole trace" reading it would have
+allowed. So a bare predicate is an anti-join **at the decision's own timepoint** — the same `at`
+term an unwrapped aggregate body already uses.
+
+Then the recorded corpus confirmed it independently: **four unit-corpus cases** that had been
+refused for this now translate and agree, and their expected verdicts were produced by the engine
+long before any of this. The probe said what the reading was; the corpus said it was right.
 
 ### How `count` was decoded
 

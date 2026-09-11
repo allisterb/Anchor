@@ -60,7 +60,7 @@ CORPUS = (REPO / "ext" / "dogwood" / "dogwood-language"
 sys.path.insert(0, str(REPO / "src"))
 
 from translator import (Unsupported, apply_pins, parse_policies, parse_schema, parse_trace,  # noqa: E402
-                        run_tlc, stamp_keys, tla_cond, tla_record, tla_scalar, tla_value)
+                        policy_seq, run_tlc, stamp_keys, tla_record, tla_scalar, tla_value)
 
 
 def parse_expected(text: str) -> dict[int, bool]:
@@ -91,9 +91,7 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
         f'isDecision |-> {tla_value(e["decision"])}]'
         for e in trace)
 
-    pols = ", ".join(
-        f'[effect |-> "{p["effect"]}", action |-> "{p["action"]}", cond |-> {tla_cond(p["cond"])}]'
-        for p in policies)
+    pols = policy_seq(policies, indent="", sep=", ")
 
     orc = " @@ ".join(f"{i} :> {tla_value(v)}" for i, v in sorted(oracle.items()))
 
