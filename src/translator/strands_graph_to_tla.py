@@ -16,23 +16,15 @@ WHAT AN EDGE CONDITION MEANS is the whole difficulty, and it is not decided here
             as one rather than absorbed
     tier 2  no declaration, so the edge is emitted as nondeterministic and nothing is claimed
 
-`anchor_conditions` lives beside the spec whose vocabulary it is written in, and users import it
-from there to annotate their own graphs -- `docs/verifying-a-strands-graph.md` points at that path.
-So this reaches for it rather than the other way round; moving it here would break the document
-that tells people where it is.
+The split is the point: a meaning is declared where the WORKFLOW is written, by the person who
+wrote the condition, and this module only reports what it was told. It never decides.
 """
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-
-sys.path.insert(0, str(REPO / "specs" / "strands" / "DependencyDAG"))
-
-from anchor_conditions import ConditionUse, meaning  # noqa: E402
+from annotations import ConditionUse, meaning
 
 class UntranslatableCondition(Exception):
     """A declaration that cannot be emitted — a support set naming a task outside the graph."""

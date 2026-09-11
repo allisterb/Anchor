@@ -53,9 +53,8 @@ from translator import run_tlc  # noqa: E402
 from translator.strands_graph_to_tla import to_tla  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(SPECS / "strands" / "DependencyDAG"))
 
-from anchor_conditions import all_complete  # noqa: E402
+from annotations import all_complete  # noqa: E402
 from shared_budget import ScriptedModel  # noqa: E402
 
 from strands import Agent  # noqa: E402

@@ -82,8 +82,14 @@ def meaning(condition) -> ConditionUse | None:
     return getattr(condition, "__anchor__", None)
 
 
-def tla_value(v) -> str:
-    """Render a Python value as TLA+. Anything not listed is refused rather than guessed at."""
+def graph_tla_value(v) -> str:
+    """Render a Python value as TLA+. Anything not listed is refused rather than guessed at.
+
+    NOT the same function as `translator.emit.tla_value`, which is why it does not share the name.
+    That one escapes backslashes and quotes so an entity reference -- `Drupe::OAuthUser::"alice"`,
+    which carries its own quotes -- does not close the TLA+ literal early. This one renders sets
+    and refuses an unknown type. Each would be wrong in the other's place.
+    """
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
     if isinstance(v, str):
@@ -91,7 +97,7 @@ def tla_value(v) -> str:
     if isinstance(v, int):
         return str(v)
     if isinstance(v, (list, tuple, set, frozenset)):
-        return "{" + ", ".join(tla_value(x) for x in sorted(v)) + "}"
+        return "{" + ", ".join(graph_tla_value(x) for x in sorted(v)) + "}"
     raise TypeError(f"no TLA+ rendering for {type(v).__name__}: {v!r}")
 
 
@@ -133,7 +139,7 @@ def all_complete(*nodes):
 
     check.__anchor__ = ConditionUse(
         schema="AllComplete",
-        tla=f'\\A n \\in {tla_value(ns)} : st[n] = "COMPLETED"',
+        tla=f'\\A n \\in {graph_tla_value(ns)} : st[n] = "COMPLETED"',
         support=ns,
         origin=f"{__name__}.all_complete",
         assumed=False,
@@ -154,7 +160,7 @@ def any_complete(*nodes):
 
     check.__anchor__ = ConditionUse(
         schema="AnyComplete",
-        tla=f'\\E n \\in {tla_value(ns)} : st[n] = "COMPLETED"',
+        tla=f'\\E n \\in {graph_tla_value(ns)} : st[n] = "COMPLETED"',
         support=ns,
         origin=f"{__name__}.any_complete",
         assumed=False,
@@ -179,7 +185,7 @@ def none_failed(*nodes):
         schema="NoneFailed",
         # CANCELED is in the spec's vocabulary but not the SDK's, and a cancelled task has no
         # result, so a condition cannot see one. Both sides therefore say "has not failed".
-        tla=f'\\A n \\in {tla_value(ns)} : st[n] # "FAILED"',
+        tla=f'\\A n \\in {graph_tla_value(ns)} : st[n] # "FAILED"',
         support=ns,
         origin=f"{__name__}.none_failed",
         assumed=False,
@@ -245,7 +251,7 @@ def condition_schema(name: str, *, tla: str, support: tuple[str, ...] | list[str
 
             rendered = string.Template(
                 _PLACEHOLDER.sub(r"${\1}", tla)
-            ).substitute({k: tla_value(v) for k, v in values.items()})
+            ).substitute({k: graph_tla_value(v) for k, v in values.items()})
 
             nodes: list[str] = []
             for p in support:

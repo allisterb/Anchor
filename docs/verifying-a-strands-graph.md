@@ -111,7 +111,7 @@ taken on trust.
 ### Tier 0 — use a combinator
 
 ```python
-from anchor_conditions import all_complete
+from annotations import all_complete
 
 builder.add_edge("analysis", "report", condition=all_complete("analysis", "factcheck"))
 ```

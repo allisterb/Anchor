@@ -25,7 +25,7 @@ no network call, no credentials, and no AWS.
 | `shared_budget.py` | [`specs/foundations/SharedBudget/`](../../specs/foundations/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
 | `graph_to_tla.py` | drives [`translator.strands_graph_to_tla`](../../src/translator/strands_graph_to_tla.py) over fixture graphs and checks the result against [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG). The translation itself moved; what is here builds the graphs and runs the scenarios. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
-| `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
+| `condition_differential.py` | the edge-condition predicates in [`annotations`](../../src/annotations) against the Python callables they annotate. |
 | `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 914 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
 
@@ -141,7 +141,7 @@ are modelled in [`specs/strands/StrandsGraph/`](../../specs/strands/StrandsGraph
 
 The remedy for the above is a condition on the join — `all_dependencies_complete([...])`, the
 factory the Strands docs tell every user to hand-write.
-[`specs/strands/DependencyDAG/anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) ships
+[`src/annotations/`](../../src/annotations) ships
 it as a combinator that is simultaneously a real Strands condition and its own TLA+ predicate:
 
 ```python

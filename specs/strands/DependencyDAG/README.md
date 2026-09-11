@@ -401,7 +401,7 @@ A Strands edge may carry a condition — an arbitrary Python callable run at tra
 builder.add_edge("analysis", "report", condition=all_complete("analysis", "factcheck"))
 ```
 
-`all_complete` comes from [`anchor_conditions.py`](anchor_conditions.py) and is **simultaneously a
+`all_complete` comes from [`annotations`](../../../src/annotations) and is **simultaneously a
 real Strands condition and its own TLA+ predicate**. The generator reads the predicate off the
 object and emits:
 
@@ -547,7 +547,7 @@ spurious counterexample is indistinguishable from a real one by looking at it.
 
 | tier | what it is | what is trusted |
 |---|---|---|
-| **0** | a combinator from `anchor_conditions.py` — `all_complete`, `any_complete`, `none_failed` | nothing per-workflow. Meaning is construction; reviewed and tested once. |
+| **0** | a combinator from `annotations` — `all_complete`, `any_complete`, `none_failed` | nothing per-workflow. Meaning is construction; reviewed and tested once. |
 | **1** | `@condition_schema` on a user's own factory | the user's assertion about their own Python. Emitted as an `ASSUMED` block and counted. |
 | **2** | no declaration at all | nothing — the condition is modelled as an unknown choice. |
 
@@ -615,7 +615,7 @@ to argument "b", which is not in the domain of the function.
 ## A complete worked example
 
 ```python
-from anchor_conditions import all_complete
+from annotations import all_complete
 
 builder = GraphBuilder()
 for name in ("research", "analysis", "factcheck", "report"):

@@ -30,7 +30,7 @@ GraphBuilder ──> Graph ──> strands_graph_to_tla ──> Workflow.tla ┘
 ## What a graph translation refuses to pretend
 
 An edge condition is an opaque Python callable, and `strands_graph_to_tla` does not guess what one
-means. `meaning()` in `anchor_conditions` decides that, and this module reports what it was told:
+means. `meaning()` in [`annotations`](../annotations) decides that, and this module reports what it was told:
 
 - **tier 0** — a combinator carrying its own TLA+ predicate. Meaning by construction.
 - **tier 1** — a user's `@condition_schema` assertion. That is a **hole in every proof below it**,
@@ -38,9 +38,9 @@ means. `meaning()` in `anchor_conditions` decides that, and this module reports 
 - **tier 2** — no declaration, so the edge is emitted as nondeterministic and nothing about what it
   decides is claimed.
 
-`anchor_conditions` stays beside the spec whose vocabulary it is written in, because users import it
-from there to annotate their own graphs and `docs/verifying-a-strands-graph.md` points at that path.
-So this module reaches for it rather than the other way round.
+Those declarations live in [`annotations`](../annotations), which is the only part of Anchor that
+goes into a user's own code. A meaning is declared where the workflow is written, by whoever wrote
+the condition; this module reads it and never decides.
 
 **It is deliberately not re-exported from `__init__.py`.** Importing it pulls in the Strands SDK;
 importing a policy translator should not. `import translator` loads no `strands` module, and that

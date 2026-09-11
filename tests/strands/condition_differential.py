@@ -50,11 +50,8 @@ sys.path.insert(0, str(REPO / "src"))
 
 from translator import run_tlc  # noqa: E402
 
-sys.path.insert(0, str(SPECS))
-
-from anchor_conditions import (  # noqa: E402
-    STATES, all_complete, any_complete, condition_schema, meaning, none_failed,
-)
+from annotations import (STATES, all_complete, any_complete,  # noqa: E402
+                         condition_schema, meaning, none_failed)
 
 from strands.multiagent.base import NodeResult, Status  # noqa: E402
 from strands.multiagent.graph import GraphState  # noqa: E402
