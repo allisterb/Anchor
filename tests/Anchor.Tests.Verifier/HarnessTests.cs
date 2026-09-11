@@ -201,6 +201,46 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// The <c>specs/strands/ToolExecutor</c> finding, against a <b>running agent</b> rather than
+    /// against a reading of the SDK source.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other finding here is checked against something that can disagree — the Dogwood
+    /// corpus, the built engine, the real Cedar bindings. That one was backed only by three lines
+    /// of quoted dispatch logic, which is weaker evidence than it looked. This runs a real
+    /// <c>Agent</c> with a scripted model that emits four tool uses in one turn, so the default
+    /// <c>ConcurrentToolExecutor</c> genuinely spawns four tasks, and puts the same hook body
+    /// through all three grains the spec models.
+    /// </para>
+    /// <para>
+    /// The concurrency count is the load-bearing observation: a <c>def</c> callback never has more
+    /// than <b>one</b> body in flight, so it cannot be interleaved, while the <c>async</c> ones
+    /// have four. Without that, a green run would prove only that nothing happened to overlap —
+    /// so the probe fails loudly if the batch never overlapped at all.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("tool_hook_probe.py", "strands")]
+    public async Task RunningAgentBehavesAsTheToolExecutorSpecPredicts()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/tool_hook_probe.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.DoesNotContain("NOT WHAT THE SPEC PREDICTS", run.Output);
+
+        // A synchronous hook cannot be interleaved: one body in flight, and the cap holds.
+        Assert.Matches(@"synchronous hook\s+1\s+4\s+1\s+cap holds", run.Output);
+
+        // An await AFTER the write is safe even though four bodies overlap — the counter still
+        // serialises. "Async hooks are unsafe" would be too crude, and this is why.
+        Assert.Matches(@"suspends AFTER the write\s+4\s+4\s+1\s+cap holds", run.Output);
+
+        // An await BETWEEN read and write loses updates: a cap of one admits four calls, and the
+        // counter ends at one. Both of the spec's properties fail, exactly as modelled.
+        Assert.Matches(@"BETWEEN read and write\s+4\s+1\s+4\s+CAP EXCEEDED", run.Output);
+    }
+
+    /// <summary>
     /// Policy diff: is there a session two versions of a policy set decide differently? The
     /// question a policy author actually has when editing a set somebody else wrote.
     /// </summary>

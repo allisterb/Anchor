@@ -115,6 +115,44 @@ A spec in which nothing can ever go wrong passes a safety check trivially and pr
 synchronous config is here so that the `readWrite` violation means something: the same model, the
 same property, and the only difference is where the hook may suspend.
 
+## The model, checked against a running agent
+
+The three configs above are a model of code we read. This is the same three cases run through the
+real SDK — a scripted model emitting four tool uses in one turn, the default executor, and one
+`Limiter` whose body is identical in each. Only where it may suspend changes.
+
+```bash
+python tests/strands/tool_hook_probe.py
+```
+```
+  hook                                     concurrent  count  allowed   verdict
+  synchronous hook                                  1      4        1   cap holds
+  async, suspends AFTER the write                   4      4        1   cap holds
+  async, suspends BETWEEN read and write            4      1        4   CAP EXCEEDED / counter short
+```
+
+**The `concurrent` column is the load-bearing observation** — how many hook bodies were in flight
+at once. A `def` callback never exceeds **one**, which is the atomicity claim measured rather than
+argued: `invoke_callbacks_async` calls it instead of awaiting it, so no other tool task can be
+scheduled inside it. The `async` ones reach four, so the batch really is concurrent and the
+comparison is between like and like.
+
+The last row is both spec properties failing together, exactly as `AsyncHook_ReadWrite.cfg`
+predicts: `CapRespected` (a cap of one admitted four calls) and `CounterHonest` (the counter
+recorded one). And the middle row is why the finding is stated as *"keep the read and the write in
+one uninterrupted stretch"* rather than *"don't use async hooks"* — four bodies overlap there and
+the cap still holds.
+
+**A green run has to be earned.** Without overlap the unsafe case cannot lose an update, so the
+probe measures the concurrency and fails loudly if the batch never overlapped, rather than
+reporting a pass the setup could not have produced.
+
+**What the probe does not add.** asyncio is cooperative, so the sync case is not *unlikely* to
+interleave — it cannot, and no number of runs strengthens that. What it adds over the model is
+that the SDK dispatches the way we read it, and that the lost update happens here rather than only
+in TLA+.
+
+
 ## What this does not establish
 
 - **It models the hook boundary, not Cedar.** The policy decision is `call_count <= Limit`, which
@@ -127,10 +165,11 @@ same property, and the only difference is where the hook may suspend.
   Not modelled, and it can only lose counts in the same direction.
 - **No claim about `SequentialToolExecutor`.** It exists, and a workflow that selects it is not
   exposed to any of this. The finding is about the **default**.
-- **Nothing here is validated against a running agent.** Unlike the Dogwood work, which has a
-  reference engine to differential-test against, this is a model of code we read. What backs it is
-  that the mechanism is three lines of dispatch logic quoted above, not a behaviour inferred from
-  observation — but a trace-validated version would be stronger, and is not done.
+- **~~Nothing here is validated against a running agent.~~** It is now:
+  [`tests/strands/tool_hook_probe.py`](../../../tests/strands/tool_hook_probe.py) runs a real
+  `Agent` with a scripted model that emits four tool uses in one turn, so the default
+  `ConcurrentToolExecutor` spawns four tasks, and puts the same hook body through all three grains.
+  See [below](#the-model-checked-against-a-running-agent).
 
 ## Why it belongs in this repo
 

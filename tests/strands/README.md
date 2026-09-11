@@ -21,6 +21,7 @@ no network call, no credentials, and no AWS.
 
 | | |
 |---|---|
+| `tool_hook_probe.py` | the [`specs/strands/ToolExecutor`](../../specs/strands/ToolExecutor) finding against a **running agent**: four tool uses in one turn, one hook body written three ways. A `def` callback never has more than one body in flight; an `await` between a counter's read and its write admits four calls against a cap of one. |
 | `shared_budget.py` | [`specs/foundations/SharedBudget/`](../../specs/foundations/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
