@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 
-from .parse import Unsupported
+from .parse import DEFAULT_MAX_WINDOW, UNITS, Unsupported
 
 # `pin <field>: <type> = <source>` at the top level of an event block.
 PIN = re.compile(r"^\s*pin\s+([A-Za-z_]\w*)\s*:\s*[^=]+=\s*([A-Za-z_][\w.]*)\s*,?\s*$", re.M)
@@ -51,6 +51,10 @@ NESTED_PIN = re.compile(
     r"([A-Za-z_]\w*)\s*:\s*\{\s*pin\s+([A-Za-z_]\w*)\s*:\s*[^=]+=\s*([A-Za-z_][\w.]*)\s*\}", re.S)
 
 EVENT = re.compile(r"^\s*(decision\s+)?event\s+<A>::([A-Za-z_]\w*)\s*\{", re.M)
+
+# `max_window = 30d` -- the ceiling on how far back any `within` may look. First in the file, at
+# most once; absent, the language default of 24h applies.
+MAX_WINDOW = re.compile(r"^\s*max_window\s*=\s*(\d+)([smhd])\s*$", re.M)
 
 CONVENTIONAL = {"request", "response", "error"}
 
@@ -95,12 +99,22 @@ def _block(text: str, start: int) -> str:
 
 
 def parse_schema(text: str) -> dict:
-    """`{"keys": [...], "partial": {kind: [bind, ...]}}` for a schema inside the subset.
+    """`{"keys": [...], "max_window": secs, "partial": {kind: [bind, ...]}}` for a schema.
 
     `keys` are the partition keys a universal pin establishes -- empty when there is none, which
     is the same as having no schema at all. `partial` gives the binds to inject per event kind.
     """
     text = re.sub(r"//[^\n]*", "", text)
+
+    cap = MAX_WINDOW.search(text)
+    if cap:
+        seconds = int(cap.group(1)) * UNITS[cap.group(2)]
+        if seconds == 0:
+            raise Unsupported("max_window = 0 would forbid every `within` clause; the schema "
+                              "should omit the directive instead")
+        max_window = seconds
+    else:
+        max_window = DEFAULT_MAX_WINDOW
 
     kinds, pins, blocks, pinned = [], {}, {}, {}
     for m in EVENT.finditer(text):
@@ -159,6 +173,9 @@ def parse_schema(text: str) -> dict:
 
     return {
         "keys": [key_for(f) for f in universal],
+        # The ceiling on how far back any `within` may look. 24h unless the schema says otherwise,
+        # and a policy exceeding it is a validation error -- so it could not be deployed as written.
+        "max_window": max_window,
         # Where to read each non-scope key's value out of an event, so the trace parser can pull
         # exactly the fields that matter and nothing else.
         "paths": {key_for(f): f for f in universal if f not in SCOPE_PINS},

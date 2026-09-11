@@ -40,8 +40,8 @@ EXAMPLES = REPO / "ext" / "dogwood" / "dogwood-docs" / "examples"
 sys.path.insert(0, str(REPO / "src"))
 
 from dogwood_differential import case_record, check, generate_module  # noqa: E402
-from translator import (Unsupported, apply_pins, parse_policies,  # noqa: E402
-                        parse_schema, parse_trace, stamp_keys)
+from translator import (DEFAULT_MAX_WINDOW, Unsupported, apply_pins,  # noqa: E402
+                        parse_policies, parse_schema, parse_trace, stamp_keys)
 
 # `@100 (time point 1): ALLOW  [rules: 0, 2]` -- rules appear only on an ALLOW.
 VERDICT = re.compile(r"@(\d+) \(time point \d+\):\s*(ALLOW|DENY)(?:\s*\[rules:\s*([\d,\s]*)\])?")
@@ -86,13 +86,15 @@ def load(case: Path) -> tuple[list[dict], list[dict], dict]:
     """The policies, trace and oracle for one example, or Unsupported with the reason."""
     schema_file = case / "events.dwschema"
     schema = (parse_schema(schema_file.read_text(encoding="utf-8"))
-              if schema_file.exists() else {"keys": [], "partial": {}})
+              if schema_file.exists() else {"keys": [], "partial": {},
+                                            "max_window": DEFAULT_MAX_WINDOW})
 
     # A `macros.dw` sits beside the policy and its definitions are in scope for it. Inline
     # `def`s in policy.dw itself need no special handling -- one mechanism, two spellings.
     macros = case / "macros.dw"
     policies = parse_policies((case / "policy.dw").read_text(encoding="utf-8"),
-                              macros.read_text(encoding="utf-8") if macros.exists() else "")
+                              macros.read_text(encoding="utf-8") if macros.exists() else "",
+                              schema["max_window"])
     # Two different things, and only one of them was happening. A PARTIAL pin becomes an
     # ordinary conjunct on the kinds that declare it; a UNIVERSAL one is a partition key that has
     # to be stamped onto every term, or the model searches the whole trace and a policy meant to

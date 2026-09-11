@@ -104,7 +104,14 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
 
     # The domain a bound variable of non-Timepoint type ranges over: every scalar the trace
     # actually contains. Finite, so TLC can enumerate the assignments.
-    vals = sorted({v for e in trace for rec in (e["input"], e["output"]) for v in rec.values()},
+    #
+    # PRINCIPALS AND RESOURCES BELONG IN IT, not just payload fields. `callerPrincipal: p` binds a
+    # FRESH variable to the event's caller -- `exists (pr: Drupe::OAuthUser). ...` correlating two
+    # predicates on the same principal without naming which. With the domain built from payloads
+    # alone, no candidate value could ever equal a principal, so such a predicate never matched
+    # and corpus case 1121 disagreed.
+    vals = sorted({v for e in trace for rec in (e["input"], e["output"]) for v in rec.values()}
+                  | {e["principal"] for e in trace} | {e["resource"] for e in trace},
                   key=lambda x: (type(x).__name__, x))
     values = ", ".join(tla_scalar(v) for v in vals)
 
@@ -213,8 +220,16 @@ def main() -> int:
             schema = (parse_schema(schema_file.read_text(encoding="utf-8"))
                       if schema_file.exists() else {"keys": [], "partial": {}})
 
+            # No `max_window` cap here, and that is the point. This harness is an oracle for
+            # what the engine EVALUATES; the cap is what the VALIDATOR enforces. Two cases --
+            # 0765 (`within 7d`) and 0769 (`within 30d`) -- are in the passing corpus with
+            # recorded verdicts although `dogwood validate` rejects them, because they exist to
+            # stress window arithmetic over a huge gap. `properties.py` enforces the cap; this
+            # must not, or it discards evidence about evaluation to enforce a rule about
+            # deployment.
             policies = parse_policies(
-                "\n".join(p.read_text(encoding="utf-8") for p in sorted(case.glob("*.dw"))))
+                "\n".join(p.read_text(encoding="utf-8") for p in sorted(case.glob("*.dw"))),
+                max_window=None)
 
             # A partial pin is an ordinary conjunct on the kinds that declare it; a universal one
             # is a partition key stamped onto every term. Both happen here, at translation time,

@@ -92,6 +92,11 @@ import re
 
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
+# How far back any `within` may look when the event schema does not say. The language's own
+# default, not ours -- a schema raises it with `max_window = 30d` or lowers it to tighten what
+# policies may do. The bound is INCLUSIVE: `within 24h` passes, `within 48h` does not.
+DEFAULT_MAX_WINDOW = 24 * 3600
+
 # Reading a comparison backwards: `100 < x` says what `x > 100` says.
 FLIP = {">": "<", "<": ">", ">=": "<=", "<=": ">=", "==": "==", "!=": "!="}
 
@@ -241,9 +246,10 @@ def tokenize(text: str) -> list[str]:
 
 
 class Parser:
-    def __init__(self, tokens: list[str]):
+    def __init__(self, tokens: list[str], max_window: int | None = DEFAULT_MAX_WINDOW):
         self.t = tokens
         self.i = 0
+        self.max_window = max_window
 
     # -- token helpers ---------------------------------------------------------
     def peek(self, n: int = 0) -> str | None:
@@ -830,7 +836,23 @@ class Parser:
         m = re.fullmatch(r"(\d+)([smhd])", tok)
         if not m:
             raise Unsupported(f"duration {tok!r}")
-        return int(m.group(1)) * UNITS[m.group(2)]
+        seconds = int(m.group(1)) * UNITS[m.group(2)]
+
+        # The schema's ceiling on history. Checked HERE, where a window is read, so one nested
+        # inside an aggregation body is caught as surely as a top-level `formerly`.
+        #
+        # `None` means no cap, and exists for ONE caller: the differential, which is an oracle for
+        # what the engine EVALUATES. The cap is a validation rule, and the engine corpus contains
+        # two cases the validator rejects -- deliberately, to stress window arithmetic over a huge
+        # gap. Refusing them there would lose evidence about evaluation to enforce a rule about
+        # deployment.
+        if self.max_window is not None and seconds > self.max_window:
+            raise Unsupported(
+                f"window `within {tok}` looks back further than the event schema allows "
+                f"({fmt_window(self.max_window)}); the validator rejects it, so the policy could "
+                f"not be deployed as written",
+                "window exceeds the schema's max_window")
+        return seconds
 
     def pred(self) -> dict:
         self.take()                      # namespace
@@ -874,7 +896,16 @@ class Parser:
         if lhs in ("callerPrincipal", "callerResource"):
             self.expect(":")
             rhs = self.take()
+            # A wildcard on a scope field matches any caller -- and CANNOT bypass a universal pin,
+            # which partitions the candidate events before any bind is consulted. Corpus case
+            # 1119 is named for exactly that: `pin_not_bypassed_by_wildcard`.
+            if rhs in ("_", "*"):
+                return {"side": "scope", "field": lhs, "kind": "any", "name": "", "value": ""}
+            # A bare name binds the event's caller to a variable, so two predicates can correlate
+            # on "the same principal" without naming which -- `exists (pr: Drupe::OAuthUser)`.
             if rhs not in ("principal", "resource"):
+                if re.fullmatch(r"[A-Za-z_]\w*", rhs):
+                    return {"side": "scope", "field": lhs, "kind": "var", "name": rhs, "value": ""}
                 raise Unsupported(f"scope bind value {rhs!r}")
             return {"side": "scope", "field": lhs, "kind": "scope", "name": rhs, "value": ""}
 
@@ -1066,7 +1097,22 @@ def expand_macros(tokens: list[str], macros: dict, counter: list[int],
     return out
 
 
-def parse_policies(text: str, macros_text: str = "") -> list[dict]:
+def fmt_window(seconds: int) -> str:
+    """Seconds back in the units a policy would write them.
+
+    Days only from two upward: the default cap is 86400 seconds and everyone writes that `24h`,
+    which is also how the guide spells it.
+    """
+    if seconds % 86400 == 0 and seconds >= 2 * 86400:
+        return f"{seconds // 86400}d"
+    for unit, size in (("h", 3600), ("m", 60)):
+        if seconds % size == 0:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
+
+
+def parse_policies(text: str, macros_text: str = "",
+                   max_window: int | None = DEFAULT_MAX_WINDOW) -> list[dict]:
     """Every `permit`/`forbid` in the file, as [effect, action, cond].
 
     `macros_text` is a separate `macros.dw`, whose definitions are in scope for `text`. Inline
@@ -1110,7 +1156,7 @@ def parse_policies(text: str, macros_text: str = "") -> list[dict]:
                              "cond": {"op": "true", "args": []}})
             continue
 
-        p = Parser(expand_macros(tokenize(body), macros, [0]))
+        p = Parser(expand_macros(tokenize(body), macros, [0]), max_window)
         cond = p.body()
         if p.peek() is not None:
             raise Unsupported(f"trailing tokens from {p.peek()!r}")

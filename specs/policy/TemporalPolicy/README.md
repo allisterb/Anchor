@@ -210,7 +210,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   919 (trace, expected) pairs from 476 cases, in one TLC run
+checked   923 (trace, expected) pairs from 478 cases, in one TLC run
   AGREE
 ```
 

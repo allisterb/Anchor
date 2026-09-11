@@ -40,7 +40,7 @@ SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
 sys.path.insert(0, str(REPO / "src"))
 
-from translator import (DECISION_KIND, Unsupported, apply_pins,  # noqa: E402
+from translator import (DECISION_KIND, DEFAULT_MAX_WINDOW, Unsupported, apply_pins,  # noqa: E402
                         generate_policy_module, parse_policies, parse_schema, run_tlc,
                         stamp_keys, vocabulary)
 
@@ -229,13 +229,20 @@ def main() -> int:
             return 2
 
     try:
-        policies = parse_policies(args.policy.read_text(encoding="utf-8"))
-        other = parse_policies(args.against.read_text(encoding="utf-8")) if args.against else None
+        # Parsed twice over: once to read the schema's cap, then again under it. A policy
+        # looking back further than the deployment allows is a validation error, so answering
+        # questions about it would be answering about something undeployable.
+        cap = (DEFAULT_MAX_WINDOW if args.event_schema is None
+               else parse_schema(args.event_schema.read_text(encoding="utf-8"))["max_window"])
+        policies = parse_policies(args.policy.read_text(encoding="utf-8"), "", cap)
+        other = (parse_policies(args.against.read_text(encoding="utf-8"), "", cap)
+                 if args.against else None)
 
         # The event schema, which decides what the policy MEANS before anything is checked about
         # what it says. Both halves, and they are different jobs: a partial pin becomes an
         # ordinary conjunct, a universal one a partition key stamped onto every term.
-        schema = ({"keys": [], "partial": {}} if args.event_schema is None
+        schema = ({"keys": [], "partial": {}, "max_window": DEFAULT_MAX_WINDOW}
+                  if args.event_schema is None
                   else parse_schema(args.event_schema.read_text(encoding="utf-8")))
         for rules in (policies, other):
             if rules is not None:
