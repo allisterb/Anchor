@@ -50,7 +50,8 @@ Dafny loop invariant can express.
 **Authorization policies are checked too, and this is where it generalises.** A policy constrains
 what an agent *does* even when nothing constrains what it decides, so it applies to every
 coordination pattern rather than one. [`specs/policy/TemporalPolicy`](specs/policy/TemporalPolicy) asks whether a
-session-aware permit can ever grant anything — AWS notes that temporal policies "do not currently
+session-aware permit can ever grant anything — and whether a rule can be deleted, and whether an
+edit changed a decision — AWS notes that temporal policies "do not currently
 support the powerful automated reasoning analysis tools that Cedar provides" — and its reading of
 those semantics is held against the reference implementation's own corpus — **786 recorded cases**,
 covering every temporal operator including the `count`/`sum` aggregations.
@@ -70,7 +71,7 @@ implying:
 | **A single model-driven agent** | budget bounds and termination under a model free to fail forever. [`specs/foundations/BoundedRetry`](specs/foundations/BoundedRetry) |
 | **Swarms / agents-as-tools** | concurrent agents sharing one budget. [`specs/foundations/SharedBudget`](specs/foundations/SharedBudget). Handoffs and shared context are **not** modelled |
 | **Any agent that calls tools** | authorization decisions, differential-tested against the real Cedar engine. [`specs/policy/cedar`](specs/policy/cedar) |
-| **Agents deployed behind AgentCore Gateway** | session-aware (Dogwood) policies: whether a permit can ever grant anything, and whether a gate means what it reads like. [`specs/policy/TemporalPolicy`](specs/policy/TemporalPolicy) |
+| **Agents deployed behind AgentCore Gateway** | session-aware (Dogwood) policies: whether a permit can ever grant anything, whether a rule decides anything at all, whether an edit changed a decision, and whether a gate means what it reads like. [`specs/policy/TemporalPolicy`](specs/policy/TemporalPolicy) |
 | **Meta agents** | nothing |
 
 The niche is narrow, and deliberately so: verification pays where determinism is already demanded,

@@ -30,7 +30,7 @@ against a real engine rather than only against their documentation.
 | | |
 |---|---|
 | [`cedar/`](policy/cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
-| [`TemporalPolicy/`](policy/TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set, and a gate that opens on refused attempts. Its semantics are differential-tested against Dogwood's own corpus. |
+| [`TemporalPolicy/`](policy/TemporalPolicy/README.md) | session-aware (Dogwood) policies, and three questions about any `.dw` file: can this permit ever grant anything, is this rule load-bearing, and did this edit change a decision? Catches a permit killed by an unrelated rule elsewhere in the set, and a gate that opens on refused attempts. Its semantics are differential-tested against Dogwood's own corpus. |
 
 **The split between the two groups is deliberate and the seam is worth naming.** `policy/cedar`
 asks whether a policy *says* what its author meant; `strands/ToolExecutor` asks whether the thing
@@ -101,6 +101,7 @@ directions, and neither is a refinement of the other.
 | `TemporalPolicy.tla` | the session model. Checks `NeverFires`, and **means it to fail** — a violation is the witness, silence means the permit is vacuous. |
 | `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, the `count`/`sum` aggregations, and the partitioning an event schema's `pin` imposes. Differential-tested against Dogwood's own corpus on 786 pairs. |
 | `Policies.tla` | the schema and policy set, swappable like `Workflow.tla`. |
+| `Vacuity.tla` | **the generic checker** — any parsed `.dw`, any rule. Compares two policy sets across every session: the full set against itself-minus-a-rule (is it load-bearing?) or against a second file (did the edit change anything?). Driven by `tests/strands/vacuity.py`. |
 | `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden. **Vacuous** — a permit killed by an unrelated rule. |
 | `RequestGated_SurvivesForbid.cfg` | same forbid, gate on `::request`. Satisfiable, **and that is the bad news**. |

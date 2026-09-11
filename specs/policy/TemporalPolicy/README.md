@@ -1,10 +1,18 @@
 # TemporalPolicy
 
-**Vacuity checking for session-aware authorization policies.** Given a policy set, is there any
-session at all in which this permit grants something?
+**Three questions about a session-aware authorization policy**, each answered by exploring every
+session a bounded run can have and reporting either a **witness** or a bounded no:
 
-A permit that can never fire is a silent deny-everything. It reads correctly, it validates, it
-deploys, and the capability it exists to allow is simply gone.
+| question | answer |
+|---|---|
+| Can this permit ever grant anything? | a witness session, or **VACUOUS** |
+| Is this rule load-bearing, or can it be deleted? | a witness, or **REDUNDANT** / **DEAD** |
+| Did this edit change any decision? | a witness, or **no difference** |
+
+The first is the one AWS says their tooling does not answer: a permit that can never fire is a
+silent deny-everything. It reads correctly, it validates, it deploys, and the capability it exists
+to allow is simply gone. The other two came out of the same machinery, because all three are
+really "compare what these policies decide, across every session".
 
 **Point it at any `.dw` file:**
 
@@ -517,6 +525,42 @@ It also exercises the two constructs the smaller cases do not: the first-order j
 (`input.stock: context.input.stock` — *an approval for **this** stock*, which a propositional
 temporal logic cannot express) and an output-field bind (`output.approved: true`).
 
+### The two shapes of vacuity
+
+| shape | example | why a satisfiability check misses it |
+|---|---|---|
+| the condition can never hold | `approval_gate_response.dw` | the condition is satisfiable *in principle* — it just needs an event this policy set can never produce |
+| it holds, and a `forbid` wins | `overridden_permit.dw` | the condition is `true`. The permit matches every request and grants none |
+
+The second is why the spec tracks **granted** rather than **matched**. `Granted` returns the
+matching permits only when the request was actually allowed; counting a matched-but-overridden
+permit as live would report an inert policy as working.
+
+### Reading a VACUOUS verdict honestly
+
+**VACUOUS is bounded, and it is the direction that must never be wrong.** It means *no session of
+up to `--attempts` attempts makes this permit grant*, not *never*. A permit needing a longer setup
+is reported vacuous when it is merely deep — and that is the dangerous error, because it would send
+someone to delete a control that works. Three things are done about it:
+
+- The verdict is **falsification-tested**, not merely observed. Adding `permit (action ==
+  ApproveSale)` to `approval_gate_response.dw` flips it to live, so the VACUOUS is attributable to
+  the approval being denied rather than to the model being unable to reach a `response` at all.
+- Anything that is **not an answer** — a parse error, an unsupported construct, a `TypeOK` failure
+  — raises rather than being reported as vacuous. Silence must never read as a finding.
+- Constructs outside the modelled subset are **refused**, with the reason. A policy reading two
+  input fields is refused rather than checked, because every input field shares one numeric domain
+  in the model and two would silently under-explore:
+
+```
+REFUSED: two_fields.dw is outside the modelled subset
+  policy reads 2 input fields (amount, stock); the model gives every input field one shared
+  domain, so this would under-explore
+```
+
+A `live` verdict needs no such care: it comes with a witness session, which is evidence rather
+than an absence.
+
 ### Beyond vacuity: is each rule load-bearing?
 
 Vacuity asks whether a permit can ever grant. The wider question is whether a rule **decides
@@ -606,51 +650,18 @@ approached from opposite ends; a disagreement between them would mean one is wro
 for `dead_forbid.dw` minus its DEAD forbid.
 
 
-### The two shapes of vacuity
-
-| shape | example | why a satisfiability check misses it |
-|---|---|---|
-| the condition can never hold | `approval_gate_response.dw` | the condition is satisfiable *in principle* — it just needs an event this policy set can never produce |
-| it holds, and a `forbid` wins | `overridden_permit.dw` | the condition is `true`. The permit matches every request and grants none |
-
-The second is why the spec tracks **granted** rather than **matched**. `Granted` returns the
-matching permits only when the request was actually allowed; counting a matched-but-overridden
-permit as live would report an inert policy as working.
-
-### Reading a VACUOUS verdict honestly
-
-**VACUOUS is bounded, and it is the direction that must never be wrong.** It means *no session of
-up to `--attempts` attempts makes this permit grant*, not *never*. A permit needing a longer setup
-is reported vacuous when it is merely deep — and that is the dangerous error, because it would send
-someone to delete a control that works. Three things are done about it:
-
-- The verdict is **falsification-tested**, not merely observed. Adding `permit (action ==
-  ApproveSale)` to `approval_gate_response.dw` flips it to live, so the VACUOUS is attributable to
-  the approval being denied rather than to the model being unable to reach a `response` at all.
-- Anything that is **not an answer** — a parse error, an unsupported construct, a `TypeOK` failure
-  — raises rather than being reported as vacuous. Silence must never read as a finding.
-- Constructs outside the modelled subset are **refused**, with the reason. A policy reading two
-  input fields is refused rather than checked, because every input field shares one numeric domain
-  in the model and two would silently under-explore:
-
-```
-REFUSED: two_fields.dw is outside the modelled subset
-  policy reads 2 input fields (amount, stock); the model gives every input field one shared
-  domain, so this would under-explore
-```
-
-A `live` verdict needs no such care: it comes with a witness session, which is evidence rather
-than an absence.
-
 ### Mutation-checked
 
 | mutation | what breaks |
 |---|---|
 | `Granted` drops its `Allowed` guard | `overridden_permit.dw` reports live |
 | denied attempts recorded as `response` | `approval_gate_response.dw` reports live |
+| the without-a-rule set drops nothing | **every** rule reports redundant -- the failure a broken removal makes |
+| the vocabulary is not unioned across both files | the diff reports *no difference* for files that plainly differ |
 
-Both are in the test suite's assertions, so either turns the build red rather than merely changing
-a printout.
+Each is chosen to be the mistake a reasonable implementation would actually make, not an
+arbitrary break. All four are in the test suite's assertions, so each turns the build red
+rather than merely changing a printout.
 
 
 ## The engine judges traces the corpus never recorded
