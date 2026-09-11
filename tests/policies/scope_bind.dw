@@ -1,0 +1,21 @@
+// A correlation on the request's own caller -- `callerPrincipal: principal`.
+//
+// This is the ordinary way a policy says "the same principal did it", and until 2026-09-11 the
+// vacuity checker CRASHED on it: its synthesized events carried no `session` field, which
+// `BindHolds` reads for every scope bind, so TLC died with
+//
+//     Attempted to select nonexistent field "session" from the record
+//
+// Latent because no fixture used one -- every policy here joined on payload fields instead. It
+// surfaced only when event schemas were wired in and a schema-shaped policy was tried.
+//
+// The expected answer is `live`: an Approve followed by a Trade, both by the same caller.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1h Anchor::Action::"Approve"::request{ callerPrincipal: principal }
+};

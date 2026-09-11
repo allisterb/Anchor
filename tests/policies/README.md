@@ -39,6 +39,7 @@ in `specs/`; a reader looking for *what Anchor can be pointed at* should look he
 | [`redundant_permit_minimal.dw`](redundant_permit_minimal.dw) | `vacuity.py --against` | the same file with the redundant rule deleted. Diffs clean, confirming the advice was safe |
 | [`added_action.dw`](added_action.dw) | `vacuity.py --against` | permits an action the other file never mentions. Pins the vocabulary union that keeps *no difference* honest |
 | [`string_output.dw`](string_output.dw) | `vacuity.py` | a gate on a **string** output field. Was reported VACUOUS when every output was modelled as a boolean — pins that false alarm |
+| [`scope_bind.dw`](scope_bind.dw) | `vacuity.py` | `callerPrincipal: principal`, the ordinary same-principal correlation. Crashed TLC until 2026-09-11 — no other fixture used a scope bind, so the synthesized events' missing `session` field went unnoticed |
 | [`session_gate.dw`](session_gate.dw) | `dogwood_replay.py` | the only fixture here whose **verdict does not depend on its own text**. Replayed unchanged under two shipped event-schema presets it permits under one and denies under the other, because a universal pin partitions the history a temporal predicate can see |
 | [`anchor.cedarschema`](anchor.cedarschema) | `dogwood_replay.py` | the Cedar schema the real engine needs to replay a trace |
 

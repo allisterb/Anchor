@@ -119,6 +119,49 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// A scope bind does not crash the checker, and <c>--event-schema</c> reaches the model.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>callerPrincipal: principal</c> is the ordinary way a policy says "the same principal did
+    /// it", and it used to kill TLC outright: the synthesized events carried no <c>session</c>
+    /// field, which <c>BindHolds</c> reads for every scope bind, so the run died with
+    /// <c>Attempted to select nonexistent field "session"</c>. Latent because not one fixture used
+    /// a scope bind — every policy here joined on payload fields instead — so it surfaced only
+    /// when event schemas were wired in.
+    /// </para>
+    /// <para>
+    /// The second half asserts the checker now states which reading produced its answers. Every
+    /// verdict it had ever printed assumed the <b>unpinned</b> posture while the shipped default
+    /// is <c>pinned</c>, and it said nothing about that. A tool that answers a different question
+    /// than the one asked should at least say which question it answered.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task ScopeBindsWorkAndTheSchemaPostureIsStated()
+    {
+        var bare = await PythonHarness.RunAsync(
+            "src/checker/vacuity.py", "tests/policies/scope_bind.dw");
+
+        Assert.True(bare.ExitCode == 0, bare.Output);
+        Assert.Matches(@"permit #1\s+action == Trade\s+live", bare.Output);
+        Assert.DoesNotContain("nonexistent field", bare.Output);
+
+        // Without a schema it must say so — the answers are for the unpinned reading.
+        Assert.Contains("UNPINNED", bare.Output);
+
+        // With one, it names the partition the deployment imposes.
+        var pinned = await PythonHarness.RunAsync(
+            "src/checker/vacuity.py", "tests/policies/scope_bind.dw",
+            "--event-schema",
+            "ext/dogwood/dogwood-language/configuration/event-schemas/pinned.dwschema");
+
+        Assert.True(pinned.ExitCode == 0, pinned.Output);
+        Assert.Contains("partitioned by principal", pinned.Output);
+        Assert.Matches(@"permit #1\s+action == Trade\s+live", pinned.Output);
+    }
+
+    /// <summary>
     /// Cedar's <c>like</c> is evaluated by TLC, and a field carrying two patterns gets a value
     /// satisfying both — or a refusal, never a guess.
     /// </summary>

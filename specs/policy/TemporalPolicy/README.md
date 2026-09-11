@@ -541,6 +541,29 @@ Same policy, same trace, opposite verdicts — decided by a deployment flag the 
 That is the schema-pin finding in the form a user will actually meet it, and all three are now
 standing scenarios in `dogwood_replay.py`.
 
+#### Checking under the schema you deploy
+
+`vacuity.py` takes `--event-schema` now. Without it every answer assumes the **unpinned** reading,
+which is not the shipped default, and the tool says so rather than leaving it implicit:
+
+```
+no --event-schema given, so every answer below assumes the UNPINNED reading
+  (global trace). The shipped DEFAULT partitions by principal, under which a rule
+  reported live here may never fire.
+```
+
+Wiring it in found a crash that had been latent since the checker was written. A scope bind —
+`callerPrincipal: principal`, the ordinary "same principal did it" — killed TLC, because the
+synthesized events carried no `session` field and `BindHolds` reads one for every scope bind. No
+fixture had used a scope bind, so nothing had ever exercised it. `scope_bind.dw` does now.
+
+**The partition itself is represented but inert, and that is worth stating plainly.** Measured
+across `formerly`- and `previous`-gated policies, `pinned`, `unpinned` and no-schema give identical
+verdicts. Vacuity asks whether *some* session fires; a partition only removes candidate events, and
+any witness it removes has an all-same-caller equivalent that survives. Add that every synthesized
+caller may perform every action, and a policy cannot be vacuous-under-pinning here. Making it bite
+is a change to how sessions are generated, not to how schemas are read.
+
 ### How `count` was decoded
 
 Corpus case 0254 is the Rosetta stone. Four identical transfers, and:

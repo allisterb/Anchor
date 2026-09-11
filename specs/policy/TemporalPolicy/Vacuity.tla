@@ -70,7 +70,24 @@ Bool(x) == [k |-> "b", v |-> x]
 \* Principal and resource are held fixed. Vacuity is a question about the
 \* temporal condition; varying the scope would multiply the state space to
 \* explore a dimension no temporal operator reads.
-Anon == Str("caller")
+Anon     == Str("caller")
+\* Named for what it is, and NOT `Other` -- PolicyUnderTest uses that for the second policy set.
+Stranger == Str("stranger")
+
+(***************************************************************************)
+(* WHO an event belongs to -- its principal, and the value of every field   *)
+(* the schema pins.                                                        *)
+(*                                                                         *)
+(* One value unless a universal pin established a partition key. With one,  *)
+(* every event is in every partition and a pin could exclude nothing: the   *)
+(* answer would be the UNPINNED one wearing a pin's name. With two, a       *)
+(* session can hold an event the decision's partition shuts out, which is   *)
+(* the whole question a pin raises.                                        *)
+(*                                                                         *)
+(* Singleton when there is no key, so a policy checked without a schema     *)
+(* explores exactly the state space it always did.                         *)
+(***************************************************************************)
+Whos == IF PinKeys = {} THEN {Anon} ELSE {Anon, Stranger}
 
 Amounts == 1..MaxAmount
 
@@ -128,14 +145,22 @@ Init ==
 (* only fields some condition actually reads are modelled, so a policy     *)
 (* that joins on nothing costs nothing to check.                           *)
 (***************************************************************************)
-Event(action, kind, input, output, t) ==
+Event(action, kind, input, output, t, who) ==
     [time      |-> t,
      action    |-> action,
      kind      |-> kind,
      input     |-> input,
      output    |-> output,
-     principal |-> Anon,
-     resource  |-> Anon]
+     principal |-> who,
+     resource  |-> Anon,
+     \* A scope bind -- `callerPrincipal: principal`, `__drupe.session_id` -- reads this. It was
+     \* never here, so ANY policy using one crashed TLC with "nonexistent field", a pre-existing
+     \* hole this found. Tied to `who`: one caller, one session.
+     session   |-> who,
+     \* Every pinned field takes the event's own `who`. The keys move together, which is enough
+     \* to ask whether a partition excludes an event -- and keeps the state space at one extra
+     \* dimension rather than one per key.
+     pins      |-> [k \in PinKeys |-> who]]
 
 (***************************************************************************)
 (* THE DECISION -- deny by default, forbid overrides permit. Cedar's       *)
@@ -198,16 +223,18 @@ Granted(h, idx) ==
 (* fire off nothing but refusals. Requiring the decision here would hide   *)
 (* precisely the case worth finding.                                       *)
 (***************************************************************************)
-Attempt(action, input, output) ==
+Attempt(action, input, output, who) ==
     /\ Len(trace) + 2 <= MaxTime
+    \* The request and its outcome share a `who`: one caller makes the attempt and one outcome
+    \* comes back to them. Letting those differ would invent a history the gateway cannot record.
     /\ LET t       == Len(trace) + 1
-           withReq == Append(trace, Event(action, DecisionKind, input, NoOutput, t))
+           withReq == Append(trace, Event(action, DecisionKind, input, NoOutput, t, who))
            idx     == Len(withReq)
            ok      == Allowed(withReq, idx)
            \* A denied action produces no outputs either -- AgentCore records the failure,
            \* not a result.
-           outcome == IF ok THEN Event(action, "response", input, output, t + 1)
-                            ELSE Event(action, "error", input, NoOutput, t + 1)
+           outcome == IF ok THEN Event(action, "response", input, output, t + 1, who)
+                            ELSE Event(action, "error", input, NoOutput, t + 1, who)
        IN /\ trace' = Append(withReq, outcome)
           /\ fired' = fired \union Granted(withReq, idx)
           \* Compared on the history `Policies` produced. Sound for both questions: the two
@@ -220,8 +247,8 @@ Attempt(action, input, output) ==
 \* either verdict. All of it is behaviour, so a VACUOUS result holds whatever
 \* the agent and the approver do -- which is what makes it worth stating.
 Next ==
-    \E action \in Actions, input \in Inputs, output \in Outputs :
-        Attempt(action, input, output)
+    \E action \in Actions, input \in Inputs, output \in Outputs, who \in Whos :
+        Attempt(action, input, output, who)
 
 \* No fairness. Vacuity is a reachability question -- does ANY session make this
 \* permit grant -- so nothing needs to be forced to happen.
