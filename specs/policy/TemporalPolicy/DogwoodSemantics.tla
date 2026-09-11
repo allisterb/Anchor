@@ -311,6 +311,10 @@ CondHolds(c, trace, upto, dec, asg, values) ==
       [] c.op = "not"  -> ~CondHolds(c.args[1], trace, upto, dec, asg, values)
       [] c.op = "and"  -> \A i \in DOMAIN c.args :
                               CondHolds(c.args[i], trace, upto, dec, asg, values)
+      \* Cedar's `||`. Only reachable from a policy body, since a temporal condition has no
+      \* disjunction of its own.
+      [] c.op = "or"   -> \E i \in DOMAIN c.args :
+                              CondHolds(c.args[i], trace, upto, dec, asg, values)
       \* A real existential: some assignment to the bound variable makes the body hold.
       \* `Satisfying` already enumerates exactly those assignments for an aggregate, so
       \* this is the same set being non-empty.

@@ -99,13 +99,23 @@ TOKEN = re.compile(r"""
     | (?P<dur>\d+[smhd]\b)
     | (?P<int>\d+)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
-    | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}:.,<>=+?$-])
+    | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}\[\]:.,<>=+?$-])
     | (?P<ws>\s+)
 """, re.X)
 
 
 class Unsupported(Exception):
-    """The policy uses a construct outside the modelled subset."""
+    """The policy uses a construct outside the modelled subset.
+
+    `kind` is the coarse label to TALLY on, where the message names the specific thing. Once a
+    message interpolates a provider or macro name, counting messages puts every name in its own
+    bucket and a summary stops summarising. Defaults to the message, so a raise site that names
+    nothing needs no kind.
+    """
+
+    def __init__(self, message: str, kind: str | None = None):
+        super().__init__(message)
+        self.kind = kind or message
 
 
 def tokenize(text: str) -> list[str]:
@@ -364,6 +374,115 @@ class Parser:
         op = FLIP[self.comparison_op()]
         return {"op": "agg", "agg": self.bare_or_parenthesised_agg(), "cmp": op, "value": value}
 
+    # -- the Cedar level ------------------------------------------------------
+    def body(self) -> dict:
+        """`when { E }`, `when temporal { E }`, and any `unless` clause after them."""
+        parts = []
+        while self.peek() in ("when", "unless"):
+            keyword = self.take()
+            clause = self.clause()
+            parts.append({"op": "not", "args": [clause]} if keyword == "unless" else clause)
+
+        if not parts:
+            raise Unsupported(f"policy body starts with {self.peek()!r}, not when/unless")
+        return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
+
+    def clause(self) -> dict:
+        # `when temporal { ... }` -- the whole clause is one temporal block.
+        if self.peek() == "temporal":
+            self.take()
+            self.expect("{")
+            inner = self.expr()
+            self.expect("}")
+            return inner
+
+        # `when guardrails { ... }` and any other named clause: a whole evaluation mode we do
+        # not model, which is worth saying rather than reporting a missing brace.
+        if self.peek() != "{" and self.peek(1) == "{":
+            raise Unsupported(
+                f"policy uses a `when {self.peek()}` clause, which is not modelled",
+                "uses a named `when` clause other than temporal")
+
+        self.expect("{")
+        inner = self.cedar_expr()
+        self.expect("}")
+        return inner
+
+    def cedar_expr(self) -> dict:
+        parts = [self.cedar_conj()]
+        while self.accept("||"):
+            parts.append(self.cedar_conj())
+        return parts[0] if len(parts) == 1 else {"op": "or", "args": parts}
+
+    def cedar_conj(self) -> dict:
+        parts = [self.cedar_unary()]
+        while self.accept("&&"):
+            parts.append(self.cedar_unary())
+        return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
+
+    def cedar_unary(self) -> dict:
+        if self.peek() == "!":
+            self.take()
+            return {"op": "not", "args": [self.cedar_unary()]}
+        if self.peek() == "(":
+            self.take()
+            inner = self.cedar_expr()
+            self.expect(")")
+            return inner
+
+        # A temporal block sitting inside a Cedar condition, as one operand of it.
+        if self.peek() == "temporal":
+            self.take()
+            self.expect("{")
+            inner = self.expr()
+            self.expect("}")
+            return inner
+
+        self.reject_unmodelled_cedar()
+
+        # Otherwise a comparison on the request. Wrapped in an `at` term so the condition level
+        # stays one shape; `cmp` reads only `dec`, so the index the wrapper supplies is unused.
+        at = self.comparison()
+        return {"op": "term",
+                "term": {"op": "at", "window": 0, "atom": at, "left": at, "leftNeg": False}}
+
+    def reject_unmodelled_cedar(self) -> None:
+        """Name the Cedar feature, when the next thing is one we do not model.
+
+        Called where a predicate or a comparison is expected -- the two places a policy reaches
+        for something outside the subset. Every message below was read off the example that
+        produces it; see the module header for why that mattered.
+        """
+        head, nxt = self.peek(), self.peek(1)
+
+        if head == "if":
+            raise Unsupported("policy uses an if/then/else expression, which is not modelled")
+
+        if nxt == "::":
+            # Walk the `::` chain. `Lists::Allowed(...)` is an information provider -- a
+            # sandboxed Rhai script, so its result is a function of neither the policy nor the
+            # trace and nothing here could predict it. `Drupe::Action::"Read"::response{...}`
+            # has the same shape up to the last token and IS modelled, so the two are told apart
+            # by what follows the chain: a call is a provider, a brace is a predicate.
+            parts, j = [head], 1
+            while self.peek(j) == "::":
+                parts.append(self.peek(j + 1) or "")
+                j += 2
+            if self.peek(j) == "(":
+                raise Unsupported(
+                    f"policy calls the information provider {'::'.join(parts)}, which runs a "
+                    f"script -- its result is not a function of the policy or the trace",
+                    "calls an information provider (a Rhai script)")
+            return
+
+        # `recently_logged_in(context.input.user)` -- a macro declared by `def temporal` at the
+        # top of the same file, or one reached through `call`. Expanding it is a purely
+        # syntactic job we have not done, which is a better thing to be told than that a
+        # namespace separator was missing.
+        if nxt == "(" and head and re.fullmatch(r"[A-Za-z_]\w*", head) and head != "decimal":
+            raise Unsupported(f"policy calls the macro {head}(), which is not expanded",
+                              "calls a macro, which is not expanded")
+
     def group(self) -> dict:
         self.expect("(")
         inner = self.expr()
@@ -428,6 +547,7 @@ class Parser:
         if self.peek() == "context" or self.peek(1) in ("==", "!=", ">=", "<=", ">", "<"):
             return self.comparison()
 
+        self.reject_unmodelled_cedar()
         return {"op": "pred", "pred": self.pred()}
 
     def comparison(self) -> dict:
@@ -476,6 +596,9 @@ class Parser:
 
     def comparison_op(self) -> str:
         op = self.take()
+        if op in ("like", "has", "in", "is"):
+            raise Unsupported(f"policy uses Cedar's `{op}` operator, which is not modelled",
+                              "uses a Cedar operator we do not model")
         if op not in ("==", "!=", ">=", "<=", ">", "<"):
             raise Unsupported(f"comparison operator {op!r}")
         return op
@@ -630,19 +753,10 @@ def parse_policies(text: str) -> list[dict]:
                              "cond": {"op": "true", "args": []}})
             continue
 
-        bm = re.fullmatch(r"(when|unless) temporal \{(.*)\}", body)
-        if not bm:
-            raise Unsupported(f"body {body[:48]!r}")
-        keyword, inner = bm.group(1), bm.group(2).strip()
-
-        p = Parser(tokenize(inner))
-        cond = p.expr()
+        p = Parser(tokenize(body))
+        cond = p.body()
         if p.peek() is not None:
             raise Unsupported(f"trailing tokens from {p.peek()!r}")
-
-        # `unless temporal { C }` applies the policy when C does NOT hold.
-        if keyword == "unless":
-            cond = {"op": "not", "args": [cond]}
 
         policies.append({"effect": effect, "action": action, "cond": cond})
 

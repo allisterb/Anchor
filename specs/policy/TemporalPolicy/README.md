@@ -210,12 +210,16 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   911 (trace, expected) pairs from 468 cases, in one TLC run
+checked   913 (trace, expected) pairs from 470 cases, in one TLC run
   AGREE
 ```
 
 The subset covers `formerly within`, `previous within`, `since within`, `&&`, `!`, `when`/`unless
-temporal`, and the `count`/`sum` aggregations with `tp()` timepoint binders. Every construct is
+temporal`, and the `count`/`sum` aggregations with `tp()` timepoint binders. It also covers the
+**Cedar level** a temporal block sits inside — `when { ... }` with no temporal part at all,
+several clauses in sequence, `||`, and a `temporal { ... }` block used as one operand among
+others — because that is the shape most real policies have, and a checker that handles only
+`when temporal { ... }` handles almost none of them. Every construct is
 genuinely exercised, so the agreement means something for each rather than resting on the common
 one:
 
@@ -237,6 +241,69 @@ window (metric bound)    caught      tp binding               caught
 previous index           caught      count vs sum             caught
 since continuity         caught      self-inclusion (upto)    caught
 ```
+
+### The other corpus: whole policies, not constructs
+
+The regression corpus is written to test an engine, so each case isolates one construct. That
+makes it excellent evidence about *semantics* and poor evidence about the question a user
+actually asks, which is **"would this work on my policy"**. Dogwood's `dogwood-docs/examples/`
+answers that one: whole policies written to show someone how to use the language.
+
+```bash
+python tests/strands/dogwood_examples.py
+```
+
+```
+86 examples, 49 with a trace and expected output
+
+checked   21 of 49 runnable examples (43%)
+  AGREE
+```
+
+**43% is the honest number, and it is much lower than the unit corpus's 90%.** Both are true;
+they measure different things. The gap is the point, so the refusals are broken out by kind
+rather than buried:
+
+| refused | why |
+|---|---|
+| 10 | calls an information provider (a Rhai script) |
+| 10 | calls a macro, which is not expanded |
+| 8 | assorted: `if`/`then`/`else`, `like`, a `when guardrails` clause, a custom bind target, a set-valued scope, an unpinned schema |
+
+The two tens are not the same kind of gap, and conflating them would overstate what is
+reachable. **Information providers are permanently out of scope**: a provider is a sandboxed Rhai
+script, so its result is a function of neither the policy nor the trace, and no model can predict
+it — refusing is the correct answer, not a missing feature. **Macros are a syntactic expansion we
+have not done**, and every one of those ten is reachable.
+
+Two conventions differ from the unit corpus, and either would misalign every verdict silently:
+the oracle is the CLI's `ALLOW`/`DENY` rather than `true`/`false`, and "time point N" counts
+**decisions** here where it **indexes the trace** there. The harness keys on the `@N` timestamp,
+which means the same thing in both.
+
+#### A refusal message is the product
+
+When the answer is "I will not check this", the reason is the whole of what the tool delivers.
+These messages used to name the token the parser tripped over, which was true and useless:
+
+```
+before                                  after
+comparison operator '::'                policy calls the information provider Lists::Allowed,
+                                          which runs a script -- its result is not a function
+                                          of the policy or the trace
+comparison operator 'context'           policy uses an if/then/else expression
+expected '::', got '('                  policy calls the macro recently_logged_in()
+unlexable at '["VIOLENCE", "HATE"])'    policy calls the information provider Content::Filter
+```
+
+Writing them required reading every policy that produces one, and that is how the third row was
+found: four cases reported a missing namespace separator, and all four were **macro calls** —
+not a diagnosis anyone would have reached from the token. A message that guesses is worse than
+one that is vague, because it sends someone to fix the wrong thing.
+
+Each refusal carries a coarse `kind` alongside its specific message, because once a message
+names the provider, counting messages puts every name in its own bucket and the summary stops
+summarising.
 
 ### How `count` was decoded
 

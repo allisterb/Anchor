@@ -525,7 +525,7 @@ def main() -> int:
                 parsed.append((parse_trace(tf.read_text(encoding="utf-8"), schema.get("paths")),
                                parse_expected(ef.read_text(encoding="utf-8"))))
         except Unsupported as e:
-            refused[re.sub(r"'[^']*'", "...", str(e))[:52]] += 1
+            refused[re.sub(r"'[^']*'", "...", e.kind)[:52]] += 1
             continue
 
         for n, (trace, oracle) in enumerate(parsed, 1):

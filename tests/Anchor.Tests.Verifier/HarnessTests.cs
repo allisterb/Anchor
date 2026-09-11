@@ -119,6 +119,45 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Our reading against Dogwood's own <b>documentation examples</b> — whole policies, rather
+    /// than the unit corpus's one-construct-per-case.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A different kind of evidence, and the one that answers "would this work on my policy". The
+    /// unit corpus is written to test the engine construct by construct; these are written to show
+    /// someone how to use the language, so they are closer to the population a real policy comes
+    /// from. The coverage number is therefore the honest one, and it is lower.
+    /// </para>
+    /// <para>
+    /// Two conventions differ from the unit corpus and both would silently misalign every verdict:
+    /// the oracle is the CLI's <c>ALLOW</c>/<c>DENY</c> rather than <c>true</c>/<c>false</c>, and
+    /// "time point N" counts <b>decisions</b> here where it indexes the whole trace there. The
+    /// harness keys on the <c>@N</c> timestamp, which means the same thing in both.
+    /// </para>
+    /// <para>
+    /// Asserted as a floor rather than an exact figure: widening the subset should move it up, and
+    /// a drop means something regressed.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("dogwood_examples.py")]
+    public async Task OurReadingAgreesWithDogwoodsOwnExamples()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/dogwood_examples.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("AGREE", run.Output);
+        Assert.DoesNotContain("DISAGREE", run.Output);
+
+        // Enough examples to mean something. A silent narrowing — a parser change refusing more
+        // than it did — would otherwise still report a hollow success.
+        var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) of (\d+)");
+        Assert.True(m.Success, run.Output);
+        Assert.True(int.Parse(m.Groups[1].Value) >= 21,
+                    $"only {m.Groups[1].Value} examples translated\n{run.Output}");
+    }
+
+    /// <summary>
     /// Our semantics against the real Dogwood engine, on traces we construct — specifically ones
     /// containing the <c>error</c> event kind, which appears in <b>zero</b> policies and
     /// <b>zero</b> traces across all 521 corpus cases.
