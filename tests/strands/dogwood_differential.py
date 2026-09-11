@@ -378,7 +378,14 @@ def tla_cond(c: dict) -> str:
 
 
 def case_record(name: str, policies: list[dict], trace: list[dict],
-                oracle: dict[int, bool]) -> str:
+                oracle: dict[int, bool],
+                rules: dict[int, set[int]] | None = None) -> str:
+    """One case as a TLA+ record.
+
+    `rules` is the per-decision set of DETERMINING policy indices, 1-based to match the spec's
+    policy sequence. It is optional because the unit corpus records no attribution; omitted, it
+    becomes the empty function and the attribution check passes vacuously.
+    """
     events = ", ".join(
         f'[time |-> {e["time"]}, action |-> "{e["action"]}", kind |-> "{e["kind"]}", '
         f'input |-> {tla_record(e["input"])}, output |-> {tla_record(e["output"])}, '
@@ -394,6 +401,13 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
 
     orc = " @@ ".join(f"{i} :> {tla_value(v)}" for i, v in sorted(oracle.items()))
 
+    # `<< >>` is the empty function, which is what "this corpus records no attribution" means.
+    # An empty SET for one decision is different and is a real claim: nothing matched, so the
+    # deny is by default.
+    rul = (" @@ ".join(f"{i} :> {{{', '.join(str(r) for r in sorted(rs))}}}"
+                       for i, rs in sorted(rules.items()))
+           if rules else "")
+
     # The domain a bound variable of non-Timepoint type ranges over: every scalar the trace
     # actually contains. Finite, so TLC can enumerate the assignments.
     vals = sorted({v for e in trace for rec in (e["input"], e["output"]) for v in rec.values()},
@@ -401,7 +415,9 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
     values = ", ".join(tla_scalar(v) for v in vals)
 
     return (f'    [name |-> "{name}", trace |-> <<{events}>>, '
-            f'policies |-> <<{pols}>>, oracle |-> ({orc}), values |-> {{{values}}}]')
+            f'policies |-> <<{pols}>>, oracle |-> ({orc}), '
+            f'rules |-> {f"({rul})" if rul else "<< >>"}, '
+            f'values |-> {{{values}}}]')
 
 
 def generate_module(cases: list[str]) -> str:

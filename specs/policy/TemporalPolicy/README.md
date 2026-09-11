@@ -356,6 +356,73 @@ Each refusal carries a coarse `kind` alongside its specific message, because onc
 names the provider, counting messages puts every name in its own bucket and the summary stops
 summarising.
 
+#### Rule attribution: right answer, or right reason?
+
+Every expected output in the examples corpus carries more than a verdict:
+
+```
+@0   (time point 0): ALLOW  [rules: 0]
+@100 (time point 1): DENY   [rules: 1]
+@200 (time point 2): DENY
+```
+
+`[rules: N]` is Cedar's **determining policies**, and it is emphatically not "the policies that
+matched". At `@100` above *both* policies match — an unconditional permit and a forbid — and only
+the forbid is listed. Determining means: the matching forbids when any forbid matches, the matching
+permits otherwise, and nothing at all when the deny is by default. The third line has no list
+because nothing matched; that absence is itself a claim.
+
+So the verdict is an oracle for **what** was decided and the attribution is an oracle for **why**.
+A model can reach the right verdict through the wrong rule, and until now nothing here could tell
+those apart. `Determining` computes it from the same `hit` set `Decide` already builds, and
+`CaseAgrees` checks it wherever the oracle records it — the unit corpus records only `true`/`false`,
+so the conjunct is vacuous there by construction.
+
+**It found no disagreement.** All 31 examples agree on attribution as well as verdict. That is worth
+stating plainly rather than dressing up: this did not uncover a bug in the model.
+
+**What it did was close a hole in the evidence**, and that hole was real:
+
+| | |
+|---|---|
+| decisions with an attribution checked | 124 |
+| of those, **not forced by the verdict alone** | **10** |
+
+With a single permit and no forbid, ALLOW can only mean that permit fired and DENY can only mean
+nothing matched — the attribution is arithmetic, not evidence. It carries information only when an
+ALLOW has several permits to choose between, or when a DENY could be *either* a forbid firing *or*
+nothing matching. Ten decisions out of 124, and pretending otherwise would be the same overstatement
+the refusal messages were guilty of.
+
+Those ten are not evenly spread, and where they land is the point. **Two examples expect DENY at
+every single decision**:
+
+```
+forbid_large_except_amzn          3 decisions, all DENY
+forbid_read_transfers_over_1000   5 decisions, all DENY
+```
+
+A model that denied unconditionally — one where no policy ever matches anything — agrees with both
+of those perfectly. They were being counted as evidence while establishing nothing whatsoever about
+the forbid's condition. Running exactly that broken model against exactly those two examples:
+
+```
+honest model, both checks          PASS
+deny-everything, VERDICTS only     PASS   <- the old check
+deny-everything, WITH attribution  FAIL   <- the new one
+```
+
+Eight of the ten unforced decisions are in those two examples. Attribution is what makes
+`when { shares > 100 } unless { stock == "AMZN" }` checkable at all when the verdict never varies.
+
+**Mutation-checked, like the operators.** Replacing `Determining` with the most plausible wrong
+reading — that `[rules: N]` lists everything that matched, dropping the forbid-override — turns the
+run red. It is caught by one decision, in one example, out of 31.
+
+Because the check's worth rests entirely on that count of 10, the harness prints it and the suite
+asserts a floor on it. A change that emptied the rule sets would otherwise leave every run still
+reporting AGREE.
+
 ### How `count` was decoded
 
 Corpus case 0254 is the Rosetta stone. Four identical transfers, and:

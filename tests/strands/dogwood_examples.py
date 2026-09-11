@@ -61,16 +61,24 @@ def parse_expected(text: str) -> dict[int, tuple[bool, list[int]]]:
     return out
 
 
-def oracle_by_index(trace: list[dict], expected: dict[int, tuple[bool, list[int]]]) -> dict:
-    """Re-key the oracle onto trace positions, which is what the spec indexes by."""
-    oracle = {}
+def oracle_by_index(trace: list[dict],
+                    expected: dict[int, tuple[bool, list[int]]]) -> tuple[dict, dict]:
+    """Re-key the oracle onto trace positions, which is what the spec indexes by.
+
+    Returns the verdicts and the DETERMINING rule sets separately. Dogwood numbers rules from 0
+    over the `permit`/`forbid` declarations in file order -- `def` macros do not consume an id --
+    and the spec's policy sequence is 1-based, so every id shifts by one.
+    """
+    oracle, rules = {}, {}
     for i, e in enumerate(trace, 1):
         if e["time"] in expected and e["decision"]:
-            oracle[i] = expected[e["time"]][0]
+            allowed, ids = expected[e["time"]]
+            oracle[i] = allowed
+            rules[i] = {r + 1 for r in ids}
     if len(oracle) != len(expected):
         raise Unsupported(
             f"{len(expected)} expected verdicts but {len(oracle)} decision events matched them")
-    return oracle
+    return oracle, rules
 
 
 def load(case: Path) -> tuple[list[dict], list[dict], dict]:
@@ -88,7 +96,21 @@ def load(case: Path) -> tuple[list[dict], list[dict], dict]:
 
     trace = parse_trace((case / "trace.log").read_text(encoding="utf-8"), schema.get("paths"))
     expected = parse_expected((case / "expected.out").read_text(encoding="utf-8"))
-    return policies, trace, oracle_by_index(trace, expected)
+    return (policies, trace) + oracle_by_index(trace, expected)
+
+
+def unforced(policies: list[dict], oracle: dict[int, bool]) -> int:
+    """Decisions whose DETERMINING set the verdict alone does not already pin down.
+
+    With a single permit and no forbid, ALLOW can only mean that permit and DENY can only mean
+    nothing matched -- the attribution is then arithmetic, not evidence. It carries information
+    when an ALLOW has several permits to choose between, or when a DENY could be either a forbid
+    firing or nothing matching at all.
+    """
+    permits = sum(1 for p in policies if p["effect"] == "permit")
+    forbids = len(policies) - permits
+    return sum(1 for allowed in oracle.values()
+               if (permits > 1 if allowed else forbids > 0))
 
 
 def main() -> int:
@@ -99,16 +121,19 @@ def main() -> int:
                 if (d / "trace.log").exists() and (d / "expected.out").exists()]
 
     records, accepted, refused = [], [], collections.Counter()
+    decisions = informative = 0
     for case in runnable:
         try:
-            policies, trace, oracle = load(case)
+            policies, trace, oracle, rules = load(case)
         except Unsupported as e:
             refused[re.sub(r"'[^']*'", "...", e.kind)[:56]] += 1
             if verbose:
                 print(f"  REFUSED  {case.name:44} {e}")
             continue
-        records.append(case_record(case.name, policies, trace, oracle))
+        records.append(case_record(case.name, policies, trace, oracle, rules))
         accepted.append(case.name)
+        decisions += len(oracle)
+        informative += unforced(policies, oracle)
 
     print(f"{len(cases)} examples, {len(runnable)} with a trace and expected output\n")
 
@@ -126,6 +151,12 @@ def main() -> int:
     print(f"checked   {len(records)} of {len(runnable)} runnable examples "
           f"({len(records) / len(runnable):.0%})")
     print(f"  {'AGREE' if agreed else 'DISAGREE'}")
+
+    # Attribution -- which rules decided, not merely what was decided. The second number is the
+    # one that matters: the rest are forced by the verdict and prove nothing on their own.
+    print(f"\nattribution checked on {decisions} decisions, of which {informative} are not "
+          f"forced\n  by the verdict alone (an ALLOW among several permits, or any DENY where a "
+          f"forbid exists)")
 
     print(f"\nrefused {sum(refused.values())}:")
     for reason, n in refused.most_common(12):

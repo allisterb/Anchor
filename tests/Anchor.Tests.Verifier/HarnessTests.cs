@@ -149,6 +149,16 @@ public class HarnessTests : TestsRuntime
         Assert.Contains("AGREE", run.Output);
         Assert.DoesNotContain("DISAGREE", run.Output);
 
+        // The attribution check is only worth anything where the verdict does not already force
+        // the answer, and most decisions here are single-policy, where it does. If that floor
+        // ever reaches zero the check still prints AGREE while proving nothing.
+        var attrib = System.Text.RegularExpressions.Regex.Match(
+            run.Output, @"attribution checked on (\d+) decisions, of which (\d+)");
+        Assert.True(attrib.Success, run.Output);
+        Assert.True(int.Parse(attrib.Groups[2].Value) >= 8,
+                    $"only {attrib.Groups[2].Value} decisions have an unforced attribution, so the "
+                    + $"check is close to vacuous\n{run.Output}");
+
         // Enough examples to mean something. A silent narrowing — a parser change refusing more
         // than it did — would otherwise still report a hollow success.
         var m = System.Text.RegularExpressions.Regex.Match(run.Output, @"checked\s+(\d+) of (\d+)");

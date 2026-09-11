@@ -341,12 +341,39 @@ Decide(trace, policies, idx, values) ==
     IN /\ \E k \in hit : policies[k].effect = "permit"
        /\ ~\E k \in hit : policies[k].effect = "forbid"
 
+(***************************************************************************)
+(* WHICH policies decided, not merely what was decided -- Cedar's         *)
+(* "determining policies". The matching forbids when any forbid matches,  *)
+(* the matching permits otherwise, and the empty set when a deny is by    *)
+(* default.                                                               *)
+(*                                                                        *)
+(* Note this is NOT the set of policies that matched. At a decision where *)
+(* an unconditional permit and a forbid both match, only the forbid       *)
+(* determines, and the permit -- which did match -- is not listed.        *)
+(*                                                                        *)
+(* A model can reach the right verdict through the wrong rule. Only this  *)
+(* tells the two apart.                                                   *)
+(***************************************************************************)
+Determining(trace, policies, idx, values) ==
+    LET dec  == trace[idx]
+        hit  == {k \in DOMAIN policies : PolicyMatches(policies[k], trace, idx, dec, values)}
+        bans == {k \in hit : policies[k].effect = "forbid"}
+    IN IF bans # {} THEN bans ELSE {k \in hit : policies[k].effect = "permit"}
+
 CaseAgrees(c) ==
-    \A d \in DOMAIN c.oracle :
+    /\ \A d \in DOMAIN c.oracle :
         \/ Decide(c.trace, c.policies, d, c.values) = c.oracle[d]
         \/ Print(<<"DISAGREEMENT", c.name, "at decision index", d,
                    "model says", Decide(c.trace, c.policies, d, c.values),
                    "dogwood says", c.oracle[d]>>, FALSE)
+    \* Attribution, wherever the oracle records it. The unit corpus's fixtures record only
+    \* true/false, so `rules` is empty there and this conjunct is vacuous -- the examples
+    \* corpus is the one that carries rule ids.
+    /\ \A d \in DOMAIN c.rules :
+        \/ Determining(c.trace, c.policies, d, c.values) = c.rules[d]
+        \/ Print(<<"DISAGREEMENT (attribution)", c.name, "at decision index", d,
+                   "model fired", Determining(c.trace, c.policies, d, c.values),
+                   "dogwood fired", c.rules[d]>>, FALSE)
 
 Agree == \A i \in DOMAIN Cases : CaseAgrees(Cases[i])
 
