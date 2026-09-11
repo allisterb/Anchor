@@ -55,8 +55,8 @@ point at your own file. AWS notes that temporal policies "do not currently suppo
 automated reasoning analysis tools that Cedar provides"; this answers three questions about one.
 See [Checking an authorization policy](#checking-an-authorization-policy).
 
-**The reading of Dogwood behind it is differential-tested against Dogwood**, on **786 (trace,
-expected) pairs from 398 cases** of the reference implementation's own regression corpus, and
+**The reading of Dogwood behind it is differential-tested against Dogwood**, on **911 (trace,
+expected) pairs from 468 cases** of the reference implementation's own regression corpus, and
 against the **built engine** on traces that corpus never recorded. Every operator is covered, each
 mutation-checked against the wrong reading a reasonable implementation would have picked.
 
@@ -150,7 +150,7 @@ no — nothing to configure, and no statement of intent required:
 ```
 
 Nothing about the policy is hand-modelled. The `.dw` text is parsed by the same parser whose reading
-agrees with the reference implementation on 786 recorded pairs, and evaluated by the same
+agrees with the reference implementation on 911 recorded pairs, and evaluated by the same
 `DogwoodSemantics!Decide`, so what is model-checked is the policy **as written** rather than as
 paraphrased.
 

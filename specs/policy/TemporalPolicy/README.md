@@ -182,7 +182,7 @@ stance every other spec here takes.
   What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
   anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **786 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **911 recorded pairs** — see below. What is
   still unchecked is most of what this spec adds on top: the session model and `Granted`. The
   request/response/error recording convention is the exception — the replay harness puts that one
   in front of the engine directly.
@@ -210,7 +210,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   786 (trace, expected) pairs from 398 cases, in one TLC run
+checked   911 (trace, expected) pairs from 468 cases, in one TLC run
   AGREE
 ```
 
@@ -255,11 +255,11 @@ Nothing is built or run for *this* harness — the expected outputs are recorded
 data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
 Either way no network is touched and no credentials exist.
 
-**The refusal count matters as much as the agreement count.** 123 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 53 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
 construct yields a disagreement it cannot attribute.
 
-The subset was widened on 2026-09-11, from **654 pairs / 320 cases** to **786 pairs / 398 cases**,
+The subset was widened on 2026-09-11, from **654 pairs / 320 cases** to **911 pairs / 468 cases**,
 by adding seven constructs:
 
 | construct | example | cases |
@@ -322,12 +322,22 @@ All six turn the run red. The third and fourth matter most: each is what a reaso
 implementation would do first.
 
 
-**Widening stopped here on 2026-09-11.** The remaining corpus is about **17%** of the evidence —
-102 cases / 168 traces / 535 verdict lines, against 419 / 834 / 2770 accepted. Every temporal
-operator, both aggregations, all four pin shapes and the partition semantics are validated; what is
-left is mostly literal syntax, which exercises the parser rather than the reading of the language.
+**Widening stopped, then resumed for a different reason.** The first stop was right on the
+evidence: more corpus cases were telling us little new about the *semantics*. What changed is the
+metric. Once the deliverable is "point the checker at a policy somebody's pipeline generated", the
+question is no longer how much evidence a case adds but whether a real policy can be checked at
+all — **coverage, not evidence**. The same work, better justified.
 
-**123 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
+The parser now accepts **488 of 521** corpus policies, and `vacuity.py` checks **every one of
+them**. Refusals fell from 123 cases to 53, and the pairs from 786 to 911.
+
+What that second push added was mostly *syntax the language has and we did not*: integer, decimal
+and entity-reference literals in binds; a bare `action` scope; comparisons with either operand
+first, between two request fields, or against a bound variable; an aggregate compared without the
+`exists` wrapper and written four ways; general existential quantification; a negated atom; and a
+`since` whose left operand is a group. None of it changed what the modelled operators mean.
+
+**53 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
 that remain contain **no pin at all** -- they are in the corpus for renamed reserved fields, deep
 paths and injected slots, each a separate feature. The rest: macro calls and parameter sigils,
 custom event kinds, deeper `__drupe` paths, `since` nested inside an aggregate body, `count`/`sum`
@@ -345,7 +355,7 @@ rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 786 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 911 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -491,7 +501,7 @@ any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 786
+- The **policies** come from the parser that agrees with the reference implementation on 911
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.

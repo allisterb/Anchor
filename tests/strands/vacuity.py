@@ -8,7 +8,7 @@ authorizes nothing. AWS's own material says the automated-reasoning tools Cedar 
 answer this for the temporal part of the language.
 
 WHAT MAKES THIS MORE THAN A DEMO. Nobody hand-writes a model of the policy. The `.dw` text goes
-through `dogwood_parse` -- the parser whose reading agrees with the reference implementation on 786
+through `dogwood_parse` -- the parser whose reading agrees with the reference implementation on 911
 recorded corpus pairs -- into a generated `PolicyUnderTest.tla`, and `Vacuity.tla` evaluates it with
 `DogwoodSemantics!Decide`, the same evaluator validated against those pairs and against the live
 engine on the `error`-event scenarios.
@@ -78,6 +78,12 @@ def walk(node, seen: dict) -> None:
     if node.get("op") == "cmp":
         seen["input"].add(node["field"])
         seen["literals"].setdefault(("input", node["field"]), set()).add(node["value"])
+
+    if node.get("op") == "cmp2":
+        # Both sides are request fields. Neither names a literal, so both take the default
+        # numeric range -- which needs at least two values for the comparison to go either way.
+        seen["input"].add(node["field"])
+        seen["input"].add(node["other"])
 
     for key in ("term", "atom", "left", "cond", "agg"):
         walk(node.get(key), seen)

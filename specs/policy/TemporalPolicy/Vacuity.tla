@@ -32,7 +32,7 @@
 (*     TLA+ by hand, so nothing is lost between what was written and what  *)
 (*     is checked.                                                         *)
 (*   - The decision is `DogwoodSemantics!Decide`, the evaluator that       *)
-(*     agrees with the real Dogwood engine on 786 recorded corpus pairs    *)
+(*     agrees with the real Dogwood engine on 911 recorded corpus pairs    *)
 (*     and on the live `error`-event scenarios. TemporalPolicy.tla instead *)
 (*     carries its own `PermitFires`, which is a second reading of the     *)
 (*     same language with nothing holding the two together.                *)

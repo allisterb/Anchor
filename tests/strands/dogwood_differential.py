@@ -67,14 +67,22 @@ from _toolchain import find_jar  # noqa: E402
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
-from dogwood_parse import Unsupported, parse_policies  # noqa: E402
+from dogwood_parse import Dec, Unsupported, parse_decimal, parse_policies  # noqa: E402
 from dogwood_schema import apply_pins, parse_schema  # noqa: E402
 
 
 def split_binds(text: str) -> list[str]:
-    """Split on commas that are not inside quotes."""
-    out, quoted, cur = [], False, ""
+    """Split on commas that are not inside quotes, honouring backslash escapes."""
+    out, quoted, cur, esc = [], False, "", False
     for ch in text:
+        if esc:
+            esc = False
+            cur += ch
+            continue
+        if ch == '\\':
+            esc = True
+            cur += ch
+            continue
         if ch == '"':
             quoted = not quoted
         if ch == "," and not quoted:
@@ -100,6 +108,12 @@ def braced(text: str, start: int) -> tuple[str, int]:
     depth, i, quoted = 0, start, False
     while i < len(text):
         c = text[i]
+        # A backslash escapes the next character. Without this an escaped quote inside a
+        # value -- `user: "o\\"brien"` -- read as CLOSING the string, so every
+        # brace after it was treated as quoted and the scan ran to the end of the line.
+        if c == '\\':
+            i += 2
+            continue
         if c == '"':
             quoted = not quoted
         elif not quoted and c == "{":
@@ -123,14 +137,29 @@ def parse_fields(text: str) -> dict:
     for part in split_binds(text):
         if not part.strip():
             continue
-        m = re.fullmatch(r'\s*(\w+)\s*:\s*("[^"]*"|true|false|-?\d+)\s*', part)
+        # An entity reference is written bare -- `Drupe::Grant_Input_role::"reader"` -- and a
+        # decimal as a bare `0.5`, where the policy writes `decimal("0.5")`.
+        m = re.fullmatch(
+            r'\s*(\w+)\s*:\s*("(?:[^"\\]|\\.)*"|true|false|-?\d+\.\d+|-?\d+|[A-Za-z_]\w*(?:::\w+)*::"[^"]*")\s*',
+            part)
         if not m:
             raise Unsupported(f"field {part.strip()[:32]!r} is not a scalar")
         k, v = m.group(1), m.group(2)
+        # TLA+ string literals are ASCII. A value carrying anything else -- the corpus has a
+        # JSON blob with an emoji in it -- would be emitted into a module SANY cannot lex, so
+        # the case is refused here where the reason can still be stated.
+        if not v.isascii():
+            raise Unsupported("field value is not ASCII, which a TLA+ string cannot carry")
         if v in ("true", "false"):
             fields[k] = v == "true"
         elif v.startswith('"'):
-            fields[k] = v[1:-1]
+            # A string may carry an escaped quote -- `"o\"brien"` -- so the escapes come back out.
+            fields[k] = v[1:-1].replace('\\"', '"').replace('\\\\', '\\')
+        elif "::" in v:
+            # Compared as its written form, which is what the policy writes too.
+            fields[k] = v
+        elif "." in v:
+            fields[k] = parse_decimal(v)
         else:
             n = int(v)
             # Dogwood's `Long` outruns TLC, which works in Java ints and stops with
@@ -226,6 +255,10 @@ def tla_scalar(v) -> str:
     """A field value, tagged with its kind so TLC never compares across kinds."""
     if isinstance(v, bool):
         return f'[k |-> "b", v |-> {"TRUE" if v else "FALSE"}]'
+    # Before the `int` arm: Dec subclasses int, and a decimal must never compare equal to a
+    # Long that happens to share its scaled value.
+    if isinstance(v, Dec):
+        return f'[k |-> "d", v |-> {int(v)}]'
     if isinstance(v, int):
         return f'[k |-> "n", v |-> {v}]'
     escaped = str(v).replace("\\", "\\\\").replace('"', '\\"')
@@ -251,7 +284,7 @@ DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
 
 # Every atom carries every field, unused ones filled in. One record shape rather than a union:
 # TLC treats a missing field as a runtime error, so uniformity is cheaper than the alternative.
-NO_CMP = 'field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""]'
+NO_CMP = ('field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""], other |-> ""')
 
 
 def tla_atom(a: dict) -> str:
@@ -265,9 +298,19 @@ def tla_atom(a: dict) -> str:
     if a["op"] == "cmp":
         return (f'[op |-> "cmp", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
-                f'value |-> {tla_scalar(a["value"])}]')
+                f'value |-> {tla_scalar(a["value"])}, other |-> ""]')
+    if a["op"] == "cmp2":
+        return (f'[op |-> "cmp2", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
+                f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
+                f'value |-> [k |-> "s", v |-> ""], other |-> "{a["other"]}"]')
+    if a["op"] == "cmpvar":
+        return (f'[op |-> "cmpvar", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
+                f'field |-> "", cmp |-> "{a["cmp"]}", '
+                f'value |-> {tla_scalar(a["value"])}, other |-> ""]')
+    # The op travels with the node. This used to be hardcoded to "and", which silently turned
+    # a `not` atom into a conjunction of its single argument -- so `!(B)` read as `B`.
     args = ", ".join(tla_atom(x) for x in a["args"])
-    return (f'[op |-> "and", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<{args}>>, '
+    return (f'[op |-> "{a["op"]}", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<{args}>>, '
             f'{NO_CMP}]')
 
 
@@ -311,6 +354,15 @@ def tla_cond(c: dict) -> str:
                 f'left |-> {tla_atom(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}, '
                 f'keys |-> <<{keys}>>]')
         return f'[op |-> "term", args |-> <<>>, term |-> {term}]'
+
+    if c["op"] == "exists":
+        a = c["agg"]
+        binders = ", ".join(f'[name |-> "{b["name"]}", type |-> "{b["type"]}"]'
+                            for b in a["binders"])
+        agg = (f'[kind |-> "{a["kind"]}", over |-> "{a["over"]}", '
+               f'binders |-> <<{binders}>>, cond |-> {tla_cond(a["cond"])}]')
+        return (f'[op |-> "exists", args |-> <<>>, term |-> {DUMMY_TERM}, agg |-> {agg}, '
+                f'cmp |-> "", value |-> 0]')
 
     if c["op"] == "agg":
         a = c["agg"]
@@ -406,6 +458,28 @@ def check(module_text: str) -> tuple[bool, str]:
 
 
 # ------------------------------------------------------------------------------------------------
+def collect_disagreements(output: str) -> list[str]:
+    """Each disagreement as one line, gathered from the tuple TLC wraps across several.
+
+    The Assert carries the case, the decision index and both verdicts. Matching only the line the
+    word "DISAGREEMENT" lands on throws all of that away and leaves `<< "DISAGREEMENT",`.
+    """
+    lines, out, i = output.splitlines(), [], 0
+    while i < len(lines):
+        if "DISAGREEMENT" not in lines[i]:
+            i += 1
+            continue
+        parts = []
+        while i < len(lines):
+            parts.append(lines[i].strip())
+            if ">>" in lines[i]:
+                break
+            i += 1
+        out.append(" ".join(parts).replace('"DISAGREEMENT",', "").replace("<<", "").strip())
+        i += 1
+    return out
+
+
 def main() -> int:
     if not CORPUS.is_dir():
         print(f"corpus not found at {CORPUS}\n"
@@ -464,7 +538,7 @@ def main() -> int:
         return 1
 
     agreed, output = check(generate_module(records))
-    disagreements = [ln.strip() for ln in output.splitlines() if "DISAGREEMENT" in ln]
+    disagreements = collect_disagreements(output)
 
     print(f"checked   {pairs} (trace, expected) pairs from {used_cases} cases, in one TLC run")
     print(f"  {'AGREE' if agreed else 'DISAGREE'}")

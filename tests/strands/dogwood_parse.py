@@ -12,19 +12,29 @@ THE SUBSET, and everything outside it raises `Unsupported`:
     unary  := "!" unary | "(" expr ")" | term
     term   := "formerly" "within" DUR atom
             | "previous" "within" DUR atom
-            | [ "!" ] ( pred | "(" pred ")" ) "since" "within" DUR atom
-    atom   := pred | "tp" "(" IDENT ")" | cmp | "(" atom ("&&" atom)* ")"
+            | [ "!" ] atom "since" "within" DUR atom
+    atom   := pred | "tp" "(" IDENT ")" | cmp | "!" atom | "(" atom ("&&" atom)* ")"
     pred   := NS "::Action::" STR "::" IDENT "{" binds "}"
-    cmp    := "context.input." IDENT OP LITERAL
+    cmp    := CTX OP LITERAL | LITERAL OP CTX | CTX OP CTX | IDENT OP LITERAL
+    CTX    := "context.input." IDENT
     bind   := ("input"|"output") "." IDENT ":" rhs
             | ("callerPrincipal"|"callerResource") ":" ("principal"|"resource")
-    rhs    := "context.input." IDENT | "true" | "false" | STR | "_"
+            | "__drupe." IDENT ":" rhs
+    rhs    := "context.input." IDENT | "true" | "false" | STR | INT
+            | "decimal" "(" STR ")" | NS "::" IDENT "::" STR | IDENT | "_"
 
 Aggregations are covered in the one shape the corpus actually uses:
 
     exists (n: T). ((count for (t: Timepoint). where (phi)) == n && n >= 3)
 
-with the parentheses around `phi` optional -- `where phi` is the same thing.
+with the parentheses around `phi` optional -- `where phi` is the same thing -- and the whole
+comparison writable four ways, all normalised to `AGG CMP k`:
+
+    exists (n: T). ((AGG) == n && n > 0)     (AGG) > 0     AGG > 0     0 < AGG
+
+`exists` also carries its general meaning, not only that idiom: `exists (u: String). C` quantifies
+`u` over the value domain and is true when some assignment makes `C` hold. That needed no new
+evaluation -- the machinery enumerating an aggregate's satisfying assignments already answers it.
 
 `phi` is either a temporal term or -- with NO temporal operator anywhere in it -- a bare
 conjunction of atoms, which means "at the decision's own timepoint". An unwrapped aggregate counts
@@ -44,9 +54,11 @@ also contains `context.input.amount > context.input.limit`, an enum entity
 (`Drupe::Grant_Input_role::"o'admin"`) and a comparison to a bound variable, and those are three
 further features rather than three spellings of this one.
 
-Still refused: macros (`call`), parameter sigils (`?p`, `$t`), `since` nested inside an aggregate
-body, event schemas that `pin` a field into every predicate, and comparisons that are neither the
-aggregation idiom nor the `cmp` above.
+Still refused: macros (`call`), parameter sigils (`?p`, `$t`), nested temporal operators
+(`formerly` inside `formerly`), a constrained `principal` or `resource` scope, `null` values,
+non-ASCII field values (a TLA+ string literal cannot carry one), deep paths under `__drupe` beyond
+a single leaf, and `Long` values outside TLC's integer range -- the last of which no amount of
+modelling will fix.
 """
 
 from __future__ import annotations
@@ -54,6 +66,29 @@ from __future__ import annotations
 import re
 
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+# Reading a comparison backwards: `100 < x` says what `x > 100` says.
+FLIP = {">": "<", "<": ">", ">=": "<=", "<=": ">=", "==": "==", "!=": "!="}
+
+DECIMAL_SCALE = 10 ** 4
+
+
+class Dec(int):
+    """A Cedar decimal, carried as its value scaled by 10^4.
+
+    An int subclass, so it travels the same paths as a Long -- but checked before `int` wherever
+    a kind is decided, so a decimal never silently becomes one and never compares equal to a Long
+    that happens to share the scaled value.
+    """
+
+
+def parse_decimal(text: str) -> Dec:
+    """`"0.50"` -> Dec(5000). Refuses more precision than Cedar allows rather than rounding."""
+    sign = -1 if text.startswith("-") else 1
+    whole, _, frac = text.lstrip("+-").partition(".")
+    if len(frac) > 4:
+        raise Unsupported(f"decimal {text!r} has more than four fractional digits")
+    return Dec(sign * (int(whole or 0) * DECIMAL_SCALE + int((frac or "0").ljust(4, "0"))))
 
 # `count` and `sum` bring binders, `exists` and `tp(...)`; a bare identifier bind value is a
 # pattern variable that only has meaning inside one. All refused together.
@@ -206,9 +241,20 @@ class Parser:
         self.expect("(")
         var = self.take()
         self.expect(":")
-        self.take()
+        ty = self.take()
+        while self.accept("::"):
+            ty = self.take()
         self.expect(")")
         self.expect(".")
+
+        # `exists (n: T). ((AGG) == n && ...)` is the idiom; anything else is a real
+        # existential over the value domain, and is read as one rather than refused.
+        if not (self.peek() == "(" and self.peek(1) == "(" and self.peek(2) in ("count", "sum")):
+            body = self.group() if self.peek() == "(" else self.expr()
+            return {"op": "exists",
+                    "agg": {"kind": "exists", "over": "",
+                            "binders": [{"name": var, "type": ty}], "cond": body}}
+
         self.expect("(")
         self.expect("(")
         agg = self.aggregate()
@@ -220,18 +266,41 @@ class Parser:
         self.expect("&&")
         if self.take() != var:
             raise Unsupported("exists comparison does not start from the bound variable")
-        cmp_op = self.take()
-        if cmp_op not in ("==", "!=", ">=", "<=", ">", "<"):
-            raise Unsupported(f"comparison {cmp_op!r}")
-        value = self.take()
-        if not re.fullmatch(r"-?\d+", value):
-            raise Unsupported(f"comparison bound {value!r} is not an integer")
+        cmp_op = self.comparison_op()
+        value = self.integer_bound()
         self.expect(")")
-        return {"op": "agg", "agg": agg, "cmp": cmp_op, "value": int(value)}
+        return {"op": "agg", "agg": agg, "cmp": cmp_op, "value": value}
+
+    def integer_bound(self) -> int:
+        """The count or total an aggregate is compared against."""
+        neg = self.accept("-")
+        tok = self.take()
+        if not re.fullmatch(r"\d+", tok):
+            raise Unsupported(f"comparison bound {tok!r} is not an integer")
+        return -int(tok) if neg else int(tok)
 
     def unary(self) -> dict:
         if self.peek() == "exists":
             return self.exists_idiom()
+
+        # `tp(t)` conjoined with a temporal TERM rather than sitting inside an atom group:
+        # `(A since within 1h B) && tp(t)`. Outside a group there is no candidate event to bind
+        # to, so it binds the decision's own timepoint -- which is what an `at` term evaluates
+        # against, so this needs no semantics of its own.
+        if self.peek() == "tp":
+            at = self.atom()
+            return {"op": "term",
+                    "term": {"op": "at", "window": 0, "atom": at,
+                             "left": at, "leftNeg": False}}
+
+        # An aggregate compared directly, rather than wrapped in the exists idiom that says the
+        # same thing. Parenthesised or not, and with either side written first.
+        if self.starts_aggregate():
+            return self.agg_comparison()
+        if self.peek() == "!" and self.peek(1) == "exists":
+            self.take()
+            return {"op": "not", "args": [self.exists_idiom()]}
+
         if self.peek() == "!":
             # `!A since within W B` negates the LEFT OPERAND of the since, not the whole
             # term, so a bare predicate after `!` has to be looked past before deciding.
@@ -244,7 +313,12 @@ class Parser:
                 return {"op": "not", "args": [self.group()]}
             self.i = save
             return self.term()
+        # A group followed by `since` is that operator's LEFT OPERAND, not a condition of its
+        # own: `(A && context.input.amount > 0) since within 1h B`. Same lookahead as the
+        # negated form above.
         if self.peek() == "(":
+            if self.after_group() == "since":
+                return self.term()
             return self.group()
         return self.term()
 
@@ -260,6 +334,35 @@ class Parser:
                     return self.t[j + 1] if j + 1 < len(self.t) else None
             j += 1
         raise Unsupported("unbalanced parentheses")
+
+    def starts_aggregate(self) -> bool:
+        """Does an aggregate comparison begin here, however it is written?"""
+        if self.peek() in ("count", "sum"):
+            return True
+        if self.peek() == "(" and self.peek(1) in ("count", "sum"):
+            return True
+        # `0 < count ...` -- the bound written first.
+        return (self.peek(1) in ("==", "!=", ">=", "<=", ">", "<")
+                and (self.peek(2) in ("count", "sum")
+                     or (self.peek(2) == "(" and self.peek(3) in ("count", "sum"))))
+
+    def bare_or_parenthesised_agg(self) -> dict:
+        if self.accept("("):
+            agg = self.aggregate()
+            self.expect(")")
+            return agg
+        return self.aggregate()
+
+    def agg_comparison(self) -> dict:
+        """`AGG CMP k`, normalising `k CMP AGG` into it."""
+        if self.peek() in ("count", "sum") or self.peek() == "(":
+            agg = self.bare_or_parenthesised_agg()
+            return {"op": "agg", "agg": agg, "cmp": self.comparison_op(),
+                    "value": self.integer_bound()}
+
+        value = self.integer_bound()
+        op = FLIP[self.comparison_op()]
+        return {"op": "agg", "agg": self.bare_or_parenthesised_agg(), "cmp": op, "value": value}
 
     def group(self) -> dict:
         self.expect("(")
@@ -282,12 +385,9 @@ class Parser:
         # Otherwise the only remaining form is an infix `since`. Its left operand may be
         # parenthesised -- `!(A) since ...` -- which changes nothing about its meaning.
         neg = self.accept("!")
-        if self.peek() == "(":
-            self.take()
-            left = self.pred()
-            self.expect(")")
-        else:
-            left = self.pred()
+        # An atom, like the right operand: a predicate, a group, a comparison. `!(A) since ...`
+        # negates that operand rather than the whole term.
+        left = self.atom()
         if self.peek() != "since":
             raise Unsupported(f"bare predicate with no temporal operator (next: {self.peek()!r})")
         self.take()
@@ -296,7 +396,7 @@ class Parser:
         right = self.atom()
         return {"op": "term",
                 "term": {"op": "since", "window": window, "atom": right,
-                         "left": {"op": "pred", "pred": left}, "leftNeg": neg}}
+                         "left": left, "leftNeg": neg}}
 
     def atom(self) -> dict:
         """What a temporal operator scopes over: a predicate, a `tp(v)`, or a group of both.
@@ -312,6 +412,11 @@ class Parser:
             self.expect(")")
             return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
 
+        # `!(B)` inside a group -- "this happened and that did not".
+        if self.peek() == "!":
+            self.take()
+            return {"op": "not", "args": [self.atom()]}
+
         if self.peek() == "tp":
             self.take()
             self.expect("(")
@@ -319,7 +424,8 @@ class Parser:
             self.expect(")")
             return {"op": "tp", "var": var}
 
-        if self.peek() == "context":
+        # A comparison, written with either side first: `context.input.x > 100` or `100 < context.input.x`.
+        if self.peek() == "context" or self.peek(1) in ("==", "!=", ">=", "<=", ">", "<"):
             return self.comparison()
 
         return {"op": "pred", "pred": self.pred()}
@@ -330,34 +436,66 @@ class Parser:
         It reads the decision event, so its value is the same at every candidate index. Only a
         literal right-hand side is accepted; see the module header for what is refused and why.
         """
-        self.expect("context")
-        self.expect(".")
-        self.expect("input")
-        self.expect(".")
-        field = self.take()
+        # Either side may carry the literal. `100 < context.input.amount` says what
+        # `context.input.amount > 100` says, so it is flipped into that form rather than
+        # modelled twice.
+        # A bound variable rather than a request field: `a > 0`, narrowing which bindings the
+        # enclosing count/sum takes in.
+        if self.peek() != "context" and re.fullmatch(r"[A-Za-z_]\w*", self.peek() or ""):
+            var = self.take()
+            return {"op": "cmpvar", "var": var, "cmp": self.comparison_op(),
+                    "value": self.literal()}
 
-        op = self.take()
-        if op not in ("==", "!=", ">=", "<=", ">", "<"):
-            raise Unsupported(f"comparison operator {op!r}")
+        if self.peek() == "context":
+            field = self.context_field()
+            op = self.comparison_op()
 
-        neg = self.accept("-")
-        tok = self.take()
-        if tok.startswith('"'):
-            value = tok[1:-1]
-        elif tok in ("true", "false"):
-            value = tok == "true"
-        elif re.fullmatch(r"\d+", tok):
-            value = -int(tok) if neg else int(tok)
+            if self.peek() == "context":
+                # Two fields and no literal: `context.input.amount > context.input.limit`,
+                # a comparison between two parts of the SAME request.
+                return {"op": "cmp2", "field": field, "cmp": op,
+                        "other": self.context_field()}
+            value = self.literal()
         else:
-            # `context.input.limit`, an enum entity, or a binder variable. Each is its own
-            # feature and none is guessed at.
-            raise Unsupported(f"comparison right-hand side {tok!r} is not a literal")
+            value = self.literal()
+            op = FLIP[self.comparison_op()]
+            field = self.context_field()
 
         if not isinstance(value, int) or isinstance(value, bool):
             if op not in ("==", "!="):
                 raise Unsupported(f"operator {op!r} on a non-numeric value")
 
         return {"op": "cmp", "field": field, "cmp": op, "value": value}
+
+    def context_field(self) -> str:
+        self.expect("context")
+        self.expect(".")
+        self.expect("input")
+        self.expect(".")
+        return self.take()
+
+    def comparison_op(self) -> str:
+        op = self.take()
+        if op not in ("==", "!=", ">=", "<=", ">", "<"):
+            raise Unsupported(f"comparison operator {op!r}")
+        return op
+
+    def literal(self):
+        """A scalar written where a comparison expects one."""
+        neg = self.accept("-")
+        tok = self.take()
+        if tok.startswith('"'):
+            return tok[1:-1]
+        if tok in ("true", "false"):
+            return tok == "true"
+        if re.fullmatch(r"\d+", tok):
+            return -int(tok) if neg else int(tok)
+        if tok == "decimal":
+            self.expect("(")
+            text = self.take()
+            self.expect(")")
+            return parse_decimal(text[1:-1])
+        raise Unsupported(f"comparison operand {tok!r} is not a literal")
 
     def duration(self, tok: str) -> int:
         m = re.fullmatch(r"(\d+)([smhd])", tok)
@@ -430,6 +568,37 @@ class Parser:
         if nxt and nxt.startswith('"'):
             return {"side": lhs, "field": field, "kind": "lit", "name": "",
                     "value": self.take()[1:-1]}
+
+        # An integer literal: `input.level: 3`.
+        neg = self.accept("-")
+        if self.peek() and re.fullmatch(r"\d+", self.peek()):
+            n = int(self.take())
+            return {"side": lhs, "field": field, "kind": "lit", "name": "",
+                    "value": -n if neg else n}
+        if neg:
+            raise Unsupported(f"bind value '-{self.peek()}'")
+
+        # `decimal("0.50")` -- Cedar's decimal. Carried scaled so 0.5 and 0.50 are one number,
+        # which is what the corpus pairs a policy literal against in a trace.
+        if nxt == "decimal":
+            self.take()
+            self.expect("(")
+            tok = self.take()
+            if not tok.startswith('"'):
+                raise Unsupported(f"decimal argument {tok!r} is not a literal")
+            self.expect(")")
+            return {"side": lhs, "field": field, "kind": "lit", "name": "",
+                    "value": parse_decimal(tok[1:-1])}
+
+        # An entity reference -- `Drupe::Grant_Input_role::"reader"`. Compared as its written
+        # form, which is how the trace carries it too.
+        if nxt and re.fullmatch(r"[A-Za-z_]\w*", nxt) and self.peek(1) == "::":
+            parts = [self.take()]
+            while self.accept("::"):
+                parts.append(self.take())
+            text = "::".join(parts[:-1]) + "::" + parts[-1]
+            return {"side": lhs, "field": field, "kind": "lit", "name": "", "value": text}
+
         # A bare identifier is a variable bound by an enclosing `count`/`sum`.
         if nxt and re.fullmatch(r"[A-Za-z_]\w*", nxt):
             return {"side": lhs, "field": field, "kind": "var", "name": self.take(), "value": ""}
@@ -445,10 +614,16 @@ def parse_policies(text: str) -> list[dict]:
         effect, scope, body = m.group(1), " ".join(m.group(2).split()), " ".join(m.group(3).split())
 
         sm = re.fullmatch(r'principal,\s*action == \w+::Action::"([^"]+)",\s*resource', scope)
-        if not sm:
-            # A bare `action`, or a constrained `resource`, changes what the policy applies to.
+        if sm:
+            action = sm.group(1)
+        elif re.fullmatch(r"principal,\s*action,\s*resource", scope):
+            # A bare `action` constrains nothing: the policy applies to EVERY action. Carried as
+            # the empty string, which PolicyMatches reads as "any" -- no action is named "".
+            action = ""
+        else:
+            # A constrained `principal` or `resource` changes what the policy applies to, and
+            # scope entities beyond the pin correlation are not modelled.
             raise Unsupported(f"scope {scope!r}")
-        action = sm.group(1)
 
         if not body:
             policies.append({"effect": effect, "action": action,

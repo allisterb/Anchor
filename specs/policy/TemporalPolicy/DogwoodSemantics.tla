@@ -122,6 +122,44 @@ Matches(pred, ev, dec, asg) ==
 (* refuses `=` across a string and an integer rather than returning FALSE.  *)
 (* A field the decision event does not carry makes the comparison FALSE.    *)
 (***************************************************************************)
+(***************************************************************************)
+(* `context.input.amount > context.input.limit` -- two fields of the SAME  *)
+(* request compared against each other rather than against a literal.      *)
+(* Reads `dec` only, like the literal form, so it filters the request.     *)
+(***************************************************************************)
+Cmp2Holds(a, dec) ==
+    /\ a.field \in DOMAIN dec.input
+    /\ a.other \in DOMAIN dec.input
+    /\ LET x == dec.input[a.field]
+           y == dec.input[a.other]
+       IN /\ x.k = y.k
+          /\ CASE a.cmp = "==" -> x.v = y.v
+               [] a.cmp = "!=" -> x.v # y.v
+               \* Ordering is only defined on numbers and decimals, both of which carry an
+               \* integer `v`. A string pair reaching here compares FALSE rather than crashing.
+               [] a.cmp = ">"  -> x.k \in {"n", "d"} /\ x.v > y.v
+               [] a.cmp = "<"  -> x.k \in {"n", "d"} /\ x.v < y.v
+               [] a.cmp = ">=" -> x.k \in {"n", "d"} /\ x.v >= y.v
+               [] a.cmp = "<=" -> x.k \in {"n", "d"} /\ x.v <= y.v
+               [] OTHER        -> FALSE
+
+(***************************************************************************)
+(* `a > 0` -- a filter on a BOUND VARIABLE rather than on a request field. *)
+(* Reads the assignment, so it narrows which bindings the enclosing        *)
+(* count/sum takes in rather than which events match.                      *)
+(***************************************************************************)
+CmpVarHolds(a, asg) ==
+    /\ a.var \in DOMAIN asg
+    /\ LET v == asg[a.var] IN
+       /\ v.k = a.value.k
+       /\ CASE a.cmp = "==" -> v.v = a.value.v
+            [] a.cmp = "!=" -> v.v # a.value.v
+            [] a.cmp = ">"  -> v.k \in {"n", "d"} /\ v.v > a.value.v
+            [] a.cmp = "<"  -> v.k \in {"n", "d"} /\ v.v < a.value.v
+            [] a.cmp = ">=" -> v.k \in {"n", "d"} /\ v.v >= a.value.v
+            [] a.cmp = "<=" -> v.k \in {"n", "d"} /\ v.v <= a.value.v
+            [] OTHER        -> FALSE
+
 CmpHolds(a, dec) ==
     /\ a.field \in DOMAIN dec.input
     /\ LET v == dec.input[a.field] IN
@@ -131,10 +169,10 @@ CmpHolds(a, dec) ==
             \* Ordering is only defined on numbers. The parser refuses `<` and friends on a
             \* non-numeric literal, so the guard here is belt and braces rather than a branch
             \* the corpus reaches.
-            [] a.cmp = ">"  -> v.k = "n" /\ v.v > a.value.v
-            [] a.cmp = "<"  -> v.k = "n" /\ v.v < a.value.v
-            [] a.cmp = ">=" -> v.k = "n" /\ v.v >= a.value.v
-            [] a.cmp = "<=" -> v.k = "n" /\ v.v <= a.value.v
+            [] a.cmp = ">"  -> v.k \in {"n", "d"} /\ v.v > a.value.v
+            [] a.cmp = "<"  -> v.k \in {"n", "d"} /\ v.v < a.value.v
+            [] a.cmp = ">=" -> v.k \in {"n", "d"} /\ v.v >= a.value.v
+            [] a.cmp = "<=" -> v.k \in {"n", "d"} /\ v.v <= a.value.v
             [] OTHER        -> FALSE
 
 RECURSIVE AtomHolds(_, _, _, _, _)
@@ -143,6 +181,10 @@ AtomHolds(a, i, trace, dec, asg) ==
       [] a.op = "tp"   -> /\ a.var \in DOMAIN asg
                           /\ SameVal(asg[a.var], TP(i))
       [] a.op = "cmp"  -> CmpHolds(a, dec)
+      [] a.op = "cmp2" -> Cmp2Holds(a, dec)
+      [] a.op = "cmpvar" -> CmpVarHolds(a, asg)
+      \* A negated atom, at the SAME candidate event: "this happened and that did not".
+      [] a.op = "not"  -> ~AtomHolds(a.args[1], i, trace, dec, asg)
       [] OTHER         -> \A k \in DOMAIN a.args : AtomHolds(a.args[k], i, trace, dec, asg)
 
 (***************************************************************************)
@@ -269,9 +311,13 @@ CondHolds(c, trace, upto, dec, asg, values) ==
       [] c.op = "not"  -> ~CondHolds(c.args[1], trace, upto, dec, asg, values)
       [] c.op = "and"  -> \A i \in DOMAIN c.args :
                               CondHolds(c.args[i], trace, upto, dec, asg, values)
-      \* `exists (n: T). (AGG == n && n CMP k)` is the idiom the corpus uses for every
-      \* aggregation; it says nothing more than `AGG CMP k`, and the parser recognises
-      \* exactly that shape rather than implementing general existential quantification.
+      \* A real existential: some assignment to the bound variable makes the body hold.
+      \* `Satisfying` already enumerates exactly those assignments for an aggregate, so
+      \* this is the same set being non-empty.
+      [] c.op = "exists" -> Satisfying(c.agg, trace, upto, dec, asg, values) # {}
+
+      \* `exists (n: T). (AGG == n && n CMP k)` -- the idiom the corpus uses for most
+      \* aggregations, which says nothing more than `AGG CMP k`.
       [] OTHER         -> Compare(AggValue(c.agg, trace, upto, dec, asg, values),
                                   c.cmp, c.value)
 
@@ -280,7 +326,9 @@ CondHolds(c, trace, upto, dec, asg, values) ==
 (* forbid overrides permit.                                                *)
 (***************************************************************************)
 PolicyMatches(p, trace, upto, dec, values) ==
-    /\ p.action = dec.action
+    \* A bare `action` in the scope names nothing and so constrains nothing. Carried as the
+    \* empty string, which no real action is called.
+    /\ p.action = "" \/ p.action = dec.action
     /\ CondHolds(p.cond, trace, upto, dec, << >>, values)
 
 Decide(trace, policies, idx, values) ==

@@ -99,7 +99,7 @@ directions, and neither is a refinement of the other.
 | `TemporalPolicy/` | |
 |---|---|
 | `TemporalPolicy.tla` | the session model. Checks `NeverFires`, and **means it to fail** — a violation is the witness, silence means the permit is vacuous. |
-| `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, the `count`/`sum` aggregations, and the partitioning an event schema's `pin` imposes. Differential-tested against Dogwood's own corpus on 786 pairs. |
+| `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, the `count`/`sum` aggregations, and the partitioning an event schema's `pin` imposes. Differential-tested against Dogwood's own corpus on 911 pairs. |
 | `Policies.tla` | the schema and policy set, swappable like `Workflow.tla`. |
 | `Vacuity.tla` | **the generic checker** — any parsed `.dw`, any rule. Compares two policy sets across every session: the full set against itself-minus-a-rule (is it load-bearing?) or against a second file (did the edit change anything?). Driven by `tests/strands/vacuity.py`. |
 | `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
