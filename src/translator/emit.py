@@ -58,7 +58,7 @@ DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
 # Every atom carries every field, unused ones filled in. One record shape rather than a union:
 # TLC treats a missing field as a runtime error, so uniformity is cheaper than the alternative.
 NO_CMP = ('field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""], other |-> "", '
-          'pattern |-> <<>>')
+          'pattern |-> <<>>, net |-> <<>>, prefix |-> 0')
 
 # A TLA+ string literal cannot carry a raw newline or a bare backslash, so a pattern character is
 # written the way the language spells it. Anything unprintable has no TLA+ spelling at all and is
@@ -95,26 +95,34 @@ def tla_atom(a: dict) -> str:
     if a["op"] == "tp":
         return (f'[op |-> "tp", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
                 f'{NO_CMP}]')
+    if a["op"] == "inrange":
+        # The CIDR travels as octets and a prefix length; TLC does the containment.
+        net = ", ".join(str(o) for o in a["net"])
+        return (f'[op |-> "inrange", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
+                f'field |-> "{a["field"]}", cmp |-> "", '
+                f'value |-> [k |-> "s", v |-> ""], other |-> "", pattern |-> <<>>, '
+                f'net |-> <<{net}>>, prefix |-> {a["prefix"]}]')
     if a["op"] == "like":
         # The pattern travels to TLC, which evaluates it against the field's actual value.
         # Nothing about the match is decided here.
         return (f'[op |-> "like", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "", '
                 f'value |-> [k |-> "s", v |-> ""], other |-> "", '
-                f'pattern |-> {tla_pattern(a["pattern"])}]')
+                f'pattern |-> {tla_pattern(a["pattern"])}, '
+                f'net |-> <<>>, prefix |-> 0]')
     if a["op"] == "cmp":
         return (f'[op |-> "cmp", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
-                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>]')
+                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>, net |-> <<>>, prefix |-> 0]')
     if a["op"] == "cmp2":
         return (f'[op |-> "cmp2", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
                 f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
                 f'value |-> [k |-> "s", v |-> ""], other |-> "{a["other"]}", '
-                f'pattern |-> <<>>]')
+                f'pattern |-> <<>>, net |-> <<>>, prefix |-> 0]')
     if a["op"] == "cmpvar":
         return (f'[op |-> "cmpvar", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
                 f'field |-> "", cmp |-> "{a["cmp"]}", '
-                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>]')
+                f'value |-> {tla_scalar(a["value"])}, other |-> "", pattern |-> <<>>, net |-> <<>>, prefix |-> 0]')
     # The op travels with the node. This used to be hardcoded to "and", which silently turned
     # a `not` atom into a conjunction of its single argument -- so `!(B)` read as `B`.
     args = ", ".join(tla_atom(x) for x in a["args"])

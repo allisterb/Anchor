@@ -125,6 +125,33 @@ PATTERN_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0",
                    "\\": "\\", '"': '"', "'": "'"}
 
 
+IP_METHODS_UNARY = ("isIpv4", "isIpv6", "isLoopback", "isMulticast")
+
+
+def parse_cidr(text: str) -> tuple[list[int], int]:
+    """`"10.0.0.0/8"` -> ([10, 0, 0, 0], 8). A bare address is its own /32.
+
+    Octets rather than a 32-bit number: TLC works in Java ints and stops at 2147483647, so
+    `208.4.4.0` -- 3489924096 -- is not representable. Every octet is 0..255.
+    """
+    addr, _, prefix = text.partition("/")
+    if ":" in addr:
+        raise Unsupported(f"IPv6 address {text!r}, which is not modelled -- eight groups and a "
+                          f"different parse from the four octets modelled here")
+
+    parts = addr.split(".")
+    if len(parts) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in parts):
+        raise Unsupported(f"{text!r} is not a dotted-quad IPv4 address")
+
+    bits = int(prefix) if prefix else 32
+    if not prefix.isdigit() and prefix:
+        raise Unsupported(f"prefix length {prefix!r} in {text!r} is not a number")
+    if not 0 <= bits <= 32:
+        raise Unsupported(f"prefix length /{bits} in {text!r} is outside 0..32")
+
+    return [int(o) for o in parts], bits
+
+
 def parse_like_pattern(body: str) -> list:
     """The body of a `like` string literal, quotes stripped and escapes intact."""
     out, i = [], 0
@@ -479,8 +506,14 @@ class Parser:
             self.expect("}")
             return inner
 
-        # `when guardrails { ... }` and any other named clause: a whole evaluation mode we do
-        # not model, which is worth saying rather than reporting a missing brace.
+        # `when guardrails { E }` IS `when { E }`. The language guide is explicit that the tag
+        # carries no semantics and is "retained only for surface compatibility" -- an information
+        # provider is an ordinary Cedar call and works in a bare `when` too. So the tag is dropped
+        # and the body parsed as Cedar; whatever is inside stands or falls on its own.
+        if self.peek() == "guardrails":
+            self.take()
+
+        # Any OTHER named clause is a form we have not seen and will not guess at.
         if self.peek() != "{" and self.peek(1) == "{":
             raise Unsupported(
                 f"policy uses a `when {self.peek()}` clause, which is not modelled",
@@ -537,6 +570,13 @@ class Parser:
 
         self.reject_unmodelled_cedar()
 
+        # `context.input.src.isInRange(ip("10.0.0.0/8"))` -- Cedar's ipaddr extension. Only this
+        # way round: a constant receiver decides nothing about the request.
+        if self.peek() == "context" and self.ip_method_ahead():
+            at = self.ip_test()
+            return {"op": "term",
+                    "term": {"op": "at", "window": 0, "atom": at, "left": at, "leftNeg": False}}
+
         # Otherwise a comparison on the request. Wrapped in an `at` term so the condition level
         # stays one shape; `cmp` reads only `dec`, so the index the wrapper supplies is unused.
         at = self.comparison()
@@ -568,6 +608,15 @@ class Parser:
                     f"script -- its result is not a function of the policy or the trace",
                     "calls an information provider (a Rhai script)")
             return
+
+        # `ip("1.2.3.4").isInRange(...)` -- a constant receiver. The guide gives this form, and
+        # it is a fixed truth value: it says nothing about the request, so a policy gated on one
+        # is either always or never subject to that clause.
+        if head == "ip" and nxt == "(":
+            raise Unsupported(
+                "policy calls `isInRange` on an `ip(...)` literal rather than on a request field; "
+                "a constant receiver decides nothing about the request",
+                "uses ipaddr on a constant receiver")
 
         # `recently_logged_in(context.input.user)` -- a macro declared by `def temporal` at the
         # top of the same file, or one reached through `call`. Expanding it is a purely
@@ -701,6 +750,42 @@ class Parser:
                 raise Unsupported(f"operator {op!r} on a non-numeric value")
 
         return {"op": "cmp", "field": field, "cmp": op, "value": value}
+
+    def ip_method_ahead(self) -> bool:
+        """Does an ipaddr method follow the context field at the cursor?
+
+        `context . input . src . isInRange` is seven fixed tokens, so this is a peek rather than a
+        scan -- `context_field` accepts exactly that shape and nothing longer.
+        """
+        return self.peek(5) == "." and self.peek(6) in ("isInRange",) + IP_METHODS_UNARY
+
+    def ip_test(self) -> dict:
+        """`context.input.FIELD.isInRange(ip("CIDR"))`."""
+        field = self.context_field()
+        self.expect(".")
+        method = self.take()
+
+        if method in IP_METHODS_UNARY:
+            raise Unsupported(
+                f"policy calls `.{method}()`, which is not modelled -- only `isInRange` is",
+                "uses an ipaddr method other than isInRange")
+        if method != "isInRange":
+            raise Unsupported(f"policy calls `.{method}()` on a context field, which is not "
+                              f"modelled")
+
+        self.expect("(")
+        if self.take() != "ip":
+            raise Unsupported("`isInRange` takes an `ip(\"...\")` literal, and this is not one")
+        self.expect("(")
+        tok = self.take()
+        if not tok.startswith('"'):
+            raise Unsupported(f"ip() argument {tok!r} is not a string literal -- Cedar requires "
+                              f"one, and a computed address cannot be checked here either")
+        self.expect(")")
+        self.expect(")")
+
+        net, prefix = parse_cidr(tok[1:-1])
+        return {"op": "inrange", "field": field, "net": net, "prefix": prefix}
 
     def context_field(self) -> str:
         self.expect("context")

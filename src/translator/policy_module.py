@@ -58,6 +58,20 @@ def walk(node, seen: dict) -> None:
         seen["input"].add(node["field"])
         seen["literals"].setdefault(("input", node["field"]), set()).add(node["value"])
 
+    if node.get("op") == "inrange":
+        # Two addresses, and both are needed: one the CIDR contains, so the guard can be true, and
+        # one it does not, so "outside the range" is reachable. A /32 contains exactly one address,
+        # which is why the outside witness is derived by flipping an octet rather than by adding.
+        seen["input"].add(node["field"])
+        net, prefix = node["net"], node["prefix"]
+        inside = tuple(net)
+        outside = tuple(net[:3] + [(net[3] + 1) % 256]) if prefix == 32 else \
+            tuple([(net[0] + 1) % 256] + net[1:]) if prefix >= 8 else \
+            tuple([(net[0] + 128) % 256] + net[1:])
+        lits = seen["literals"].setdefault(("input", node["field"]), set())
+        lits.add(inside)
+        lits.add(outside)
+
     if node.get("op") == "like":
         # A pattern names no literal, so it must contribute the values that make it decidable:
         # one the pattern matches, and one it does not. See this module's `like` note.
@@ -170,7 +184,14 @@ def field_domain(literals: set, amounts: int) -> list:
     if not literals:
         return [("n", x) for x in range(1, max(2, amounts) + 1)]
 
-    kinds = {type(v) is bool and "b" or (type(v) is int and "n" or "s") for v in literals}
+    def kind_of(v):
+        if type(v) is bool:
+            return "b"
+        if type(v) is tuple:      # four octets -- an address, not a string of one
+            return "a"
+        return "n" if type(v) is int else "s"
+
+    kinds = {kind_of(v) for v in literals}
     if len(kinds) > 1:
         raise Unsupported(f"field compared against mixed value kinds: {sorted(kinds)}")
     kind = kinds.pop()
@@ -179,6 +200,10 @@ def field_domain(literals: set, amounts: int) -> list:
     if kind == "b":
         # A boolean has only the two, and both are already reachable.
         return [("b", False), ("b", True)]
+    if kind == "a":
+        # Both witnesses are already here, and inventing a third address would say nothing the
+        # two do not.
+        return values
     values.append(("n", max(v for v in literals) + 1) if kind == "n" else ("s", "\u0000none"))
     return values
 
@@ -193,6 +218,8 @@ def tla_val(kind: str, value) -> str:
         return f'[k |-> "b", v |-> {"TRUE" if value else "FALSE"}]'
     if kind == "n":
         return f'[k |-> "n", v |-> {value}]'
+    if kind == "a":
+        return f'[k |-> "a", v |-> <<{", ".join(str(o) for o in value)}>>]'
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'[k |-> "s", v |-> "{escaped}"]'
 
@@ -265,6 +292,9 @@ PinKeys == {tla_set(keys or [])}
 \\* ---- for a property module extending this one --------------------------------------------
 \\* Scalars are TAGGED with their kind so TLC refuses a cross-kind comparison rather than quietly
 \\* answering one. Write `Num(22)`, never `22`.
+\\* An address is FOUR OCTETS, never a 32-bit number: TLC works in Java ints and stops at
+\\* 2147483647, so 208.4.4.0 -- 3489924096 -- is not a value it can hold.
+Addr(a, b, c, d) == [k |-> "a", v |-> <<a, b, c, d>>]
 Str(x)  == [k |-> "s", v |-> x]
 Num(x)  == [k |-> "n", v |-> x]
 Bool(x) == [k |-> "b", v |-> x]

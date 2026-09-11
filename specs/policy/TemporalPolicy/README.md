@@ -264,20 +264,25 @@ checked   37 of 49 runnable examples (76%)
 
 | refused | why |
 |---|---|
-| 10 | calls an information provider (a Rhai script) |
+| 11 | calls an information provider (a Rhai script) |
 | 1 | a custom event kind with a renamed scope bind |
-| 1 | a `when guardrails` clause — whose body is itself a provider call |
 
 **An information provider is permanently out of scope, and refusing is the correct answer rather
 than a gap.** It is a sandboxed Rhai script, so a verdict depending on one is not a function of the
 policy and the trace at all; there is nothing for any model to be right about, and a checker that
-guessed would be worse than one that declines. The `when guardrails` case is the same wall behind a
-different door — implementing the clause keyword would land on `Strings::Matches(...)`.
+guessed would be worse than one that declines.
 
-So the honest denominator is not 49. **Of the 39 examples that can be modelled at all, 37 are —
-95%**, and the last two need one schema feature between them. Both framings are true and the first
-is the one to quote, because a user pointing this at a policy set full of providers really will get
-refusals.
+The eleventh joined that column by being read properly rather than by anything changing. A
+`when guardrails { … }` clause was refused as "an evaluation mode we do not model" — but the
+language guide says three times that `guardrails { E }` is **transparent sugar for `when { E }`**,
+carrying no semantics and "retained only for surface compatibility". So the tag is now dropped and
+the body parsed as ordinary Cedar, and the one example using it refuses for what is actually in it:
+`Strings::Matches(...)`, a provider. Same verdict, true reason.
+
+So the honest denominator is not 49. **Of the 38 examples that can be modelled at all, 37 are —
+97%**, and the last needs a custom event kind with a renamed scope bind. Both framings are true and
+the first is the one to quote, because a user pointing this at a policy set full of providers really
+will get refusals.
 
 Two conventions differ from the unit corpus, and either would misalign every verdict silently:
 the oracle is the CLI's `ALLOW`/`DENY` rather than `true`/`false`, and "time point N" counts

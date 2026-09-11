@@ -119,6 +119,70 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Cedar's <c>ipaddr</c>: CIDR containment against Python's <c>ipaddress</c>, and a property
+    /// that catches a prefix-length slip.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the one part of the Dogwood model with no Dogwood oracle.</b> <c>ip(</c> and
+    /// <c>isInRange</c> appear in zero <c>.dw</c> files across the whole tree — no corpus case, no
+    /// example, no test — and <c>dogwood replay</c> cannot supply an address at all: its log value
+    /// parser has no case for an extension value, so <c>ip("10.1.2.3")</c> in a trace becomes the
+    /// <i>string</i> <c>ip("10.1.2.3")</c>, the extension call fails on the wrong type, and the
+    /// policy silently does not apply. A forbid on <c>10.0.0.0/8</c> replays <c>10.1.2.3</c> as
+    /// ALLOW.
+    /// </para>
+    /// <para>
+    /// So the arithmetic is differentially tested against <c>ipaddress</c> instead — two
+    /// independent implementations of one standard — and that is all it establishes. How a real
+    /// deployment feeds an address in is exactly what Dogwood's own tooling cannot exercise.
+    /// </para>
+    /// <para>
+    /// An address is four octets rather than a 32-bit number, and that is forced: TLC works in
+    /// Java ints and stops at 2147483647, so <c>208.4.4.0</c> — 3489924096 — is not a value it can
+    /// hold. Every octet is 0..255.
+    /// </para>
+    /// <para>
+    /// The property half is the payoff. <c>firewall_ip_narrow.dw</c> writes <c>/9</c> where
+    /// <c>/8</c> was meant, leaving the upper half of the range unblocked; every built-in check
+    /// passes it — both rules fire, neither is redundant — and a spot check on 10.1.2.3 looks
+    /// fine. The property names <c>10.255.255.255</c>.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("ip_differential.py")]
+    public async Task IpRangeContainmentMatchesTheStandard()
+    {
+        var diff = await PythonHarness.RunAsync("tests/strands/ip_differential.py");
+
+        Assert.True(diff.ExitCode == 0, diff.Output);
+        Assert.Contains("AGREE on every pair", diff.Output);
+        Assert.DoesNotContain("DISAGREE", diff.Output);
+
+        // The claim holds on the policy that means what it says.
+        var good = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_ip.dw",
+            "--property", "tests/policies/firewall_ip.tla");
+
+        Assert.True(good.ExitCode == 0, good.Output);
+        Assert.Contains("every claim holds", good.Output);
+
+        // A prefix-length slip that every derivable check passes.
+        var narrow = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_ip_narrow.dw",
+            "--property", "tests/policies/firewall_ip.tla");
+
+        Assert.Equal(1, narrow.ExitCode);
+        Assert.Contains("BlockedRangeIsRefused", narrow.Output);
+        Assert.Contains("10, 255, 255, 255", narrow.Output);
+
+        var builtin = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_ip_narrow.dw");
+
+        Assert.True(builtin.ExitCode == 0, builtin.Output);
+        Assert.Contains("every rule is load-bearing", builtin.Output);
+    }
+
+    /// <summary>
     /// A property module states what a policy is <i>supposed</i> to mean, and catches an edit the
     /// three built-in checks describe wrongly.
     /// </summary>

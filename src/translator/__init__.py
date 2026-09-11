@@ -26,8 +26,8 @@ from .emit import (DUMMY_ATOM, DUMMY_PRED, DUMMY_TERM, NO_CMP, policy_seq, stamp
 from .policy_module import (DECISION_KIND, KINDS, field_domain, generate_policy_module,
                             joint_witness, vocabulary)
 from .parse import (DECIMAL_SCALE, UNITS, WILDCARD, Dec, Parser, Unsupported, collect_macros,
-                    expand_macros, like_matches, parse_decimal, parse_like_pattern, parse_policies,
-                    pattern_witnesses, tokenize)
+                    expand_macros, like_matches, parse_cidr, parse_decimal, parse_like_pattern,
+                    parse_policies, pattern_witnesses, tokenize)
 from .schema import SCOPE_PINS, apply_pins, key_for, parse_schema
 from .tlc import find_jar, run_tlc
 from .trace import braced, parse_fields, parse_trace, pin_value, split_binds
@@ -35,7 +35,8 @@ from .trace import braced, parse_fields, parse_trace, pin_value, split_binds
 __all__ = [
     # parse
     "DECIMAL_SCALE", "Dec", "Parser", "UNITS", "Unsupported", "WILDCARD", "collect_macros",
-    "expand_macros", "like_matches", "parse_decimal", "parse_like_pattern", "parse_policies",
+    "expand_macros", "like_matches", "parse_cidr", "parse_decimal", "parse_like_pattern",
+    "parse_policies",
     "pattern_witnesses", "tokenize",
     # schema
     "SCOPE_PINS", "apply_pins", "key_for", "parse_schema",

@@ -185,6 +185,34 @@ LikeMatches(pat, s) ==
              /\ SubSeq(s, 1, 1) = pat[1].c
              /\ LikeMatches(SubSeq(pat, 2, Len(pat)), SubSeq(s, 2, Len(s)))
 
+(***************************************************************************)
+(* CEDAR'S `ipaddr`. An address is FOUR OCTETS, not a 32-bit number, and   *)
+(* that is forced: TLC works in Java ints, so 208.4.4.0 -- 3489924096 --   *)
+(* is not a value it can hold. Octets are 0..255 and never come close.     *)
+(*                                                                        *)
+(* `a.isInRange(ip("N/p"))` is true when the first p bits agree: p \div 8   *)
+(* whole octets compared exactly, then the leading p % 8 bits of the next, *)
+(* by integer division. TLA+ has no bit operations and needs none.         *)
+(***************************************************************************)
+InRange(addr, net, prefix) ==
+    LET whole == prefix \div 8
+        rest  == prefix % 8
+    IN /\ \A i \in 1..whole : addr[i] = net[i]
+       \* The partial octet, when the prefix does not land on a byte boundary. Dividing away the
+       \* low 8 - rest bits leaves exactly the bits the prefix covers.
+       /\ \/ rest = 0
+          \/ addr[whole + 1] \div (2 ^ (8 - rest)) = net[whole + 1] \div (2 ^ (8 - rest))
+
+InRangeHolds(a, dec) ==
+    /\ a.field \in DOMAIN dec.input
+    /\ LET v == dec.input[a.field] IN
+       \* Kind "a" is an address: a four-element sequence of octets. A field holding anything
+       \* else is not an address and the test is simply false, which is Cedar's behaviour for an
+       \* extension call on the wrong type -- the condition does not hold, the policy does not
+       \* apply.
+       /\ v.k = "a"
+       /\ InRange(v.v, a.net, a.prefix)
+
 CmpHolds(a, dec) ==
     /\ a.field \in DOMAIN dec.input
     /\ LET v == dec.input[a.field] IN
@@ -212,6 +240,7 @@ AtomHolds(a, i, trace, dec, asg) ==
       [] a.op = "like" -> /\ a.field \in DOMAIN dec.input
                           /\ LET v == dec.input[a.field] IN
                              v.k = "s" /\ LikeMatches(a.pattern, v.v)
+      [] a.op = "inrange" -> InRangeHolds(a, dec)
       [] a.op = "cmp"  -> CmpHolds(a, dec)
       [] a.op = "cmp2" -> Cmp2Holds(a, dec)
       [] a.op = "cmpvar" -> CmpVarHolds(a, asg)

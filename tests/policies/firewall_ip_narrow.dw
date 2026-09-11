@@ -1,0 +1,17 @@
+// The same policy with `/8` written as `/9` -- a prefix-length slip, which is what range bugs in
+// firewall rules actually look like.
+//
+// It still blocks 10.0.0.0 through 10.127.255.255, so a spot check on 10.1.2.3 looks fine. The
+// whole upper half of the range -- 10.128.0.0 onward -- is no longer blocked.
+//
+// Every built-in check passes it: both rules fire, neither is redundant, nothing is dead. Only the
+// property notices, and it names an address that gets through.
+
+forbid (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.src.isInRange(ip("10.0.0.0/9")) };
+
+permit ( principal, action == Anchor::Action::"Connect", resource );

@@ -1,0 +1,19 @@
+// The firewall question in Cedar's own vocabulary: `ipaddr`, not a classification field.
+//
+// Nothing in Dogwood's tree exercises this. `ip(` and `isInRange` appear in zero .dw files --
+// no corpus case, no example, no test -- and `dogwood replay` cannot supply an address at all:
+// its log parser has no case for an extension value, so `ip("10.1.2.3")` in a trace becomes the
+// STRING `ip("10.1.2.3")`, the extension call fails on the wrong type, and the forbid silently
+// does not apply. A policy that should DENY 10.1.2.3 replays as ALLOW.
+//
+// So this is checked by property rather than by replay, and the containment itself is
+// differentially tested against Python's `ipaddress` module.
+
+forbid (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.src.isInRange(ip("10.0.0.0/8")) };
+
+permit ( principal, action == Anchor::Action::"Connect", resource );
