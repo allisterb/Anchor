@@ -174,7 +174,7 @@ stance every other spec here takes.
   What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
   anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **732 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **767 recorded pairs** — see below. What is
   still unchecked is most of what this spec adds on top: the session model and `Granted`. The
   request/response/error recording convention is the exception — the replay harness puts that one
   in front of the engine directly.
@@ -202,7 +202,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   732 (trace, expected) pairs from 372 cases, in one TLC run
+checked   767 (trace, expected) pairs from 386 cases, in one TLC run
   AGREE
 ```
 
@@ -247,11 +247,11 @@ Nothing is built or run for *this* harness — the expected outputs are recorded
 data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
 Either way no network is touched and no credentials exist.
 
-**The refusal count matters as much as the agreement count.** 149 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 135 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
 construct yields a disagreement it cannot attribute.
 
-The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **732 pairs / 372 cases**, by
+The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **767 pairs / 372 cases**, by
 adding three constructs:
 
 | construct | example | cases |
@@ -259,6 +259,7 @@ adding three constructs:
 | a parenthesised left operand of `since` | `!(Login::response{..}) since within 1h Sync::request{..}` | 13 |
 | a comparison on the request's own context | `formerly within 1h (Login::request{..} && context.input.amount > 100)` | 24 |
 | an aggregate body with **no** temporal wrapper | `count for (t: Timepoint). where (Login::request{..} && tp(t))` | 36 |
+| an event schema that **pins** a scope field into every predicate | `pin callerPrincipal: principalType(A) = principal` | 20 |
 
 The first needed **no semantics at all** — `DogwoodSemantics` already carried `left`/`leftNeg`; the
 parser had simply committed to reading `!(` as a negated group before anything looked for the
@@ -289,7 +290,7 @@ event — so "same tp" is the decision event's own index. Mutating the `at` arm 
 which is exactly that competing reading, turns the run red: the semantics is held up by the corpus
 rather than by one person's reading of one case.
 
-**149 cases still stand refused**: macro calls and parameter sigils, the 30 schema-pin cases,
+**135 cases still stand refused**: macro calls and parameter sigils, the 30 schema-pin cases,
 `since` nested inside an aggregate body, `count`/`sum` bodies written without parentheses,
 comparisons against something other than a literal, and ten `Long` values outside TLC's integer
 range, which no amount of modelling will fix.
@@ -305,7 +306,7 @@ rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 732 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 767 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -349,6 +350,71 @@ refused. Modelling pins would be a real extension, and it is not done.
 The harness is mutation-checked: removing the metric bound from `TermHolds` turns the run red.
 
 
+## A policy's meaning is not in its own text
+
+The sharpest thing the corpus taught us, and the thing that caught our translator on its first run.
+
+An `event.dwschema` can **pin** a field, forcing every event's copy of it to equal something about
+the decision:
+
+```
+decision event <A>::request {
+    ...inputs(A),
+    pin callerPrincipal: principalType(A) = principal,
+}
+```
+
+The policy never writes `callerPrincipal`, cannot see it, and cannot bypass it. In
+`1117_pin_principal_correlation` the written condition correlates on `input.user` and matches —
+and the engine denies anyway, because the pin requires the prior Login's principal to equal the
+reader's. Read the `.dw` and ignore the schema and you get a different answer than the engine.
+
+### Universal versus partial, which is the half that bites
+
+A pin declared on **every** event kind is *universal* and switches the leaf to key-local
+semantics: the trace is partitioned by the pinned key and temporal operators see only the
+decision's own partition. A pin declared on **some** kinds is *partial*, earns no isolation, and
+stays global. The corpus puts it plainly — "the engine must not grant isolation the schema did not
+earn."
+
+The distinction is invisible to `formerly`, `count` and `sum`. They are existential, so restricting
+the candidates is the same as adding a conjunct, and an implementation that only injected conjuncts
+would pass every one of those cases.
+
+It is visible to **`previous`**, which means *the most recent match*:
+
+| | global (partial pin) | partitioned (universal pin) |
+|---|---|---|
+| a foreign event is the most recent | it **is** the `previous`, and fails the predicate → deny | skipped entirely → the most recent of *mine* is used → permit |
+
+`1155_relativize_previous_ignores_foreign` and `1164_partial_pin_stays_global` are **the same
+policy and the same trace**, differing only in whether the pin covers both event kinds — and they
+have opposite verdicts. That pair is why pins are modelled as partitioning rather than as injected
+conjuncts, and both directions are mutation-checked: treating every pin as universal turns the run
+red, and so does dropping partitioning and keeping the conjuncts.
+
+### What is modelled, and what is refused
+
+Universal and partial pins on the two **scope** fields, `callerPrincipal` and `callerResource`.
+Refused, each being a separate feature rather than a spelling of this one:
+
+- nested pins — `__drupe: { pin session_id: ... }` — which pin a path rather than a field
+- pins on a context field, `pin tenant_id: String = context.tenant_id`
+- schemas with custom event kinds (`attempt`/`outcome` instead of `request`/`response`)
+- the **nine** schema-bearing cases with no pin at all, which are in the corpus for renamed
+  reserved fields, deep paths and injected slots
+
+That last group is worth naming: the old refusal message said "event schema pins a field into every
+predicate" for all 30 schema cases, and a third of them contain no pin. The message now says which
+feature actually stopped it.
+
+**One assumption, stated because it is load-bearing.** Our event record takes `principal` and
+`resource` from each event's `scope(...)`, and treats `callerPrincipal` as the same thing. Across
+all 4371 events in the corpus the two never diverge, so nothing here distinguishes them — but a
+trace where an event's caller differs from its scope would break that, and the model would be
+wrong rather than merely incomplete.
+
+
 ## The checker takes arbitrary policy text
 
 For a long time this directory model-checked *one* policy, hand-written into `Policies.tla` as a
@@ -361,7 +427,7 @@ any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 732
+- The **policies** come from the parser that agrees with the reference implementation on 767
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.

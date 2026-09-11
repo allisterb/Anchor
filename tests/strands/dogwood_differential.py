@@ -68,6 +68,7 @@ UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 from dogwood_parse import Unsupported, parse_policies  # noqa: E402
+from dogwood_schema import apply_pins, parse_schema  # noqa: E402
 
 
 def split_binds(text: str) -> list[str]:
@@ -250,7 +251,28 @@ def tla_atom(a: dict) -> str:
 
 DUMMY_ATOM = f'[op |-> "pred", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, {NO_CMP}]'
 DUMMY_TERM = (f'[op |-> "formerly", window |-> 0, atom |-> {DUMMY_ATOM}, '
-              f'left |-> {DUMMY_ATOM}, leftNeg |-> FALSE]')
+              f'left |-> {DUMMY_ATOM}, leftNeg |-> FALSE, keys |-> <<>>]')
+
+
+def stamp_keys(policies: list[dict], keys: list[str]) -> None:
+    """Put the partition keys on every term, in place.
+
+    Carried on the term rather than threaded through `TermHolds`'s signature because a pin is a
+    schema-level fact that applies uniformly -- every term in the policy set gets the same keys,
+    so a parameter would be the same value repeated down every call.
+    """
+    def walk(node) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("op") in ("formerly", "previous", "since", "at") and "window" in node:
+            node["keys"] = keys
+        for key in ("term", "atom", "left", "cond", "agg"):
+            walk(node.get(key))
+        for child in node.get("args", []) or []:
+            walk(child)
+
+    for p in policies:
+        walk(p["cond"])
 
 
 def tla_cond(c: dict) -> str:
@@ -262,8 +284,10 @@ def tla_cond(c: dict) -> str:
     """
     if c["op"] == "term":
         t = c["term"]
+        keys = ", ".join(f'"{k}"' for k in t.get("keys", []))
         term = (f'[op |-> "{t["op"]}", window |-> {t["window"]}, atom |-> {tla_atom(t["atom"])}, '
-                f'left |-> {tla_atom(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}]')
+                f'left |-> {tla_atom(t["left"])}, leftNeg |-> {tla_value(t["leftNeg"])}, '
+                f'keys |-> <<{keys}>>]')
         return f'[op |-> "term", args |-> <<>>, term |-> {term}]'
 
     if c["op"] == "agg":
@@ -382,11 +406,19 @@ def main() -> int:
             # So a policy's meaning is not determined by its own text. Reading the `.dw` alone and
             # ignoring the schema is precisely the silent mishandling this harness exists to avoid,
             # and it is why these are refused rather than approximated.
-            if (case / "event.dwschema").exists():
-                raise Unsupported("event schema pins a field into every predicate")
+            schema_file = case / "event.dwschema"
+            schema = (parse_schema(schema_file.read_text(encoding="utf-8"))
+                      if schema_file.exists() else {"keys": [], "partial": {}})
 
             policies = parse_policies(
                 "\n".join(p.read_text(encoding="utf-8") for p in sorted(case.glob("*.dw"))))
+
+            # A partial pin is an ordinary conjunct on the kinds that declare it; a universal one
+            # is a partition key stamped onto every term. Both happen here, at translation time,
+            # so the policy records TLC evaluates already carry what the schema injected.
+            apply_pins(policies, schema)
+            if schema["keys"]:
+                stamp_keys(policies, schema["keys"])
             parsed = []
             for tf in sorted(case.glob("trace_*.log")):
                 ef = case / tf.name.replace("trace_", "expected_").replace(".log", ".out")

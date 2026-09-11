@@ -145,9 +145,28 @@ AtomHolds(a, i, trace, dec, asg) ==
 (* THE TEMPORAL OPERATORS -- all past-time, because an authorizer decides  *)
 (* now, from what has already happened.                                    *)
 (***************************************************************************)
+(***************************************************************************)
+(* PARTITIONING, which an event schema's UNIVERSAL pin switches on.        *)
+(*                                                                         *)
+(* A pin declared on every event kind makes the leaf key-local: the trace  *)
+(* is partitioned by the pinned key and a temporal operator sees only the  *)
+(* decision's own partition. A pin on SOME kinds earns no isolation and    *)
+(* stays global -- `term.keys` is empty there, and Mine is TRUE for every  *)
+(* index, which is exactly the behaviour of a policy with no schema.       *)
+(*                                                                         *)
+(* It is invisible to `formerly`, `count` and `sum`: they are existential, *)
+(* so restricting the candidates is the same as adding a conjunct. It is   *)
+(* visible to `previous`, which means THE MOST RECENT match -- globally a  *)
+(* foreign event can be that most recent one and fail, where partitioned   *)
+(* it is skipped. Same policy, same trace, opposite verdicts.              *)
+(***************************************************************************)
+KeyOf(ev, k) == IF k = "principal" THEN ev.principal ELSE ev.resource
+
 TermHolds(term, trace, upto, dec, asg) ==
     LET t == dec.time
         InWindow(i) == trace[i].time <= t /\ t - trace[i].time <= term.window
+        Mine(i) == \A k \in DOMAIN term.keys :
+                       SameVal(KeyOf(trace[i], term.keys[k]), KeyOf(dec, term.keys[k]))
     IN CASE
         \* No temporal operator at all: the body sees ONLY the decision's own timepoint.
         \* An aggregate written without a wrapper therefore counts what is happening now
@@ -157,23 +176,36 @@ TermHolds(term, trace, upto, dec, asg) ==
 
         \* `formerly within W A` -- A held at some point in the window.
       [] term.op = "formerly" ->
-            \E i \in 1..upto : InWindow(i) /\ AtomHolds(term.atom, i, trace, dec, asg)
+            \E i \in 1..upto :
+                /\ Mine(i)
+                /\ InWindow(i)
+                /\ AtomHolds(term.atom, i, trace, dec, asg)
 
         \* `previous within W A` -- the immediately preceding time point.
+        \* The most recent event BEFORE the decision -- in the decision's own partition
+        \* when a universal pin established one. With no keys `mine` is all of 1..upto-1 and
+        \* `p` is upto-1, so this is the global reading unchanged.
         [] term.op = "previous" ->
-            /\ upto > 1
-            /\ InWindow(upto - 1)
-            /\ AtomHolds(term.atom, upto - 1, trace, dec, asg)
+            LET mine == {j \in 1..(upto - 1) : Mine(j)}
+            IN /\ mine # {}
+               /\ LET p == CHOOSE j \in mine : \A k \in mine : k <= j
+                  IN /\ InWindow(p)
+                     /\ AtomHolds(term.atom, p, trace, dec, asg)
 
         \* `A since within W B` -- B held in the window and A has held at every
         \* point after it; with `!A`, at none of them. Standard MFOTL Since.
         [] OTHER ->
             \E i \in 1..upto :
+                /\ Mine(i)
                 /\ InWindow(i)
                 /\ AtomHolds(term.atom, i, trace, dec, asg)
+                \* Foreign events are not just excluded as anchors; they are skipped by the
+                \* "has held ever since" obligation too, which is what makes a negated since
+                \* survive a foreign event sitting in the middle of the interval.
                 /\ \A k \in (i + 1)..upto :
-                      IF term.leftNeg THEN ~AtomHolds(term.left, k, trace, dec, asg)
-                                      ELSE AtomHolds(term.left, k, trace, dec, asg)
+                      Mine(k) =>
+                        IF term.leftNeg THEN ~AtomHolds(term.left, k, trace, dec, asg)
+                                        ELSE AtomHolds(term.left, k, trace, dec, asg)
 
 (***************************************************************************)
 (* AGGREGATION                                                             *)
