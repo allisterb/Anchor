@@ -1,0 +1,25 @@
+// An ordering comparison with a DECIMAL on both sides.
+//
+// Ordering is defined on integers only. The guide: ordering "requires both sides to resolve to
+// integers; otherwise the comparison is false", and a decimal "resolves but fails the integer
+// conversion and yields false". So this gate never opens, however large the score.
+//
+// Our model ordered decimals by their scaled value until 2026-09-11 -- 9000 > 5000 -- and said
+// ALLOW. A wrong verdict, not a missing feature. No corpus case compares a decimal with an
+// ordering operator, so 919 agreeing pairs said nothing about it; the engine settled it.
+//
+// BOTH SIDES MUST BE DECIMAL for this to discriminate. `s > 0` against a decimal column already
+// fails on the kind check, so it would pass with or without the fix -- which is exactly what the
+// first version of this fixture did.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    exists (s: Long). (
+        formerly within 1h Anchor::Action::"Score"::response{ output.score: s }
+        && s > decimal("0.5")
+    )
+};

@@ -135,12 +135,12 @@ Cmp2Holds(a, dec) ==
        IN /\ x.k = y.k
           /\ CASE a.cmp = "==" -> x.v = y.v
                [] a.cmp = "!=" -> x.v # y.v
-               \* Ordering is only defined on numbers and decimals, both of which carry an
-               \* integer `v`. A string pair reaching here compares FALSE rather than crashing.
-               [] a.cmp = ">"  -> x.k \in {"n", "d"} /\ x.v > y.v
-               [] a.cmp = "<"  -> x.k \in {"n", "d"} /\ x.v < y.v
-               [] a.cmp = ">=" -> x.k \in {"n", "d"} /\ x.v >= y.v
-               [] a.cmp = "<=" -> x.k \in {"n", "d"} /\ x.v <= y.v
+               \* Integers only -- decimals are part of what that excludes. See CmpHolds for
+               \* why; a pair of any other kind compares FALSE here rather than crashing.
+               [] a.cmp = ">"  -> x.k = "n" /\ x.v > y.v
+               [] a.cmp = "<"  -> x.k = "n" /\ x.v < y.v
+               [] a.cmp = ">=" -> x.k = "n" /\ x.v >= y.v
+               [] a.cmp = "<=" -> x.k = "n" /\ x.v <= y.v
                [] OTHER        -> FALSE
 
 (***************************************************************************)
@@ -154,10 +154,11 @@ CmpVarHolds(a, asg) ==
        /\ v.k = a.value.k
        /\ CASE a.cmp = "==" -> v.v = a.value.v
             [] a.cmp = "!=" -> v.v # a.value.v
-            [] a.cmp = ">"  -> v.k \in {"n", "d"} /\ v.v > a.value.v
-            [] a.cmp = "<"  -> v.k \in {"n", "d"} /\ v.v < a.value.v
-            [] a.cmp = ">=" -> v.k \in {"n", "d"} /\ v.v >= a.value.v
-            [] a.cmp = "<=" -> v.k \in {"n", "d"} /\ v.v <= a.value.v
+            \* Integers only -- decimals are part of what that excludes. See CmpHolds for why.
+            [] a.cmp = ">"  -> v.k = "n" /\ v.v > a.value.v
+            [] a.cmp = "<"  -> v.k = "n" /\ v.v < a.value.v
+            [] a.cmp = ">=" -> v.k = "n" /\ v.v >= a.value.v
+            [] a.cmp = "<=" -> v.k = "n" /\ v.v <= a.value.v
             [] OTHER        -> FALSE
 
 (***************************************************************************)
@@ -219,13 +220,24 @@ CmpHolds(a, dec) ==
        /\ v.k = a.value.k
        /\ CASE a.cmp = "==" -> v.v = a.value.v
             [] a.cmp = "!=" -> v.v # a.value.v
-            \* Ordering is only defined on numbers. The parser refuses `<` and friends on a
-            \* non-numeric literal, so the guard here is belt and braces rather than a branch
-            \* the corpus reaches.
-            [] a.cmp = ">"  -> v.k \in {"n", "d"} /\ v.v > a.value.v
-            [] a.cmp = "<"  -> v.k \in {"n", "d"} /\ v.v < a.value.v
-            [] a.cmp = ">=" -> v.k \in {"n", "d"} /\ v.v >= a.value.v
-            [] a.cmp = "<=" -> v.k \in {"n", "d"} /\ v.v <= a.value.v
+            \* ORDERING IS INTEGERS ONLY, and that includes excluding DECIMALS. This is the
+            \* explanation for all THREE comparison helpers: `Cmp2Holds` and `CmpVarHolds`
+            \* enforce the same rule and point here. One rule enforced in three places and
+            \* explained in one is how the Cmp2Holds comment went stale the first time.
+            \*
+            \* The guide is
+            \* explicit -- ordering "requires both sides to resolve to integers; otherwise the
+            \* comparison is false", and a decimal "resolves but fails the integer conversion and
+            \* yields false". This read `{"n", "d"}` and ordered decimals by their scaled value,
+            \* which is a WRONG VERDICT rather than a missing feature.
+            \*
+            \* No corpus case compares a decimal with an ordering operator, so 919 agreeing pairs
+            \* said nothing about it. The engine settles it: the same policy over a Long output
+            \* ALLOWs and over a decimal output DENYs.
+            [] a.cmp = ">"  -> v.k = "n" /\ v.v > a.value.v
+            [] a.cmp = "<"  -> v.k = "n" /\ v.v < a.value.v
+            [] a.cmp = ">=" -> v.k = "n" /\ v.v >= a.value.v
+            [] a.cmp = "<=" -> v.k = "n" /\ v.v <= a.value.v
             [] OTHER        -> FALSE
 
 RECURSIVE AtomHolds(_, _, _, _, _)

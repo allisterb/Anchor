@@ -1,0 +1,18 @@
+// An ordering comparison on the `count` output column.
+//
+// Ordering is defined on integers only. A decimal "resolves but fails the integer conversion and
+// yields false" -- so the identical policy over a Long column opens the gate and over a decimal
+// column does not. Our model ordered decimals by their scaled value until 2026-09-11, which was a
+// wrong verdict; no corpus case compares a decimal with an ordering operator, so nothing caught it.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    exists (s: Long). (
+        formerly within 1h Anchor::Action::"Score"::response{ output.count: s }
+        && s > 0
+    )
+};

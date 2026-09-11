@@ -83,6 +83,17 @@ def approve(t: int, kind: str, session: str | None = None) -> str:
             f'(input: {{ approver: "alice" }}, {CALLER}, requestId: "a{t}"{sid})')
 
 
+def scored(t: int) -> list[str]:
+    """A Score request and its response, whose output carries both a decimal and a Long."""
+    return [
+        f'@{t} {SCOPE} request_context(input: {{ user: "alice" }}) '
+        f'Anchor::Action::"Score"::request(input: {{ user: "alice" }}, {CALLER}, '
+        f'requestId: "s{t}")',
+        f'@{t + 1} {SCOPE} Anchor::Action::"Score"::response(input: {{ user: "alice" }}, '
+        f'output: {{ score: 0.9, count: 7 }}, {CALLER}, requestId: "s{t}")',
+    ]
+
+
 def trade(t: int, amount: int = 1, session: str | None = None) -> str:
     sid = f', sessionId: "{session}"' if session else ""
     return (f'@{t} {SCOPE} request_context(input: {{ amount: {amount} }}{sid}) '
@@ -131,6 +142,23 @@ SCENARIOS = [
         "policy": POLICIES / "approval_gate_error.dw",
         "trace": DENIED,
         "why": "a policy can match error events directly, if it says so",
+    },
+    # Ordering on a DECIMAL. The guide says ordering "requires both sides to resolve to
+    # integers; otherwise the comparison is false", and a decimal "resolves but fails the integer
+    # conversion". Our model ordered decimals by their scaled value until 2026-09-11 -- a wrong
+    # verdict, not a missing feature, and one no corpus case could catch: not one compares a
+    # decimal with an ordering operator.
+    {
+        "name": "ordering on a Long output (control)",
+        "policy": POLICIES / "order_long.dw",
+        "trace": scored(1) + [trade(4)],
+        "why": "the shape works: 7 > 0 on a Long output opens the gate",
+    },
+    {
+        "name": "ordering on a DECIMAL output",
+        "policy": POLICIES / "order_decimal.dw",
+        "trace": scored(1) + [trade(4)],
+        "why": "same shape, decimal column: ordering is not defined on one, so the gate stays shut",
     },
     # One policy, unchanged, under two shipped presets. The pin is the variable.
     {

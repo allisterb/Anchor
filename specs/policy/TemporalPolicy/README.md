@@ -569,6 +569,29 @@ any witness it removes has an all-same-caller equivalent that survives. Add that
 caller may perform every action, and a policy cannot be vacuous-under-pinning here. Making it bite
 is a change to how sessions are generated, not to how schemas are read.
 
+#### Ordering on a decimal, which we had wrong
+
+The temporal sublanguage has a specification — `dogwood-docs/guide/04-temporal-expressions.md` —
+and our reading of it had been assembled from the corpus and the grammar instead. A pass against
+the prose found **23 of its 27 constructs already parse**, and one that parsed *and answered
+wrongly*.
+
+Ordering comparisons require both sides to resolve to integers; a decimal "resolves but fails the
+integer conversion and yields false". Our `CmpHolds` ordered decimals by their scaled value, so
+
+```
+formerly within 1h Score::response{ output.score: s } && s > decimal("0.5")     score = 0.9
+```
+
+was TRUE for us and is FALSE for the engine — a gate opening that should stay shut. **No corpus
+case compares a decimal with an ordering operator**, so none of the 919 agreeing pairs touched it.
+Twelve guards across `CmpHolds`, `Cmp2Holds` and `CmpVarHolds` are integers-only now, and
+`order_decimal.dw` pins it against the live engine in `dogwood_replay.py`.
+
+The fixture took two attempts, which is the part worth keeping. `s > 0` against a decimal column
+fails the *kind* check before the ordering guard is reached, so the first version passed with and
+without the fix — a regression test pinning nothing. Only a decimal on both sides discriminates.
+
 ### How `count` was decoded
 
 Corpus case 0254 is the Rosetta stone. Four identical transfers, and:

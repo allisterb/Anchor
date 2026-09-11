@@ -8,6 +8,15 @@ namespace Anchor {
     amount: Long
   };
 
+  type ScoreInput = {
+    user: String
+  };
+
+  type ScoreOutput = {
+    score: decimal,
+    count: Long
+  };
+
   type TradeOutput = {
     result: Bool
   };
@@ -34,6 +43,18 @@ namespace Anchor {
     context: {
       input: TradeInput,
       output?: TradeOutput,
+      system: SystemContext
+    }
+  };
+
+  // A decimal output beside a Long one, so an ordering comparison can be asked of both in the
+  // same shape. `dogwood_replay` uses the pair to pin that ordering on a decimal is FALSE.
+  action "Score" in [Action::"CallTool"] appliesTo {
+    principal: [OAuthUser],
+    resource: [Gateway],
+    context: {
+      input: ScoreInput,
+      output?: ScoreOutput,
       system: SystemContext
     }
   };
