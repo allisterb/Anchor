@@ -174,7 +174,7 @@ stance every other spec here takes.
   What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
   anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **774 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **776 recorded pairs** — see below. What is
   still unchecked is most of what this spec adds on top: the session model and `Granted`. The
   request/response/error recording convention is the exception — the replay harness puts that one
   in front of the engine directly.
@@ -202,7 +202,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   774 (trace, expected) pairs from 389 cases, in one TLC run
+checked   776 (trace, expected) pairs from 390 cases, in one TLC run
   AGREE
 ```
 
@@ -247,11 +247,11 @@ Nothing is built or run for *this* harness — the expected outputs are recorded
 data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
 Either way no network is touched and no credentials exist.
 
-**The refusal count matters as much as the agreement count.** 132 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 131 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
 construct yields a disagreement it cannot attribute.
 
-The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **774 pairs / 372 cases**, by
+The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **776 pairs / 372 cases**, by
 adding three constructs:
 
 | construct | example | cases |
@@ -261,6 +261,7 @@ adding three constructs:
 | an aggregate body with **no** temporal wrapper | `count for (t: Timepoint). where (Login::request{..} && tp(t))` | 36 |
 | an event schema that **pins** a scope field into every predicate | `pin callerPrincipal: principalType(A) = principal` | 20 |
 | a pin on a nested reserved leaf | `__drupe: { pin session_id: String = context.__drupe.session_id }` | 3 |
+| a pin on a context field | `pin tenant_id: String = context.tenant_id` | 1 |
 
 The first needed **no semantics at all** — `DogwoodSemantics` already carried `left`/`leftNeg`; the
 parser had simply committed to reading `!(` as a negated group before anything looked for the
@@ -291,7 +292,7 @@ event — so "same tp" is the decision event's own index. Mutating the `at` arm 
 which is exactly that competing reading, turns the run red: the semantics is held up by the corpus
 rather than by one person's reading of one case.
 
-**132 cases still stand refused**: macro calls and parameter sigils, the 30 schema-pin cases,
+**131 cases still stand refused**: macro calls and parameter sigils, the 30 schema-pin cases,
 `since` nested inside an aggregate body, `count`/`sum` bodies written without parentheses,
 comparisons against something other than a literal, and ten `Long` values outside TLC's integer
 range, which no amount of modelling will fix.
@@ -307,7 +308,7 @@ rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 774 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 776 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -407,10 +408,20 @@ rule of its own. The policy writes `__drupe.session_id: "sess-1"` itself; partit
 confines candidates to the decision's own session, so an author literal naming a different one leaves
 nothing that can satisfy both — the permit is unsatisfiable rather than merely unmatched.
 
+A pin on a **context field** partitions the same way — `1161_relativize_context_key` makes one
+the *sole* key, with principal and resource left unpinned, so nothing else confines evaluation.
+Rather than a field per pin kind, every event carries a `pins` record holding the value of each
+field the schema pins; `principal` and `resource` stay special only because they come from the
+event's `scope(...)` envelope rather than its payload.
+
+Context pins must be **symmetric** — the context path they read has to be the field path they
+constrain, which is the schema's own definition. An asymmetric pin relates two different things
+and is refused rather than treated as this one.
+
 Refused, each being a separate feature rather than a spelling of this one:
 
-- pins on a context field, `pin tenant_id: String = context.tenant_id`
 - deeper paths under `__drupe` than the single `session_id` leaf
+- asymmetric pins, where the context path read differs from the field constrained
 - schemas with custom event kinds (`attempt`/`outcome` instead of `request`/`response`)
 - the **nine** schema-bearing cases with no pin at all, which are in the corpus for renamed
   reserved fields, deep paths and injected slots
@@ -443,7 +454,7 @@ any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 774
+- The **policies** come from the parser that agrees with the reference implementation on 776
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.

@@ -165,11 +165,13 @@ AtomHolds(a, i, trace, dec, asg) ==
 (* it is skipped. Same policy, same trace, opposite verdicts.              *)
 (***************************************************************************)
 KeyOf(ev, k) ==
+    \* `principal` and `resource` come from the event's scope envelope; every other key is a
+    \* field the schema pins, carried in `pins` under its own name -- `session_id` from the
+    \* reserved group, `tenant_id` from the request context. Partitioning on one of those
+    \* confines a policy to its own session or tenant without the policy mentioning either.
     CASE k = "principal" -> ev.principal
       [] k = "resource"  -> ev.resource
-      \* `__drupe.session_id`, the one nested leaf a schema in this corpus pins. Partitioning
-      \* by it confines a policy to its own session without the policy mentioning sessions.
-      [] OTHER           -> ev.session
+      [] OTHER           -> ev.pins[k]
 
 TermHolds(term, trace, upto, dec, asg) ==
     LET t == dec.time

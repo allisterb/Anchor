@@ -54,16 +54,19 @@ EVENT = re.compile(r"^\s*(decision\s+)?event\s+<A>::([A-Za-z_]\w*)\s*\{", re.M)
 
 CONVENTIONAL = {"request", "response", "error"}
 
-# The pinnable fields, and the key each one partitions on. `__drupe.session_id` is a leaf inside
-# a reserved group rather than a scope field, but it pins and partitions identically.
-SCOPE_PINS = {"callerPrincipal": "principal",
-              "callerResource": "resource",
-              "__drupe.session_id": "session"}
+# The two SCOPE fields. These partition on something the event carries in its `scope(...)`
+# envelope rather than in its payload, which is why they stay special everywhere below.
+SCOPE_PINS = {"callerPrincipal": "principal", "callerResource": "resource"}
 
-# What each pin's right-hand side must name for the pin to be the correlation we model.
-PIN_SOURCE = {"callerPrincipal": "principal",
-              "callerResource": "resource",
-              "__drupe.session_id": "context.__drupe.session_id"}
+
+def key_for(field: str) -> str:
+    """The partition key a pinned field maps to.
+
+    Scope fields have their own names; anything else keys on its own last path segment, which is
+    also the name its value is stored under on each event. `__drupe.session_id` and a top-level
+    `session_id` would collide, and neither the corpus nor the grammar puts both in one schema.
+    """
+    return SCOPE_PINS.get(field) or field.rsplit(".", 1)[-1]
 
 
 def _block(text: str, start: int) -> str:
@@ -111,20 +114,28 @@ def parse_schema(text: str) -> dict:
         # separate feature, and none of them is this one.
         raise Unsupported("event schema declares no pin (it is in the corpus for another feature)")
 
-    outside = declared - set(SCOPE_PINS)
-    if outside:
-        raise Unsupported(f"schema pins a non-scope field: {', '.join(sorted(outside))}")
+
 
     for kind, declared_here in pins.items():
         for field, source in declared_here.items():
-            if source != PIN_SOURCE[field]:
-                raise Unsupported(f"pin {field} = {source}, not the correlation we model")
+            if field in SCOPE_PINS:
+                # `pin callerPrincipal: ... = principal` -- rooted at the request scope.
+                if source != SCOPE_PINS[field]:
+                    raise Unsupported(f"pin {field} = {source}, not its own scope entity")
+            # Otherwise rooted at the request context, and only the SYMMETRIC form is modelled:
+            # the context path it reads must be the field path it constrains. An asymmetric pin
+            # relates two different things and is not this.
+            elif source != f"context.{field}":
+                raise Unsupported(f"pin {field} = {source} is asymmetric, not context.{field}")
 
     universal = [f for f in sorted(declared) if all(f in pins[k] for k in kinds)]
     partial = sorted(declared - set(universal))
 
     return {
-        "keys": [SCOPE_PINS[f] for f in universal],
+        "keys": [key_for(f) for f in universal],
+        # Where to read each non-scope key's value out of an event, so the trace parser can pull
+        # exactly the fields that matter and nothing else.
+        "paths": {key_for(f): f for f in universal if f not in SCOPE_PINS},
         # A partial pin earns no partition, so it acts as an ordinary conjunct on the kinds that
         # declare it -- and on those only.
         "partial": {kind: [_bind(f) for f in sorted(partial) if f in pins[kind]]
@@ -134,7 +145,7 @@ def parse_schema(text: str) -> dict:
 
 def _bind(field: str) -> dict:
     """The bind a PARTIAL pin injects -- the same record the parser builds for a written one."""
-    if field not in ("callerPrincipal", "callerResource"):
+    if field not in SCOPE_PINS:
         raise Unsupported(f"partial pin on {field}, which has no written form to inject")
     return {"side": "scope", "field": field, "kind": "scope",
             "name": SCOPE_PINS[field], "value": ""}

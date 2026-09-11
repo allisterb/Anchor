@@ -141,7 +141,22 @@ def parse_fields(text: str) -> dict:
     return fields
 
 
-def parse_trace(text: str) -> list[dict]:
+def pin_value(rest: str, path: str) -> str:
+    """One pinned field's value, read from the event's own payload.
+
+    `tenant_id` is a top-level scalar; `__drupe.session_id` is a leaf inside a record group. Both
+    are read from the payload rather than from the decision's `request_context(...)` envelope --
+    for a decision event the two carry the same value, checked across the corpus.
+    """
+    if "." in path:
+        group, leaf = path.split(".", 1)
+        m = re.search(r"\b" + re.escape(group) + r":\s*\{", rest)
+        return parse_fields(braced(rest, m.end() - 1)[0]).get(leaf, "") if m else ""
+    m = re.search(re.escape(path) + r':\s*"([^"]*)"', rest)
+    return m.group(1) if m else ""
+
+
+def parse_trace(text: str, paths: dict[str, str] | None = None) -> list[dict]:
     events = []
     for line in text.splitlines():
         if not line.strip():
@@ -175,6 +190,9 @@ def parse_trace(text: str) -> list[dict]:
             # like input and output -- for a decision event that is the same value its
             # `request_context` carries, checked across every such event in the corpus.
             "session": section("__drupe").get("session_id", ""),
+            # Only the fields this case's schema actually pins. An event carries plenty more,
+            # and modelling what no policy reads would cost state space for nothing.
+            "pins": {k: pin_value(rest, p) for k, p in (paths or {}).items()},
             "decision": "request_context(" in line,
         })
     return events
@@ -314,6 +332,7 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
         f'input |-> {tla_record(e["input"])}, output |-> {tla_record(e["output"])}, '
         f'principal |-> {tla_scalar(e["principal"])}, resource |-> {tla_scalar(e["resource"])}, '
         f'session |-> {tla_scalar(e["session"])}, '
+        f'pins |-> {tla_record(e["pins"])}, '
         f'isDecision |-> {tla_value(e["decision"])}]'
         for e in trace)
 
@@ -429,7 +448,7 @@ def main() -> int:
                 ef = case / tf.name.replace("trace_", "expected_").replace(".log", ".out")
                 if not ef.exists():
                     raise Unsupported("trace without expected output")
-                parsed.append((parse_trace(tf.read_text(encoding="utf-8")),
+                parsed.append((parse_trace(tf.read_text(encoding="utf-8"), schema.get("paths")),
                                parse_expected(ef.read_text(encoding="utf-8"))))
         except Unsupported as e:
             refused[re.sub(r"'[^']*'", "...", str(e))[:52]] += 1
