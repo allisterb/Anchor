@@ -78,8 +78,8 @@ refinement of the other.
 
 | | models | use it to ask |
 |---|---|---|
-| [`DependencyDAG`](../specs/DependencyDAG) | the Host Agent of arXiv:2510.14133 — cancels orphaned subgraphs, requires every task to terminate | do the published orchestration properties hold? |
-| [`StrandsGraph`](../specs/StrandsGraph) | the executor Strands runs — batch, await, recompute readiness, fail fast, stop | what will my workflow actually do? |
+| [`DependencyDAG`](../specs/strands/DependencyDAG) | the Host Agent of arXiv:2510.14133 — cancels orphaned subgraphs, requires every task to terminate | do the published orchestration properties hold? |
+| [`StrandsGraph`](../specs/strands/StrandsGraph) | the executor Strands runs — batch, await, recompute readiness, fail fast, stop | what will my workflow actually do? |
 
 `graph_to_tla.py` runs both and prints the comparison:
 
@@ -227,7 +227,7 @@ assumption that does not hold.
 Several agents each running individually-correct budget logic still overspend, because the check and
 the reservation are two steps. A 10 000-token budget goes to **15 000** with three agents. Reserve
 worst-case cost *before* the call — usage only arrives on the result, so checking the real cost
-first is impossible. See [`specs/SharedBudget`](../specs/SharedBudget).
+first is impossible. See [`specs/foundations/SharedBudget`](../specs/foundations/SharedBudget).
 
 ### 6. The metrics trap
 

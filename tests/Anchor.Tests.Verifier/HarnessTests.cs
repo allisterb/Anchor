@@ -88,7 +88,7 @@ public class HarnessTests : TestsRuntime
     /// verdicts their engine actually produced.
     /// </summary>
     /// <remarks>
-    /// This closes the largest caveat on <c>specs/TemporalPolicy</c>: that it modelled the
+    /// This closes the largest caveat on <c>specs/policy/TemporalPolicy</c>: that it modelled the
     /// documented rules with nothing checking the reading was right. Nothing is built or run from
     /// the Dogwood tree — the expected outputs are recorded, so the corpus is usable as data, and
     /// this stays inside the suite's no-network property.

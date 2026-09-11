@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "TemporalPolicy"
+SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 GENERATED = SPECS / "RotationPolicies.tla"
 
 from dogwood_differential import tla_cond  # noqa: E402

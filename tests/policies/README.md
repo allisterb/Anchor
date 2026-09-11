@@ -15,7 +15,7 @@ python tests/strands/dogwood_replay.py
 
 > they are the project's own models, not test fixtures
 
-[`specs/TemporalPolicy/rotation_aggregate.dw`](../../specs/TemporalPolicy/rotation_aggregate.dw)
+[`specs/policy/TemporalPolicy/rotation_aggregate.dw`](../../specs/policy/TemporalPolicy/rotation_aggregate.dw)
 and `rotation_approval.dw` stay there because `SessionRotation.tla` is **about** them: they are
 translated into a checked-in `RotationPolicies.tla` that the spec `EXTENDS`, and the spec's claims
 are claims about those two policies. Move them and the spec's subject matter leaves the spec tree.

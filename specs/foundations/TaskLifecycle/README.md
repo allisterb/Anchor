@@ -14,11 +14,11 @@ future work. This is that check, and running it turned up two things.
 | `TaskLifecycle_TL4Published.cfg` | TL4 *exactly as the paper publishes it*. **Expected to fail.** |
 | `Bug4_UnboundedRetry.tla` | the same with the retry budget removed. TL1 fails as a lasso. |
 
-New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
+New to TLA+? [`specs/strands/DependencyDAG/README.md`](../../strands/DependencyDAG/README.md) has a notation primer.
 
 ```bash
 java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -cleanup \
-    -config specs/TaskLifecycle/TaskLifecycle.cfg specs/TaskLifecycle/TaskLifecycle.tla
+    -config specs/foundations/TaskLifecycle/TaskLifecycle.cfg specs/foundations/TaskLifecycle/TaskLifecycle.tla
 ```
 
 ## The state
@@ -34,7 +34,7 @@ Terminal == { "COMPLETED", "ERROR", "CANCELED" }
 Two counters bound the loops — `retries` against `MaxRetries`, `fallbacks` against `MaxFallbacks` —
 and `prev` carries the previous state, which several properties are stated over.
 
-This is **one** sub-task in detail. [`DependencyDAG`](../DependencyDAG) is the complementary model:
+This is **one** sub-task in detail. [`DependencyDAG`](../../strands/DependencyDAG) is the complementary model:
 several tasks in outline, because HP10 is about the relation *between* tasks rather than the states
 within one. Composing the two is a separate exercise; this model would not fit in a checkable state
 space if each task in a DAG carried all eleven states.
@@ -113,5 +113,5 @@ From the reference ledger, and worth knowing before building further on this pap
 - **It is CTL, not TLA+**, with the `EF` gap described above.
 - **The Validation Module is assumed, not specified**: "we assume the existence of a correct and
   functioning VM." `VM(EE)` in HP9 is a bare predicate — an assumption of exactly the kind the Dafny
-  auditor enumerates, and the one the [`cedar`](../cedar) work makes concrete.
+  auditor enumerates, and the one the [`cedar`](../../policy/cedar) work makes concrete.
 - It is a ~10-page workshop paper. The framework is a proposal, not a validated artifact.

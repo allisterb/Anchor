@@ -18,13 +18,13 @@ no network call, no credentials, and no AWS.
 
 | | |
 |---|---|
-| `shared_budget.py` | [`specs/SharedBudget/`](../../specs/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
-| `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/DependencyDAG/`](../../specs/DependencyDAG) checks. |
-| `cedar_differential.py` | the Cedar model against the real engine. See [`specs/cedar/`](../../specs/cedar). |
-| `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
-| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 654 pairs, one TLC run. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
-| `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
-| `vacuity.py` | **the tool**: point it at any `.dw` file and it model-checks every permit in it for vacuity, one TLC run each, reporting a witness session or a VACUOUS verdict. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
+| `shared_budget.py` | [`specs/foundations/SharedBudget/`](../../specs/foundations/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
+| `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG) checks. |
+| `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
+| `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
+| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 654 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
+| `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
+| `vacuity.py` | **the tool**: point it at any `.dw` file and it model-checks every permit in it for vacuity, one TLC run each, reporting a witness session or a VACUOUS verdict. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
 | `dw_to_tla.py` | translates a `.dw` policy file into the TLA+ data a spec checks, so a policy is model-checked as written rather than as paraphrased. `--check` fails if the generated module has drifted. |
 
@@ -112,19 +112,19 @@ So read its two outcomes asymmetrically:
 | | |
 |---|---|
 | **holds** in `DependencyDAG` | holds in reality. Over-approximation is sound in this direction. |
-| **VIOLATED** in `DependencyDAG` | *may* be spurious — as it is for the diamond. Confirm against [`specs/StrandsGraph/`](../../specs/StrandsGraph), which models the batch loop, or against the SDK. |
+| **VIOLATED** in `DependencyDAG` | *may* be spurious — as it is for the diamond. Confirm against [`specs/strands/StrandsGraph/`](../../specs/strands/StrandsGraph), which models the batch loop, or against the SDK. |
 
 The skew violation is real in both models and in the SDK. The diamond's is an artifact.
 
 **What `DependencyDAG.tla` does not cover.** Batching, per the above; and `COMPLETED` is terminal
 there, so the *second* run of C is outside it. Both are the same OR rule showing up again, and both
-are modelled in [`specs/StrandsGraph/`](../../specs/StrandsGraph).
+are modelled in [`specs/strands/StrandsGraph/`](../../specs/strands/StrandsGraph).
 
 ## Conditions that carry their own meaning
 
 The remedy for the above is a condition on the join — `all_dependencies_complete([...])`, the
 factory the Strands docs tell every user to hand-write.
-[`specs/DependencyDAG/anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) ships
+[`specs/strands/DependencyDAG/anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) ships
 it as a combinator that is simultaneously a real Strands condition and its own TLA+ predicate:
 
 ```python

@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "TemporalPolicy"
+SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
 # JAR is imported rather than spelled again: the filename carries the pinned version, so a second
 # copy of it here would be a second thing to update on a toolchain bump.

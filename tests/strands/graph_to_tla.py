@@ -51,7 +51,7 @@ SPECS = REPO / "specs"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(SPECS / "DependencyDAG"))
+sys.path.insert(0, str(SPECS / "strands" / "DependencyDAG"))
 
 from anchor_conditions import ConditionUse, all_complete, meaning  # noqa: E402
 from shared_budget import ScriptedModel  # noqa: E402
@@ -303,13 +303,15 @@ def one_invariant(cfg: str, invariant: str) -> str:
 def check(workflow_tla: str, spec: str, invariant: str | None = None) -> tuple[bool, str]:
     """Run one spec against the generated workflow, in a scratch directory.
 
-    `spec` is "Directory/Name" under specs/, so the same generated graph can be checked against
-    both DependencyDAG (the paper's orchestrator) and StrandsGraph (the executor Strands runs).
+    `spec` is a path under specs/ ending in the module name -- "strands/DependencyDAG/DependencyDAG"
+    -- so the same generated graph can be checked against both DependencyDAG (the paper's
+    orchestrator) and StrandsGraph (the executor Strands runs). Split from the RIGHT, so regrouping
+    specs/ into subdirectories does not need this line changed again.
 
     Copied out rather than run in place so a generated Workflow.tla never overwrites the
     hand-written one the checked-in specs are verified against.
     """
-    folder, spec = spec.split("/")
+    folder, spec = spec.rsplit("/", 1)
     with tempfile.TemporaryDirectory(prefix="anchor-graph-") as tmp:
         work = Path(tmp)
         for name in (f"{spec}.tla", f"{spec}.cfg"):
@@ -371,7 +373,7 @@ def run_scenario(title: str, graph, expect_hold: bool, show_tla: bool = False) -
         print("\n  assumed predicates: 0    not modelled: 0"
               "  (every condition came from a reviewed combinator)")
 
-    ok, output = check(translated.tla, "DependencyDAG/DependencyDAG")
+    ok, output = check(translated.tla, "strands/DependencyDAG/DependencyDAG")
     verdict = "HOLD" if ok else "VIOLATED"
     agreed = ok == expect_hold
     print(f"  HP10 + termination: {verdict}"
@@ -398,7 +400,7 @@ def main() -> int:
     print("  both. Probed 3/3: execution_order is research, analysis, factcheck, report.")
     print("\n  DependencyDAG.tla does not model batches, so it interleaves tasks individually and")
     print("  over-approximates. Holds there still means holds in reality; VIOLATED there may be")
-    print("  spurious, as it is here. specs/StrandsGraph models the batch loop and clears this")
+    print("  spurious, as it is here. specs/strands/StrandsGraph models the batch loop and clears this")
     print("  graph. The violation below, on a shape whose parents cannot share a batch, is real")
     print("  in both models and in the SDK.")
 
@@ -484,7 +486,7 @@ def invariant_matrix() -> int:
     TLC stops at the first violation, so the combined config cannot attribute a failure: on the
     skew graph both HP10 and RunsAtMostOnce fire and only HP10 is reported. Checking them
     separately is what makes each finding attributable to the shape that causes it -- and pins the
-    table in specs/StrandsGraph/README.md, which was otherwise a claim nothing re-checked.
+    table in specs/strands/StrandsGraph/README.md, which was otherwise a claim nothing re-checked.
     """
     print()
     print("=" * 78)
@@ -511,7 +513,7 @@ def invariant_matrix() -> int:
     for invariant, per_shape in expected.items():
         cells = []
         for label, _ in shapes:
-            holds, _ = check(tlas[label], "StrandsGraph/StrandsGraph", invariant=invariant)
+            holds, _ = check(tlas[label], "strands/StrandsGraph/StrandsGraph", invariant=invariant)
             ok = holds == per_shape[label]
             failures += not ok
             cells.append(("ok" if holds else "VIOLATED") + ("" if ok else " !"))
@@ -562,8 +564,8 @@ def cross_model() -> int:
     failures = 0
     for label, graph, dag_holds, sg_holds, observed in cases:
         tla = to_tla(graph).tla
-        dag, _ = check(tla, "DependencyDAG/DependencyDAG")
-        sg, _ = check(tla, "StrandsGraph/StrandsGraph")
+        dag, _ = check(tla, "strands/DependencyDAG/DependencyDAG")
+        sg, _ = check(tla, "strands/StrandsGraph/StrandsGraph")
 
         mark = ""
         if (dag, sg) != (dag_holds, sg_holds):

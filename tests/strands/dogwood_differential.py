@@ -1,6 +1,6 @@
 """Differential test: does our TLA+ reading of Dogwood agree with Dogwood?
 
-`specs/TemporalPolicy` models `formerly within` from the AgentCore documentation. Documentation is a
+`specs/policy/TemporalPolicy` models `formerly within` from the AgentCore documentation. Documentation is a
 paraphrase, and a spec built on a misread paraphrase does not fail — it verifies, and it verifies
 something nobody is running. That is the same gap `cedar_differential.py` exists to close for Cedar,
 and it was the largest caveat in the TemporalPolicy README.
@@ -56,7 +56,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "TemporalPolicy"
+SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
 CORPUS = (REPO / "reference" / "projects" / "dogwood-main" / "dogwood-language"
           / "tests" / "passing" / "temporal_only" / "corpus")

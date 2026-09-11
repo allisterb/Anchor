@@ -4,7 +4,7 @@
 654 pairs — but only over traces Amazon happened to record, and the corpus has a blind spot we care
 about: across all 521 cases, `::error` appears in **zero** policies and **zero** traces.
 
-That matters because the `error` event kind is exactly what `specs/TemporalPolicy`'s findings rest
+That matters because the `error` event kind is exactly what `specs/policy/TemporalPolicy`'s findings rest
 on. AgentCore records a denied action as an `error` rather than a `response`, which is why a permit
 gated on `::response` goes vacuous when the action it depends on is forbidden, and why the same rule
 written against `::request` does not. Until now that was documented and modelled but never executed.
@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "TemporalPolicy"
+SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
 # The policy fixtures live under tests/, not specs/, because they are inputs that demonstrate the
 # tooling rather than models the project asserts things about. rotation_*.dw stayed in specs/ for

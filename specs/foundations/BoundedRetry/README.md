@@ -17,11 +17,11 @@ compared on the same problem. It is also the only one that crosses into real Pyt
 | `BoundedRetryExtern.dfy` | the model bound to real Python across `{:extern}`. Verifies, translates, runs. |
 | `anchor_model.py` | the Python behind that boundary. |
 
-New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
+New to TLA+? [`specs/strands/DependencyDAG/README.md`](../../strands/DependencyDAG/README.md) has a notation primer.
 
 ```bash
 java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -cleanup \
-    -config specs/BoundedRetry/BoundedRetry.cfg specs/BoundedRetry/BoundedRetry.tla
+    -config specs/foundations/BoundedRetry/BoundedRetry.cfg specs/foundations/BoundedRetry/BoundedRetry.tla
 ```
 
 ## The model is deliberately not specified
@@ -158,7 +158,7 @@ around the documented limitation would mean building a post-processing step that
 reports. Dafny assumed that clause and cannot check Python, so this is the only place it can be made
 true. A usage field reporting zero cost would break termination; one reporting more than `maxCost`
 would break the budget bound. Neither is hypothetical — see the metrics trap in
-[`tests/strands/README.md`](../../tests/strands/README.md).
+[`tests/strands/README.md`](../../../tests/strands/README.md).
 
 ### The audit
 

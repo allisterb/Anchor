@@ -25,7 +25,7 @@ Nothing about that policy is hand-modelled — see
 | `Vacuity.tla` | **the generic checker**: any parsed policy, any permit, evaluated by `DogwoodSemantics` |
 | `TemporalPolicy.tla` | the original, hand-written: its own session model and its own decision engine |
 | `DogwoodSemantics.tla` | our reading of `formerly within`, checked against the reference corpus |
-| `Policies.tla` | the policy set — swappable, like `Workflow.tla` under [`DependencyDAG`](../DependencyDAG) |
+| `Policies.tla` | the policy set — swappable, like `Workflow.tla` under [`DependencyDAG`](../../strands/DependencyDAG) |
 | `TemporalPolicy.cfg` | approvals permitted; the sell permit gated on `::response`. **Satisfiable** |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden, same permit. **Vacuous** |
 | `RequestGated_SurvivesForbid.cfg` | approvals forbidden, permit gated on `::request`. **Satisfiable — and that is the bad news** |
@@ -38,20 +38,20 @@ And the policy inputs — real Dogwood text, checked in, which is what the tooli
 
 | `.dw` file | what it demonstrates |
 |---|---|
-| [`docs_trading.dw`](../../tests/policies/docs_trading.dw) | the AgentCore docs' own trading example. Both permits live |
-| [`docs_trading_forbidden.dw`](../../tests/policies/docs_trading_forbidden.dw) | one line different. **The sell permit is vacuous** |
-| [`approval_gate_response.dw`](../../tests/policies/approval_gate_response.dw) | gated on a completed approval. **Vacuous** on its own |
-| [`approval_gate_request.dw`](../../tests/policies/approval_gate_request.dw) | one word different. Live |
-| [`approval_gate_error.dw`](../../tests/policies/approval_gate_error.dw) | matches the denial itself. Live |
-| [`overridden_permit.dw`](../../tests/policies/overridden_permit.dw) | matches everything, grants nothing. **Vacuous**, second shape |
+| [`docs_trading.dw`](../../../tests/policies/docs_trading.dw) | the AgentCore docs' own trading example. Both permits live |
+| [`docs_trading_forbidden.dw`](../../../tests/policies/docs_trading_forbidden.dw) | one line different. **The sell permit is vacuous** |
+| [`approval_gate_response.dw`](../../../tests/policies/approval_gate_response.dw) | gated on a completed approval. **Vacuous** on its own |
+| [`approval_gate_request.dw`](../../../tests/policies/approval_gate_request.dw) | one word different. Live |
+| [`approval_gate_error.dw`](../../../tests/policies/approval_gate_error.dw) | matches the denial itself. Live |
+| [`overridden_permit.dw`](../../../tests/policies/overridden_permit.dw) | matches everything, grants nothing. **Vacuous**, second shape |
 | [`rotation_aggregate.dw`](rotation_aggregate.dw) | the spend cap `SessionRotation` defeats |
 | [`rotation_approval.dw`](rotation_approval.dw) | the approval gate it cannot |
 
-New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
+New to TLA+? [`specs/strands/DependencyDAG/README.md`](../../strands/DependencyDAG/README.md) has a notation primer.
 
 ```bash
 java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -cleanup \
-    -config specs/TemporalPolicy/TemporalPolicy.cfg specs/TemporalPolicy/TemporalPolicy.tla
+    -config specs/policy/TemporalPolicy/TemporalPolicy.cfg specs/policy/TemporalPolicy/TemporalPolicy.tla
 ```
 
 ## Read the result backwards
@@ -185,7 +185,7 @@ stance every other spec here takes.
 - **~~One shape of vacuity.~~** Both shapes are now checked. A permit that *matches* but is always
   overridden by a `forbid` grants nothing either, and a condition-satisfiability check cannot see
   it — the condition is satisfiable, the permit is inert. `Granted` separates matched from granted,
-  and [`overridden_permit.dw`](../../tests/policies/overridden_permit.dw) exercises it. Mutation-checked: drop the
+  and [`overridden_permit.dw`](../../../tests/policies/overridden_permit.dw) exercises it. Mutation-checked: drop the
   `Allowed` guard from `Granted` and that file reports live.
 - **Nothing about the rest of the policy.** Time-based conditions, `count`/`sum` aggregations,
   `since within`, entity tags and multi-hop session propagation are all unmodelled.
@@ -417,11 +417,11 @@ differ by exactly one word:
 
 | policy | gate | what it is for |
 |---|---|---|
-| [`approval_gate_response.dw`](../../tests/policies/approval_gate_response.dw) | `Approve::response` | the strong form — requires an approval that completed |
-| [`approval_gate_request.dw`](../../tests/policies/approval_gate_request.dw) | `Approve::request` | the weak form, and the conventional one |
-| [`approval_gate_error.dw`](../../tests/policies/approval_gate_error.dw) | `Approve::error` | rules out the duller explanation, below |
+| [`approval_gate_response.dw`](../../../tests/policies/approval_gate_response.dw) | `Approve::response` | the strong form — requires an approval that completed |
+| [`approval_gate_request.dw`](../../../tests/policies/approval_gate_request.dw) | `Approve::request` | the weak form, and the conventional one |
+| [`approval_gate_error.dw`](../../../tests/policies/approval_gate_error.dw) | `Approve::error` | rules out the duller explanation, below |
 
-[`dogwood_replay.py`](../../tests/strands/dogwood_replay.py) runs five scenarios over them. The
+[`dogwood_replay.py`](../../../tests/strands/dogwood_replay.py) runs five scenarios over them. The
 traces are generated in the harness — they are the history to evaluate against, where the policies
 are what is under test. The engine's verdicts, which are what the run prints:
 

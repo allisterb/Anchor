@@ -37,7 +37,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task BoundedRetryVerifies()
     {
-        var run = await CheckAsync("BoundedRetry/BoundedRetry");
+        var run = await CheckAsync("foundations/BoundedRetry/BoundedRetry");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -49,7 +49,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task OvershootViolatesTheBudgetInvariant()
     {
-        var run = await CheckAsync("BoundedRetry/Bug1_Overshoot");
+        var run = await CheckAsync("foundations/BoundedRetry/Bug1_Overshoot");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("BudgetSafe", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -69,7 +69,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task FreeRetryViolatesTerminationButNotSafety()
     {
-        var run = await CheckAsync("BoundedRetry/Bug2_FreeRetry");
+        var run = await CheckAsync("foundations/BoundedRetry/Bug2_FreeRetry");
         Assert.False(run.Verified);
 
         // Liveness, not safety: no invariant is broken.
@@ -87,7 +87,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task SharedBudgetVerifies()
     {
-        var run = await CheckAsync("SharedBudget/SharedBudget");
+        var run = await CheckAsync("foundations/SharedBudget/SharedBudget");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -100,7 +100,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task CheckThenReserveRacesOnTheSharedBudget()
     {
-        var run = await CheckAsync("SharedBudget/Bug3_CheckThenReserve");
+        var run = await CheckAsync("foundations/SharedBudget/Bug3_CheckThenReserve");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("BudgetSafe", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -109,6 +109,71 @@ public class SpecTests : TestsRuntime
         // on an affordability decision that was true when taken and is about to stop being true.
         Assert.Contains(run.Trace, s =>
             s.Text.Contains("a1 :> \"checked\"") && s.Text.Contains("a2 :> \"checked\""));
+    }
+
+    /// <summary>
+    /// The shipped Strands rate limiter: a synchronous <c>before_tool_call</c> under the default
+    /// <c>ConcurrentToolExecutor</c>. The cap holds — and the only reason it holds is that a
+    /// non-coroutine hook callback has no suspension point.
+    /// </summary>
+    /// <remarks>
+    /// The control for the two below. A spec in which nothing can go wrong would pass this
+    /// trivially, so the failing config is what gives this one meaning.
+    /// </remarks>
+    [Fact]
+    public async Task SynchronousToolHookEnforcesTheCap()
+    {
+        var run = await CheckAsync("strands/ToolExecutor/ToolHook", "strands/ToolExecutor/ToolHook");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
+    }
+
+    /// <summary>
+    /// The finding. An <c>async def</c> hook that awaits between <b>reading</b> the call counter
+    /// and <b>writing</b> it back admits more calls than the cap allows — a lost update, with the
+    /// policy entirely correct and nothing in it to fix.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not hypothetical. <c>CedarAuthorization</c>'s own docstring says call counts are persisted
+    /// to <c>agent.state</c> and warns they leak between agents sharing a handler; moving that
+    /// counter to a shared store is the obvious fix for the leak, and it makes both the read and
+    /// the write awaits.
+    /// </para>
+    /// <para>
+    /// The counter is left permanently short as well, which is the worse half — it is persisted,
+    /// so an under-counted limiter stays under-counted for the rest of the session.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task AsyncToolHookLosesAnUpdateBetweenReadAndWrite()
+    {
+        var run = await CheckAsync("strands/ToolExecutor/ToolHook", "strands/ToolExecutor/AsyncHook_ReadWrite");
+        Assert.False(run.Verified);
+        Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
+        Assert.Contains("CapRespected", string.Join("\n", run.Errors.Select(e => e.Text)));
+
+        // The lost update itself: two tools through the hook, and a counter that recorded one.
+        Assert.Contains(run.Trace, s =>
+            s.Text.Contains("proceeded = {t1, t2}") && s.Text.Contains("count = 1"));
+    }
+
+    /// <summary>
+    /// The same hook made <c>async</c>, suspending between <b>writing</b> the counter and deciding
+    /// on it — and the cap still holds. "Async hooks are unsafe" is too crude to act on; the unsafe
+    /// thing is specifically a suspension between the read and the write.
+    /// </summary>
+    /// <remarks>
+    /// This is where an await lands if the policy engine is remote or the context enricher is
+    /// async, so it is the case a reader is most likely to actually have. The counter still
+    /// serializes, so every task decides on a distinct value.
+    /// </remarks>
+    [Fact]
+    public async Task AsyncToolHookIsSafeWhenTheSuspensionFollowsTheWrite()
+    {
+        var run = await CheckAsync("strands/ToolExecutor/ToolHook", "strands/ToolExecutor/AsyncHook_WriteDecide");
+        Assert.True(run.Verified, run.Output);
+        Assert.Empty(run.Errors);
     }
 
     #endregion
@@ -122,7 +187,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task TaskLifecycleVerifies()
     {
-        var run = await CheckAsync("TaskLifecycle/TaskLifecycle");
+        var run = await CheckAsync("foundations/TaskLifecycle/TaskLifecycle");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -135,7 +200,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task PublishedTL4ForbidsCancellingADispatchingTask()
     {
-        var r = await TLCProcess.CheckAsync(Spec("TaskLifecycle/TaskLifecycle.tla"), Spec("TaskLifecycle/TaskLifecycle_TL4Published.cfg"));
+        var r = await TLCProcess.CheckAsync(Spec("foundations/TaskLifecycle/TaskLifecycle.tla"), Spec("foundations/TaskLifecycle/TaskLifecycle_TL4Published.cfg"));
         Assert.True(r.IsSuccess, r.Message);
         Assert.False(r.Value.Verified);
         Assert.Contains(r.Value.Errors, e => e.Code == TLCCodes.TemporalPropertyViolated);
@@ -153,7 +218,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task UnboundedRetryBreaksTermination()
     {
-        var run = await CheckAsync("TaskLifecycle/Bug4_UnboundedRetry");
+        var run = await CheckAsync("foundations/TaskLifecycle/Bug4_UnboundedRetry");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.TemporalPropertyViolated);
 
@@ -177,7 +242,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task TemporalPermitIsSatisfiable()
     {
-        var run = await CheckAsync("TemporalPolicy/TemporalPolicy");
+        var run = await CheckAsync("policy/TemporalPolicy/TemporalPolicy");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("NeverFires", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -204,8 +269,8 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task ForbiddingApprovalMakesTheSellPermitVacuous()
     {
-        var run = await CheckAsync("TemporalPolicy/TemporalPolicy",
-                                   "TemporalPolicy/Vacuous_ForbiddenApproval");
+        var run = await CheckAsync("policy/TemporalPolicy/TemporalPolicy",
+                                   "policy/TemporalPolicy/Vacuous_ForbiddenApproval");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -228,8 +293,8 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task RequestGatedPermitFiresOnDeniedAttempts()
     {
-        var run = await CheckAsync("TemporalPolicy/TemporalPolicy",
-                                   "TemporalPolicy/RequestGated_SurvivesForbid");
+        var run = await CheckAsync("policy/TemporalPolicy/TemporalPolicy",
+                                   "policy/TemporalPolicy/RequestGated_SurvivesForbid");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
 
@@ -254,8 +319,8 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task SessionRotationDefeatsAnAggregateCap()
     {
-        var run = await CheckAsync("TemporalPolicy/SessionRotation",
-                                   "TemporalPolicy/SessionRotation");
+        var run = await CheckAsync("policy/TemporalPolicy/SessionRotation",
+                                   "policy/TemporalPolicy/SessionRotation");
         Assert.False(run.Verified);
         Assert.Contains(run.Errors, e => e.Code == TLCCodes.InvariantViolated);
         Assert.Contains("GlobalCapHolds", string.Join("\n", run.Errors.Select(e => e.Text)));
@@ -274,8 +339,8 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task WithoutRotationTheAggregateCapHolds()
     {
-        var run = await CheckAsync("TemporalPolicy/SessionRotation",
-                                   "TemporalPolicy/NoRotation_CapHolds");
+        var run = await CheckAsync("policy/TemporalPolicy/SessionRotation",
+                                   "policy/TemporalPolicy/NoRotation_CapHolds");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -296,8 +361,8 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task RotationCannotDefeatAnApprovalGate()
     {
-        var run = await CheckAsync("TemporalPolicy/SessionRotation",
-                                   "TemporalPolicy/Rotation_ApprovalGateHolds");
+        var run = await CheckAsync("policy/TemporalPolicy/SessionRotation",
+                                   "policy/TemporalPolicy/Rotation_ApprovalGateHolds");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -322,7 +387,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task StrandsGraphVerifies()
     {
-        var run = await CheckAsync("StrandsGraph/StrandsGraph");
+        var run = await CheckAsync("strands/StrandsGraph/StrandsGraph");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -346,7 +411,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task DependencyDAGVerifies()
     {
-        var run = await CheckAsync("DependencyDAG/DependencyDAG");
+        var run = await CheckAsync("strands/DependencyDAG/DependencyDAG");
         Assert.True(run.Verified, run.Output);
         Assert.Empty(run.Errors);
     }
@@ -360,7 +425,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task WithoutFailurePropagationTheGraphNeverFinishes()
     {
-        var run = await CheckAsync("DependencyDAG/Bug5_NoFailurePropagation");
+        var run = await CheckAsync("strands/DependencyDAG/Bug5_NoFailurePropagation");
         Assert.False(run.Verified);
 
         // Liveness only. HP10 itself is never violated, which is the whole point.
@@ -394,7 +459,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task BoundedRetryImplementationVerifies()
     {
-        var run = await VerifyAsync("BoundedRetry/BoundedRetry.dfy");
+        var run = await VerifyAsync("foundations/BoundedRetry/BoundedRetry.dfy");
         Assert.True(run.Verified, run.Output);
     }
 
@@ -405,7 +470,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task FreeRetryFailsTerminationButNotSafety()
     {
-        var run = await VerifyAsync("BoundedRetry/BoundedRetryFreeRetry.dfy");
+        var run = await VerifyAsync("foundations/BoundedRetry/BoundedRetryFreeRetry.dfy");
         Assert.False(run.Verified);
 
         // Termination is what fails.
@@ -421,7 +486,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task ExternVariantStillVerifies()
     {
-        var run = await VerifyAsync("BoundedRetry/BoundedRetryExtern.dfy");
+        var run = await VerifyAsync("foundations/BoundedRetry/BoundedRetryExtern.dfy");
         Assert.True(run.Verified, run.Output);
     }
 
@@ -432,7 +497,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task ExternTranslatesToAPythonCall()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("foundations/BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -452,7 +517,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task AuditReportsExactlyTheModelBoundary()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("foundations/BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.AuditAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -471,7 +536,7 @@ public class SpecTests : TestsRuntime
     [Fact]
     public async Task AuditFlagsOnlyDeclarationsTheProofRelieson()
     {
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryFreeRetry.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("foundations/BoundedRetry/BoundedRetryFreeRetry.dfy"));
         var r = await DafnyProgram.AuditAsync(src, "BoundedRetryFreeRetry.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -493,7 +558,7 @@ public class SpecTests : TestsRuntime
         Assert.True(python is not null,
             "no Python interpreter found; looked in the repo venv and on PATH");
 
-        var src = await File.ReadAllTextAsync(Spec("BoundedRetry/BoundedRetryExtern.dfy"));
+        var src = await File.ReadAllTextAsync(Spec("foundations/BoundedRetry/BoundedRetryExtern.dfy"));
         var r = await DafnyProgram.TranslateToPythonAsync(src, "BoundedRetryExtern.dfy");
         Assert.True(r.IsSuccess, r.Message);
 
@@ -508,7 +573,7 @@ public class SpecTests : TestsRuntime
             }
 
             // Replace Dafny's empty placeholder with the real implementation.
-            File.Copy(Spec("BoundedRetry/anchor_model.py"), Path.Combine(dir, "anchor_model.py"), overwrite: true);
+            File.Copy(Spec("foundations/BoundedRetry/anchor_model.py"), Path.Combine(dir, "anchor_model.py"), overwrite: true);
 
             await File.WriteAllTextAsync(Path.Combine(dir, "driver.py"),
                 """

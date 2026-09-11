@@ -5,19 +5,52 @@ runs every one of them on each build — TLC over the TLA+, Dafny over the `.dfy
 stops verifying, or a bug variant that stops being caught, fails the suite.
 
 **Every directory has its own README** with the detail; this page is the map and the cross-cutting
-argument. [`DependencyDAG/README.md`](DependencyDAG/README.md) additionally carries a TLA+ notation
-primer for readers new to the language, and the full account of how a Strands agent graph is
-translated into a model.
+argument. [`strands/DependencyDAG/README.md`](strands/DependencyDAG/README.md) additionally carries
+a TLA+ notation primer for readers new to the language, and the full account of how a Strands agent
+graph is translated into a model.
+
+The three groups answer different questions, and **no spec depends on one in another group** — every
+`EXTENDS` and `INSTANCE` resolves inside its own directory.
+
+### `strands/` — what the SDK actually does
+
+Models of Strands' own behaviour, each tied to code in the SDK rather than to its documentation.
 
 | | |
 |---|---|
-| [`BoundedRetry/`](BoundedRetry/README.md) | one agent, one budget. Modelled in TLA+ **and** implemented in Dafny, so the two tools can be compared on the same problem. Crosses into real Python. |
-| [`SharedBudget/`](SharedBudget/README.md) | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
-| [`TaskLifecycle/`](TaskLifecycle/README.md) | one sub-task in full: the eleven-state lifecycle from arXiv:2510.14133 Table 2, checked. |
-| [`DependencyDAG/`](DependencyDAG/README.md) | several tasks in outline: HP10 from the same paper's Table 1. The target of the Strands graph translator. |
-| [`StrandsGraph/`](StrandsGraph/README.md) | the Strands executor **as it actually runs** — batch, await, recompute readiness, fail fast, stop. Catches a workflow that reports success having skipped a node. |
-| [`cedar/`](cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
-| [`TemporalPolicy/`](TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set, and a gate that opens on refused attempts. Its semantics are differential-tested against Dogwood's own corpus. |
+| [`DependencyDAG/`](strands/DependencyDAG/README.md) | several tasks in outline: HP10 from arXiv:2510.14133 Table 1. The target of the Strands graph translator. |
+| [`StrandsGraph/`](strands/StrandsGraph/README.md) | the Strands executor **as it actually runs** — batch, await, recompute readiness, fail fast, stop. Catches a workflow that reports success having skipped a node. |
+| [`ToolExecutor/`](strands/ToolExecutor/README.md) | the `before_tool_call` hook under concurrent tool execution — a rate limit that holds only because a synchronous callback has no suspension point. |
+
+### `policy/` — what an authorization decision means
+
+Models of the policy languages an agent's tool calls are authorized against. Both are validated
+against a real engine rather than only against their documentation.
+
+| | |
+|---|---|
+| [`cedar/`](policy/cedar/README.md) | a differential test between a TLA+ model of Cedar and the real engine. |
+| [`TemporalPolicy/`](policy/TemporalPolicy/README.md) | vacuity checking for session-aware (Dogwood) policies: can this permit ever grant anything? Catches a permit killed by an unrelated rule elsewhere in the set, and a gate that opens on refused attempts. Its semantics are differential-tested against Dogwood's own corpus. |
+
+**The split between the two groups is deliberate and the seam is worth naming.** `policy/cedar`
+asks whether a policy *says* what its author meant; `strands/ToolExecutor` asks whether the thing
+*enforcing* it does what the policy assumes. A policy analyser cannot see the second, by
+construction. Both have to hold, and they fail independently.
+
+### `foundations/` — properties any agent has
+
+Neither Strands-specific nor policy-specific: budgets, termination, retry, and the task lifecycle.
+These came first and are what the rest is built on.
+
+| | |
+|---|---|
+| [`BoundedRetry/`](foundations/BoundedRetry/README.md) | one agent, one budget. Modelled in TLA+ **and** implemented in Dafny, so the two tools can be compared on the same problem. Crosses into real Python. |
+| [`SharedBudget/`](foundations/SharedBudget/README.md) | several agents, one budget. TLA+ only — the fault is in the interleaving, which Dafny cannot express. |
+| [`TaskLifecycle/`](foundations/TaskLifecycle/README.md) | one sub-task in full: the eleven-state lifecycle from arXiv:2510.14133 Table 2, checked. |
+
+**One thing not to undo:** `strands/DependencyDAG/` and `strands/StrandsGraph/` each contain a
+**generated** `Workflow.tla`, with the same module name and different contents. They coexist only
+because TLC resolves modules per-directory. Never flatten those two together.
 
 Each directory pairs a spec that verifies with variants that carry one deliberate mistake each. The
 variants are the load-bearing half: a verifier that only ever reports success proves nothing, so
@@ -221,7 +254,7 @@ whose source completed and whose condition passed — so an unguarded join start
 parents are done. Modelling it as AND described a stricter orchestrator than the one that runs,
 which is the unsound direction. The AND is recovered where it actually lives: in a condition the
 workflow author writes, which the translator reads off the edge object. See
-[`DependencyDAG/README.md`](DependencyDAG/README.md) for the whole account.
+[`DependencyDAG/README.md`](strands/DependencyDAG/README.md) for the whole account.
 
 **HP10 on its own is satisfied by a system that hangs.** `Bug5_NoFailurePropagation.tla` removes
 orphan cancellation and nothing else. TLC finds the counterexample in a handful of steps: one task
@@ -308,7 +341,7 @@ and `NeedsClarification` is not, because the latter promises nothing that a proo
 
 ```bash
 java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -tool -cleanup \
-    -config specs/BoundedRetry/BoundedRetry.cfg specs/BoundedRetry/BoundedRetry.tla
+    -config specs/foundations/BoundedRetry/BoundedRetry.cfg specs/foundations/BoundedRetry/BoundedRetry.tla
 ```
 
 `CHECK_DEADLOCK FALSE` is set in each `.cfg`. `done` and `abandoned` have no successor action, which

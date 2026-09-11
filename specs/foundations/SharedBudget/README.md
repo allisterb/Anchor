@@ -11,11 +11,11 @@ This directory is the concrete answer to "why not just use Dafny for everything"
 | `SharedBudget.tla` | reservation acquired **atomically**. Verifies. |
 | `Bug3_CheckThenReserve.tla` | check and reserve as two steps — what an implementation writes by default. Violates `BudgetSafe`. |
 
-New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
+New to TLA+? [`specs/strands/DependencyDAG/README.md`](../../strands/DependencyDAG/README.md) has a notation primer.
 
 ```bash
 java -cp lib/tla2tools-1.7.4.jar tlc2.TLC -cleanup \
-    -config specs/SharedBudget/SharedBudget.cfg specs/SharedBudget/SharedBudget.tla
+    -config specs/foundations/SharedBudget/SharedBudget.cfg specs/foundations/SharedBudget/SharedBudget.tla
 ```
 
 ## The shape

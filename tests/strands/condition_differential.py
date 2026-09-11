@@ -1,6 +1,6 @@
 """Differential test: does an edge condition's TLA+ predicate agree with the Python it annotates?
 
-The problem this addresses. `specs/DependencyDAG/anchor_conditions.py` attaches a TLA+ predicate to
+The problem this addresses. `specs/strands/DependencyDAG/anchor_conditions.py` attaches a TLA+ predicate to
 a Strands edge condition, and `graph_to_tla.py` emits that predicate into the generated workflow. If
 the predicate and the callable disagree, nothing fails — the model verifies, and it verifies a
 workflow nobody is running. That is the same trap as a hand-written condition-language translator,
@@ -45,7 +45,7 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "DependencyDAG"
+SPECS = REPO / "specs" / "strands" / "DependencyDAG"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
 
 sys.path.insert(0, str(SPECS))

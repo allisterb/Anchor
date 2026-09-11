@@ -16,9 +16,9 @@ hand.
 | `anchor_conditions.py` | Strands edge conditions that carry their own TLA+ meaning. |
 
 The generator that emits `Workflow.tla` from a real Strands graph lives in
-[`tests/strands/graph_to_tla.py`](../../tests/strands/graph_to_tla.py), and the test that checks
+[`tests/strands/graph_to_tla.py`](../../../tests/strands/graph_to_tla.py), and the test that checks
 those conditions mean what they say is
-[`tests/strands/condition_differential.py`](../../tests/strands/condition_differential.py).
+[`tests/strands/condition_differential.py`](../../../tests/strands/condition_differential.py).
 
 ```bash
 python tests/strands/graph_to_tla.py
@@ -538,7 +538,7 @@ So the two outcomes are **not symmetric**:
 | | |
 |---|---|
 | **holds** here | holds in reality. Over-approximation is sound in this direction — the model admits every real behaviour and then some. |
-| **VIOLATED** here | *may* be spurious. Confirm against [`specs/StrandsGraph/`](../StrandsGraph), which models the batch loop, or against the SDK. |
+| **VIOLATED** here | *may* be spurious. Confirm against [`specs/strands/StrandsGraph/`](../StrandsGraph), which models the batch loop, or against the SDK. |
 
 That is the ordinary price of an abstraction, not a defect — but it has to be stated, because a
 spurious counterexample is indistinguishable from a real one by looking at it.
@@ -582,7 +582,7 @@ decoration time, so a typo fails at import rather than becoming literal text in 
 
 An annotation is only better than a hand-written translator if its claim is actually checked —
 otherwise it is the same silent-disagreement trap with nicer syntax.
-[`condition_differential.py`](../../tests/strands/condition_differential.py) enumerates every
+[`condition_differential.py`](../../../tests/strands/condition_differential.py) enumerates every
 assignment of task states over a condition's declared support, asks the **real callable** for a
 verdict on each, and has TLC compare that table against the predicate:
 
@@ -670,7 +670,7 @@ The generated module is written into a **scratch directory**, never over the han
 Stated here rather than discovered later.
 
 - **Batching.** The executor runs a whole batch to completion before recomputing readiness. This
-  model does not, which is why it over-approximates — see above. [`specs/StrandsGraph/`](../StrandsGraph)
+  model does not, which is why it over-approximates — see above. [`specs/strands/StrandsGraph/`](../StrandsGraph)
   models the loop itself.
 - **Re-execution.** Strands admits a node once per satisfied incoming edge, so it can run more than
   once. `COMPLETED` is terminal in this model, so a second run is outside it. `TerminalIsFinal` is a

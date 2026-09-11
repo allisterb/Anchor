@@ -1,4 +1,4 @@
-"""An informal Strands implementation of specs/SharedBudget.tla.
+"""An informal Strands implementation of specs/foundations/SharedBudget/SharedBudget.tla.
 
 Informal deliberately: nothing here is generated from the spec and nothing checks that it matches.
 It exists to find out what the modelled state machine looks like in real SDK code, and whether the

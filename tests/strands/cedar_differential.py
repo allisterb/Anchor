@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SPECS = REPO / "specs" / "cedar"
+SPECS = REPO / "specs" / "policy" / "cedar"
 JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
 
 # The finite domain the two sides are compared over. Small enough to enumerate exhaustively,
