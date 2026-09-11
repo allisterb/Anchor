@@ -1,0 +1,21 @@
+// The approval gate written against the ATTEMPT -- the weak form, and the conventional one.
+//
+// This reads as an approval gate and is not one. AgentCore records a `request` event for EVERY
+// attempt, permitted or not, so what this actually requires is that somebody TRIED to get an
+// approval. A sequence of refusals opens it exactly as a granted approval would, which hands the
+// caller the capability the approval existed to protect.
+//
+// It is not a strawman: `::request` appears in 555 policy files across Dogwood's own corpus
+// against `::response`'s 94, so this is the shape an author reaches for first.
+//
+// tests/strands/dogwood_replay.py gives this file and approval_gate_response.dw the same denied
+// approval and asks the real engine. It returns ALLOW here and DENY there.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Approve"::request{ }
+};

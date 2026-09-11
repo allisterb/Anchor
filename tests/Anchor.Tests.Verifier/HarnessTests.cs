@@ -118,6 +118,40 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Our semantics against the real Dogwood engine, on traces we construct — specifically ones
+    /// containing the <c>error</c> event kind, which appears in <b>zero</b> policies and
+    /// <b>zero</b> traces across all 521 corpus cases.
+    /// </summary>
+    /// <remarks>
+    /// The corpus validates a lot, but only over traces Amazon happened to record. `error` is the
+    /// kind AgentCore uses for a denied action, and it is what both TemporalPolicy findings rest
+    /// on: a permit gated on <c>::response</c> goes vacuous when its dependency is forbidden, and
+    /// the same rule written against <c>::request</c> does not. The built binary is a live oracle
+    /// and will judge any trace, so those claims are now executed rather than only modelled.
+    /// <para>
+    /// Skipped unless the binary has been built — it is not in the repo. Mutation-checked: making
+    /// our <c>Matches</c> ignore the event kind, or treat <c>error</c> as <c>response</c>, each
+    /// turns this red.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("dogwood_replay.py",
+                   RequiresExecutable = "reference/projects/dogwood-main/target/release/dogwood")]
+    public async Task DogwoodSemanticsAgreeWithTheEngineOnErrorEvents()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/dogwood_replay.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("agrees with the Dogwood engine on every scenario", run.Output);
+        Assert.DoesNotContain("MODEL DISAGREES", run.Output);
+
+        // The finding itself, not just that the scenarios ran: the same denied approval opens a
+        // request-gate and not a response-gate.
+        Assert.Contains("request-gate, approval DENIED", run.Output);
+        Assert.Matches(@"response-gate, approval DENIED\s+@1=DENY, @3=DENY", run.Output);
+        Assert.Matches(@"request-gate, approval DENIED\s+@1=DENY, @3=ALLOW", run.Output);
+    }
+
+    /// <summary>
     /// <c>RotationPolicies.tla</c> is generated from the <c>.dw</c> sources, so it can go stale.
     /// This regenerates and compares.
     /// </summary>
@@ -182,12 +216,60 @@ public sealed class PythonHarnessAttribute : FactAttribute
     /// <param name="modules">Python modules the harness imports. All must be importable.</param>
     public PythonHarnessAttribute(string script, params string[] modules)
     {
+        this.script = script;
+
         var why = PythonHarness.Unavailable(modules);
         if (why is not null)
         {
             Skip = $"{script}: {why}";
         }
     }
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// A repo-relative path to an executable the harness needs, <em>without</em> the extension —
+    /// <c>.exe</c> is appended on Windows. Skipped over when it is absent.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For build outputs that are not in the repo — the <c>dogwood</c> binary in particular, which
+    /// has to be compiled from <c>reference/</c> and is 18 MB of it. Same reasoning as the venv
+    /// check: a harness that cannot run should say so in the run summary rather than pass quietly.
+    /// </para>
+    /// <para>
+    /// The extension is resolved here rather than at the call site because attribute arguments must
+    /// be compile-time constants. Hard-coding <c>.exe</c> would skip on Linux forever — silently,
+    /// and including after someone builds the binary, which is the worse half of the bug.
+    /// </para>
+    /// </remarks>
+    public string? RequiresExecutable
+    {
+        get => requiresExecutable;
+        set
+        {
+            requiresExecutable = value;
+
+            if (Skip is null && value is not null && PythonHarness.RepoRoot is string root)
+            {
+                var path = OperatingSystem.IsWindows() ? $"{value}.exe" : value;
+
+                if (!File.Exists(Path.Combine(root, path)))
+                {
+                    Skip = $"{script}: {path} not built";
+                }
+            }
+        }
+    }
+
+    #endregion
+
+    #region Fields
+
+    readonly string script;
+    string? requiresExecutable;
 
     #endregion
 }

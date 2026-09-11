@@ -112,7 +112,10 @@ approval existed to protect, off a sequence of refusals. Same engine, same polic
 the event kind is doing all the work.
 
 The corpus made this visible: `::request` appears in 555 policy files against `::response`'s 94, so
-the *conventional* form is the weaker one.
+the *conventional* form is the weaker one. It does not, however, contain a single `::error`, so for
+a while this table was read off the devguide rather than executed. It is executed now — the built
+engine returns DENY for the first row and ALLOW for the second, on the same denied approval. See
+[The engine judges traces the corpus never recorded](#the-engine-judges-traces-the-corpus-never-recorded).
 
 ## What is modelled
 
@@ -136,15 +139,17 @@ stance every other spec here takes.
   `decision event`. `error` is not a Dogwood concept at all: it is **AgentCore's** convention for
   recording a denied action. `Policies.tla` holds the schema-declared vocabulary to keep the two
   visibly separate, but every finding here is about the service convention, not the language.
-- **The reference corpus does not exercise the rule the vacuity finding rests on.** Across all 521
-  cases in `tests/passing/temporal_only/corpus`, `::error` appears in **zero** policies and **zero**
-  traces. The rule is documented in the AgentCore devguide and the finding follows from it, but no
-  executable artifact in the reference implementation demonstrates it. Stated as a limit on
-  confidence, not as a criticism of their testing.
+- **The `error` rule is confirmed by the engine, not by the corpus.** Across all 521 cases in
+  `tests/passing/temporal_only/corpus`, `::error` appears in **zero** policies and **zero** traces,
+  so for a long time the finding rested on the devguide alone. It no longer does: the built engine
+  judges traces we construct, and it agrees — see [below](#the-engine-judges-traces-the-corpus-never-recorded).
+  What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
+  anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
   here now agrees with the reference implementation on **654 recorded pairs** — see below. What is
-  still unchecked is everything this spec adds on top: the session model, the request/response
-  recording convention, and `Granted`.
+  still unchecked is most of what this spec adds on top: the session model and `Granted`. The
+  request/response/error recording convention is the exception — the replay harness puts that one
+  in front of the engine directly.
 - **Bounded sessions.** `MaxAttempts = 3`, each attempt being two events. "Vacuous" here means *no
   session of up to three attempts fires it*. A permit needing a longer setup would be reported vacuous when it is merely deep. Raise
   the bound to trade runtime for confidence; this is the ordinary bounded-model-checking caveat and
@@ -208,8 +213,9 @@ Expected verdicts are `true, true, false, false`. That only works if `count` cou
 assignments to the bound variables** — here timepoints, via `tp(t)` — and if the request being
 authorized counts itself. Both fall straight out of the flip on the third transfer.
 
-Nothing is built or run from the Dogwood tree — the expected outputs are recorded, so the corpus is
-data. That keeps this inside the same no-network, no-credentials property as the rest of the suite.
+Nothing is built or run for *this* harness — the expected outputs are recorded, so the corpus is
+data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
+Either way no network is touched and no credentials exist.
 
 **The refusal count matters as much as the agreement count.** 201 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
@@ -269,6 +275,64 @@ is exactly the silent mishandling this harness exists to prevent, so schema-bear
 refused. Modelling pins would be a real extension, and it is not done.
 
 The harness is mutation-checked: removing the metric bound from `TermHolds` turns the run red.
+
+
+## The engine judges traces the corpus never recorded
+
+The corpus is a large oracle but a fixed one: it answers only about traces Amazon happened to
+record, and the blind spot is the one place this spec most needs an answer. Building `dogwood-cli`
+turns the oracle live — it will judge any trace we hand it, including event kinds the corpus never
+uses.
+
+```
+approval_gate_*.dw ─┬─ dogwood replay ─────────────────────────> verdicts (the oracle)
+                    └─ dogwood_parse ──> TLA+ ──> TLC ─────────> our verdicts
+```
+
+Both sides read the same policy file, so a disagreement is ours. The three gates are checked in and
+differ by exactly one word:
+
+| policy | gate | what it is for |
+|---|---|---|
+| [`approval_gate_response.dw`](approval_gate_response.dw) | `Approve::response` | the strong form — requires an approval that completed |
+| [`approval_gate_request.dw`](approval_gate_request.dw) | `Approve::request` | the weak form, and the conventional one |
+| [`approval_gate_error.dw`](approval_gate_error.dw) | `Approve::error` | rules out the duller explanation, below |
+
+[`dogwood_replay.py`](../../tests/strands/dogwood_replay.py) runs five scenarios over them. The
+traces are generated in the harness — they are the history to evaluate against, where the policies
+are what is under test. The engine's verdicts, which are what the run prints:
+
+| policy | history | verdict at the trade | what it settles |
+|---|---|---|---|
+| `..._response.dw` | approval **denied** | **DENY** | an `error` is not a `response`, so the gate stays shut |
+| `..._request.dw` | approval **denied** | **ALLOW** | the attempt was recorded, so the weaker gate opens — the finding |
+| `..._response.dw` | approval allowed | ALLOW | the control: with a real response the same gate opens |
+| `..._response.dw` | nothing at all | DENY | deny by default |
+| `..._error.dw` | approval **denied** | ALLOW | a policy *can* match error events, if it says so |
+
+The second row is the whole point. Two policies one word apart, opposite security properties, and
+the difference is invisible to a syntax checker because both parse and both are satisfiable. Rows
+one and two together are the claim: it is not that a denied approval is unrecorded, it is that it is
+recorded *under a different kind*.
+
+The fifth row earns its place. Without it, "the response gate stays shut" is also consistent with
+`error` events being invisible to temporal matching altogether, which would be a fact about the
+engine rather than about AgentCore's recording convention. It is the convention.
+
+Our semantics agrees with the engine on all five. Mutation-checked three ways: making `Matches`
+ignore the event kind, making `error` count as a `response`, and editing `approval_gate_response.dw`
+to say `::request` — that last one flips the first row to ALLOW and fails the C# assertion, which is
+what shows the checked-in policy is the thing being judged rather than a copy of it.
+
+It needs the built binary, which is not in the repo, so
+`PythonHarnessAttribute.RequiresExecutable` skips the C# test rather than failing it when the tree has not
+been built. Build it with no feature flags. The `net` feature would make evaluation
+non-deterministic and network-dependent, which is exactly what this spec assumes away; it cannot
+arrive by accident, only via `--features net` or `--all-features`.
+
+```
+cargo build --release --locked --manifest-path reference/projects/dogwood-main/Cargo.toml
+```
 
 
 ## Session rotation, and which policy shapes survive it

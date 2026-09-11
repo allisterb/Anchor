@@ -1,0 +1,50 @@
+// Minimal schema for the SessionRotation policy, modelled on the corpus schemas.
+namespace Anchor {
+  type SystemContext = {
+    now: datetime
+  };
+
+  type TradeInput = {
+    amount: Long
+  };
+
+  type TradeOutput = {
+    result: Bool
+  };
+
+  type ApproveInput = {
+    approver: String
+  };
+
+  type ApproveOutput = {
+    result: Bool
+  };
+
+  entity Gateway;
+
+  entity OAuthUser = {
+    id: String
+  } tags String;
+
+  action "CallTool";
+
+  action "Trade" in [Action::"CallTool"] appliesTo {
+    principal: [OAuthUser],
+    resource: [Gateway],
+    context: {
+      input: TradeInput,
+      output?: TradeOutput,
+      system: SystemContext
+    }
+  };
+
+  action "Approve" in [Action::"CallTool"] appliesTo {
+    principal: [OAuthUser],
+    resource: [Gateway],
+    context: {
+      input: ApproveInput,
+      output?: ApproveOutput,
+      system: SystemContext
+    }
+  };
+}

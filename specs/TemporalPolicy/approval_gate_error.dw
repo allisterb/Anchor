@@ -1,0 +1,19 @@
+// The approval gate written against the DENIAL itself.
+//
+// Nobody should write this -- it grants the trade precisely when the approval failed. It is here
+// to establish the other half of the claim in approval_gate_response.dw.
+//
+// Without it, "the response gate stays shut on a denied approval" is consistent with a duller
+// explanation: that `error` events are somehow invisible to temporal matching. This file rules
+// that out. `error` is an ordinary author-defined event kind and a policy matches it if it says
+// so, which makes the response-gate result a fact about AgentCore's RECORDING convention rather
+// than about the Dogwood engine.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Approve"::error{ }
+};

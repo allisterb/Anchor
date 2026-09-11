@@ -1,0 +1,20 @@
+// The approval gate written against the COMPLETED approval -- the strong form.
+//
+// A trade needs an approval that actually went through, earlier in the same session. AgentCore
+// records a denied action as an `::error` event rather than a `::response`, so a run of refused
+// approvals leaves this gate shut and the trade is refused with it.
+//
+// Compare approval_gate_request.dw. That file is this one with a single word changed and it has
+// the opposite security property. The pair is the finding; neither half means much alone.
+//
+// Judged by the real engine in tests/strands/dogwood_replay.py, because Dogwood's own regression
+// corpus contains no `::error` in any of its 521 cases and so cannot answer this.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Approve"::response{ }
+};
