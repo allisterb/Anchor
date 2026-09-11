@@ -1,0 +1,36 @@
+// The trading example from the AgentCore temporal-policy documentation, as Dogwood text.
+//
+// It is here because it is the policy `TemporalPolicy.tla` models by hand. Running the generic
+// checker over this file reproduces that spec's finding without anyone translating anything:
+//
+//     python tests/strands/vacuity.py tests/policies/docs_trading.dw
+//     python tests/strands/vacuity.py tests/policies/docs_trading_forbidden.dw
+//
+// The first says both permits are live. The second -- identical but for the approval being
+// forbidden rather than permitted -- says the sell permit is VACUOUS. Two models built
+// independently, one hand-written and one generated from this text, agreeing on the same result.
+//
+// The condition carries all three things worth modelling at once:
+//
+//     within 3600s        the metric bound
+//     input.stock:        the FIRST-ORDER join -- not "some approval happened" but "an approval
+//                         for THIS stock". Propositional temporal logic cannot say that
+//     ::response          the event kind, which is what the whole finding turns on
+
+permit (
+    principal,
+    action == Anchor::Action::"ApproveSale",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"SellShares",
+    resource
+)
+when temporal {
+    formerly within 3600s Anchor::Action::"ApproveSale"::response{
+        input.stock: context.input.stock,
+        output.approved: true
+    }
+};

@@ -1,0 +1,26 @@
+// The SECOND shape of vacuity: a permit that always matches and never grants.
+//
+// The first shape is a gate whose condition no session can satisfy -- approval_gate_response.dw,
+// where the approval it waits on is denied and so recorded as `::error` rather than `::response`.
+// This one is different and a condition-satisfiability check would miss it entirely: the permit's
+// condition is `true`, it matches every trade, and it still authorizes nothing, because Cedar's
+// forbid-overrides-permit rule is what decides. Dogwood keeps that rule.
+//
+// Both shapes matter because both look like working policy to a reader, and neither is reported by
+// a syntax check or a validator. `tests/strands/vacuity.py` separates matched from GRANTED, which
+// is what lets it see this one.
+//
+// Contrived on purpose -- nobody writes these two lines together. In a real policy set the forbid
+// arrives later, from a different author, and covers more than they realised.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+forbid (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);

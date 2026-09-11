@@ -152,6 +152,93 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// The vacuity checker over arbitrary Dogwood policy files: can this permit ever actually
+    /// grant anything? Pinned on two policies that differ by <b>one word</b> and get opposite
+    /// answers, and on the second shape of vacuity, which a satisfiability check cannot see.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing here is hand-modelled. The <c>.dw</c> text is parsed by the same parser that agrees
+    /// with the reference implementation on 654 corpus pairs, and evaluated by the same
+    /// <c>DogwoodSemantics!Decide</c>. That is what makes this "hand us a policy and we will
+    /// model-check it" rather than "here is a policy we modelled".
+    /// </para>
+    /// <para>
+    /// The VACUOUS verdict is the one that must never be wrong, because it is the silent
+    /// direction — a permit reported inert when it is merely deep would send someone to delete a
+    /// working control. It is falsification-tested: adding a permit for the approval the gate
+    /// waits on flips the same file to live, so the verdict is attributable to the denied
+    /// approval rather than to the model being unable to reach a response at all.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task VacuityCheckerSeparatesPoliciesOneWordApart()
+    {
+        // Gated on a COMPLETED approval. No permit covers the approval, so it is denied, so it is
+        // recorded as `error` rather than `response`, so this gate can never open.
+        var vacuous = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/approval_gate_response.dw");
+
+        Assert.True(vacuous.ExitCode == 0, vacuous.Output);
+        Assert.Matches(@"action == Trade\s+VACUOUS", vacuous.Output);
+
+        // The same policy with `response` changed to `request` — and a witness session, because a
+        // request event is recorded for every attempt, permitted or not.
+        var live = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/approval_gate_request.dw");
+
+        Assert.True(live.ExitCode == 0, live.Output);
+        Assert.Matches(@"action == Trade\s+live\s+witness: Approve -> Trade", live.Output);
+
+        // Matched but never granted: forbid overrides permit. Distinguishing this from the case
+        // above is the whole reason the spec tracks GRANTED rather than matched.
+        var overridden = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/overridden_permit.dw");
+
+        Assert.True(overridden.ExitCode == 0, overridden.Output);
+        Assert.Matches(@"action == Trade\s+VACUOUS", overridden.Output);
+    }
+
+    /// <summary>
+    /// The generic checker, run on the AgentCore documentation's own trading example, reproduces
+    /// the finding <c>TemporalPolicy.tla</c> reaches by hand — from the policy text, with nobody
+    /// translating anything.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two models built independently agreeing on one result is worth more than either alone.
+    /// <c>TemporalPolicy.tla</c> carries a hand-written <c>PermitFires</c> and a hand-written
+    /// <c>Policies.tla</c>; <c>Vacuity.tla</c> carries neither, taking its policies from parsed
+    /// <c>.dw</c> text and its decision from the corpus-validated evaluator. They share no code
+    /// on the path that matters, so this is a real cross-check rather than a restatement.
+    /// </para>
+    /// <para>
+    /// It also exercises the two constructs the simpler cases do not: the first-order join
+    /// (<c>input.stock: context.input.stock</c> — "an approval for THIS stock", which
+    /// propositional temporal logic cannot express) and an output-field bind
+    /// (<c>output.approved: true</c>).
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task VacuityCheckerReproducesTheHandWrittenSpecsFinding()
+    {
+        var live = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw");
+
+        Assert.True(live.ExitCode == 0, live.Output);
+        Assert.Matches(@"action == SellShares\s+live\s+witness: ApproveSale -> SellShares", live.Output);
+
+        // The same file with approvals forbidden instead of permitted. The SellShares permit is
+        // untouched — and now grants nothing, because a denied approval is recorded as an `error`
+        // and the `::response` it waits for is never written.
+        var vacuous = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/docs_trading_forbidden.dw");
+
+        Assert.True(vacuous.ExitCode == 0, vacuous.Output);
+        Assert.Matches(@"action == SellShares\s+VACUOUS", vacuous.Output);
+    }
+
+    /// <summary>
     /// <c>RotationPolicies.tla</c> is generated from the <c>.dw</c> sources, so it can go stale.
     /// This regenerates and compares.
     /// </summary>

@@ -1,0 +1,32 @@
+// docs_trading.dw with ONE line changed: approvals are forbidden rather than permitted.
+//
+// Nothing else moved. The SellShares permit below is byte-identical to the one in docs_trading.dw
+// -- it still names ApproveSale, still validates, still reads like a working approval gate. And it
+// now authorizes nothing at all, because an approval that policy denies is recorded as an `error`
+// rather than a `response`, so the event it waits for is never written.
+//
+//     python tests/strands/vacuity.py tests/policies/docs_trading_forbidden.dw
+//     ==> permit #2  action == SellShares    VACUOUS
+//
+// This is the shape of the problem worth caring about. The forbid is a reasonable thing for a
+// security team to add -- tighten approvals, they are being abused -- and its author has no
+// reason to read the trading rules. The permit's own author has no reason to re-read it either.
+// Nothing in either file says they now interact, and no validator reports it.
+
+forbid (
+    principal,
+    action == Anchor::Action::"ApproveSale",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"SellShares",
+    resource
+)
+when temporal {
+    formerly within 3600s Anchor::Action::"ApproveSale"::response{
+        input.stock: context.input.stock,
+        output.approved: true
+    }
+};

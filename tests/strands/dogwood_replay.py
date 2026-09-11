@@ -40,7 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "TemporalPolicy"
-SCHEMA = SPECS / "anchor.cedarschema"
+
+# The policy fixtures live under tests/, not specs/, because they are inputs that demonstrate the
+# tooling rather than models the project asserts things about. rotation_*.dw stayed in specs/ for
+# exactly that reason: SessionRotation.tla is ABOUT those two.
+POLICIES = REPO / "tests" / "policies"
+SCHEMA = POLICIES / "anchor.cedarschema"
 # `.exe` only on Windows. Hard-coding it would make this harness skip on a Linux runner even
 # once the binary is built there, and a silent skip is worse than a loud failure.
 DOGWOOD = (REPO / "reference" / "projects" / "dogwood-main" / "target" / "release"
@@ -79,31 +84,31 @@ DENIED = [approve(1, "request"), approve(2, "error"), trade(3)]
 SCENARIOS = [
     {
         "name": "response-gate, approval DENIED",
-        "policy": SPECS / "approval_gate_response.dw",
+        "policy": POLICIES / "approval_gate_response.dw",
         "trace": DENIED,
         "why": "an error is not a response, so the gate must not open",
     },
     {
         "name": "request-gate, approval DENIED",
-        "policy": SPECS / "approval_gate_request.dw",
+        "policy": POLICIES / "approval_gate_request.dw",
         "trace": DENIED,
         "why": "the attempt was recorded, so this weaker gate DOES open -- the finding",
     },
     {
         "name": "response-gate, approval ALLOWED",
-        "policy": SPECS / "approval_gate_response.dw",
+        "policy": POLICIES / "approval_gate_response.dw",
         "trace": [approve(1, "request"), approve(2, "response"), trade(3)],
         "why": "the control: with a real response the same gate opens",
     },
     {
         "name": "response-gate, nothing at all",
-        "policy": SPECS / "approval_gate_response.dw",
+        "policy": POLICIES / "approval_gate_response.dw",
         "trace": [trade(3)],
         "why": "deny by default on an empty history",
     },
     {
         "name": "error-gate, approval DENIED",
-        "policy": SPECS / "approval_gate_error.dw",
+        "policy": POLICIES / "approval_gate_error.dw",
         "trace": DENIED,
         "why": "a policy can match error events directly, if it says so",
     },

@@ -4,7 +4,7 @@ Implementations against the real SDK, for learning its surface. Nothing here is 
 spec — that is the point of the word *informal*. The verified artefacts live in
 [`specs/`](../../specs).
 
-**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all seven as part
+**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all eight as part
 of the suite, each asserting the finding it exists to pin. They **skip** rather than fail when what
 they need is absent — the repo venv, which is the case in CI, and for `dogwood_replay.py` also the
 built Dogwood binary. So the pins hold locally and not on GitHub.
@@ -23,7 +23,8 @@ no network call, no credentials, and no AWS.
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/cedar/`](../../specs/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
 | `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 654 pairs, one TLC run. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
-| `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/TemporalPolicy` finding rests on. The policies are checked in as `specs/TemporalPolicy/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
+| `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
+| `vacuity.py` | **the tool**: point it at any `.dw` file and it model-checks every permit in it for vacuity, one TLC run each, reporting a witness session or a VACUOUS verdict. See [`specs/TemporalPolicy/`](../../specs/TemporalPolicy). |
 | `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
 | `dw_to_tla.py` | translates a `.dw` policy file into the TLA+ data a spec checks, so a policy is model-checked as written rather than as paraphrased. `--check` fails if the generated module has drifted. |
 

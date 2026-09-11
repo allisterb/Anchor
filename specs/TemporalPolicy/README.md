@@ -6,9 +6,24 @@ session at all in which this permit grants something?
 A permit that can never fire is a silent deny-everything. It reads correctly, it validates, it
 deploys, and the capability it exists to allow is simply gone.
 
+**Point it at any `.dw` file:**
+
+```bash
+python tests/strands/vacuity.py tests/policies/docs_trading_forbidden.dw
+```
+```
+docs_trading_forbidden.dw: 1 permit(s), 1 forbid(s), bound 3 attempts
+
+  permit #2  action == SellShares    VACUOUS   no session of up to 3 attempts makes it grant
+```
+
+Nothing about that policy is hand-modelled — see
+[the checker](#the-checker-takes-arbitrary-policy-text) below.
+
 | file | what it is |
 |---|---|
-| `TemporalPolicy.tla` | the session model and the decision engine |
+| `Vacuity.tla` | **the generic checker**: any parsed policy, any permit, evaluated by `DogwoodSemantics` |
+| `TemporalPolicy.tla` | the original, hand-written: its own session model and its own decision engine |
 | `DogwoodSemantics.tla` | our reading of `formerly within`, checked against the reference corpus |
 | `Policies.tla` | the policy set — swappable, like `Workflow.tla` under [`DependencyDAG`](../DependencyDAG) |
 | `TemporalPolicy.cfg` | approvals permitted; the sell permit gated on `::response`. **Satisfiable** |
@@ -18,6 +33,19 @@ deploys, and the capability it exists to allow is simply gone.
 | `SessionRotation.cfg` | aggregate cap, rotation allowed. **Cap violated** |
 | `NoRotation_CapHolds.cfg` | the control: same policy, rotation disabled. Cap holds |
 | `Rotation_ApprovalGateHolds.cfg` | approval gate, rotation allowed. Gate holds |
+
+And the policy inputs — real Dogwood text, checked in, which is what the tooling reads:
+
+| `.dw` file | what it demonstrates |
+|---|---|
+| [`docs_trading.dw`](../../tests/policies/docs_trading.dw) | the AgentCore docs' own trading example. Both permits live |
+| [`docs_trading_forbidden.dw`](../../tests/policies/docs_trading_forbidden.dw) | one line different. **The sell permit is vacuous** |
+| [`approval_gate_response.dw`](../../tests/policies/approval_gate_response.dw) | gated on a completed approval. **Vacuous** on its own |
+| [`approval_gate_request.dw`](../../tests/policies/approval_gate_request.dw) | one word different. Live |
+| [`approval_gate_error.dw`](../../tests/policies/approval_gate_error.dw) | matches the denial itself. Live |
+| [`overridden_permit.dw`](../../tests/policies/overridden_permit.dw) | matches everything, grants nothing. **Vacuous**, second shape |
+| [`rotation_aggregate.dw`](rotation_aggregate.dw) | the spend cap `SessionRotation` defeats |
+| [`rotation_approval.dw`](rotation_approval.dw) | the approval gate it cannot |
 
 New to TLA+? [`specs/DependencyDAG/README.md`](../DependencyDAG/README.md) has a notation primer.
 
@@ -154,9 +182,11 @@ stance every other spec here takes.
   session of up to three attempts fires it*. A permit needing a longer setup would be reported vacuous when it is merely deep. Raise
   the bound to trade runtime for confidence; this is the ordinary bounded-model-checking caveat and
   it does not go away.
-- **One shape of vacuity.** A permit that fires but is always overridden by a `forbid` grants
-  nothing either. `Granted` distinguishes matched from granted, so that case is detectable, but no
-  config here exercises it.
+- **~~One shape of vacuity.~~** Both shapes are now checked. A permit that *matches* but is always
+  overridden by a `forbid` grants nothing either, and a condition-satisfiability check cannot see
+  it — the condition is satisfiable, the permit is inert. `Granted` separates matched from granted,
+  and [`overridden_permit.dw`](../../tests/policies/overridden_permit.dw) exercises it. Mutation-checked: drop the
+  `Allowed` guard from `Granted` and that file reports live.
 - **Nothing about the rest of the policy.** Time-based conditions, `count`/`sum` aggregations,
   `since within`, entity tags and multi-hop session propagation are all unmodelled.
 
@@ -277,6 +307,99 @@ refused. Modelling pins would be a real extension, and it is not done.
 The harness is mutation-checked: removing the metric bound from `TermHolds` turns the run red.
 
 
+## The checker takes arbitrary policy text
+
+For a long time this directory model-checked *one* policy, hand-written into `Policies.tla` as a
+`PermitFires` CASE expression. That is a paraphrase, and nothing checks a paraphrase. `Vacuity.tla`
+removes both hand-written halves:
+
+```
+any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
+                                                    ├──> TLC, once per permit
+                          Vacuity.tla ──────────────┘
+```
+
+- The **policies** come from the parser that agrees with the reference implementation on 654
+  recorded corpus pairs, so what is checked is the policy as written.
+- The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
+  and against the live engine on the `error` scenarios.
+- The **vocabulary** is lifted from the policy too: only the actions, event kinds and input/output
+  fields some condition actually reads get modelled, so a policy that joins on nothing costs
+  nothing to check.
+
+What is left hand-written is the *session model* — that an attempt records a decision event and
+then an outcome, and that the outcome kind is `response` when allowed and `error` when denied.
+That is AgentCore's convention rather than the policy's content, and it is the thing the replay
+harness checks against the real engine.
+
+### It reproduces the hand-written spec's finding
+
+The strongest evidence that the generalisation is faithful. `docs_trading.dw` is the AgentCore
+documentation's trading example — the same policy `TemporalPolicy.tla` models by hand:
+
+```
+docs_trading.dw            permit #1  action == ApproveSale   live      witness: ApproveSale
+                           permit #2  action == SellShares    live      witness: ApproveSale -> SellShares
+
+docs_trading_forbidden.dw  permit #2  action == SellShares    VACUOUS
+```
+
+Same result as `Vacuous_ForbiddenApproval.cfg` reaches through the hand-written model. The two
+share no code on the path that matters — different policy representation, different decision
+function — so this is a cross-check rather than a restatement. Both specs stay in the tree for
+exactly that reason.
+
+It also exercises the two constructs the smaller cases do not: the first-order join
+(`input.stock: context.input.stock` — *an approval for **this** stock*, which a propositional
+temporal logic cannot express) and an output-field bind (`output.approved: true`).
+
+### The two shapes of vacuity
+
+| shape | example | why a satisfiability check misses it |
+|---|---|---|
+| the condition can never hold | `approval_gate_response.dw` | the condition is satisfiable *in principle* — it just needs an event this policy set can never produce |
+| it holds, and a `forbid` wins | `overridden_permit.dw` | the condition is `true`. The permit matches every request and grants none |
+
+The second is why the spec tracks **granted** rather than **matched**. `Granted` returns the
+matching permits only when the request was actually allowed; counting a matched-but-overridden
+permit as live would report an inert policy as working.
+
+### Reading a VACUOUS verdict honestly
+
+**VACUOUS is bounded, and it is the direction that must never be wrong.** It means *no session of
+up to `--attempts` attempts makes this permit grant*, not *never*. A permit needing a longer setup
+is reported vacuous when it is merely deep — and that is the dangerous error, because it would send
+someone to delete a control that works. Three things are done about it:
+
+- The verdict is **falsification-tested**, not merely observed. Adding `permit (action ==
+  ApproveSale)` to `approval_gate_response.dw` flips it to live, so the VACUOUS is attributable to
+  the approval being denied rather than to the model being unable to reach a `response` at all.
+- Anything that is **not an answer** — a parse error, an unsupported construct, a `TypeOK` failure
+  — raises rather than being reported as vacuous. Silence must never read as a finding.
+- Constructs outside the modelled subset are **refused**, with the reason. A policy reading two
+  input fields is refused rather than checked, because every input field shares one numeric domain
+  in the model and two would silently under-explore:
+
+```
+REFUSED: two_fields.dw is outside the modelled subset
+  policy reads 2 input fields (amount, stock); the model gives every input field one shared
+  domain, so this would under-explore
+```
+
+A `live` verdict needs no such care: it comes with a witness session, which is evidence rather
+than an absence.
+
+### Mutation-checked
+
+| mutation | what breaks |
+|---|---|
+| `Granted` drops its `Allowed` guard | `overridden_permit.dw` reports live |
+| denied attempts recorded as `response` | `approval_gate_response.dw` reports live |
+
+Both are in the test suite's assertions, so either turns the build red rather than merely changing
+a printout.
+
+
 ## The engine judges traces the corpus never recorded
 
 The corpus is a large oracle but a fixed one: it answers only about traces Amazon happened to
@@ -294,9 +417,9 @@ differ by exactly one word:
 
 | policy | gate | what it is for |
 |---|---|---|
-| [`approval_gate_response.dw`](approval_gate_response.dw) | `Approve::response` | the strong form — requires an approval that completed |
-| [`approval_gate_request.dw`](approval_gate_request.dw) | `Approve::request` | the weak form, and the conventional one |
-| [`approval_gate_error.dw`](approval_gate_error.dw) | `Approve::error` | rules out the duller explanation, below |
+| [`approval_gate_response.dw`](../../tests/policies/approval_gate_response.dw) | `Approve::response` | the strong form — requires an approval that completed |
+| [`approval_gate_request.dw`](../../tests/policies/approval_gate_request.dw) | `Approve::request` | the weak form, and the conventional one |
+| [`approval_gate_error.dw`](../../tests/policies/approval_gate_error.dw) | `Approve::error` | rules out the duller explanation, below |
 
 [`dogwood_replay.py`](../../tests/strands/dogwood_replay.py) runs five scenarios over them. The
 traces are generated in the harness — they are the history to evaluate against, where the policies
