@@ -154,7 +154,7 @@ public class HarnessTests : TestsRuntime
     public async Task LikePatternsAreEvaluatedByTheModel()
     {
         var one = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/like_prefix.dw");
+            "src/checker/vacuity.py", "tests/policies/like_prefix.dw");
 
         Assert.True(one.ExitCode == 0, one.Output);
         Assert.Matches(@"permit #1\s+action == SellShares\s+live", one.Output);
@@ -162,7 +162,7 @@ public class HarnessTests : TestsRuntime
 
         // Two patterns, jointly satisfiable: a witness is constructed and the permit stays live.
         var two = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/like_two_patterns.dw");
+            "src/checker/vacuity.py", "tests/policies/like_two_patterns.dw");
 
         Assert.True(two.ExitCode == 0, two.Output);
         Assert.Matches(@"permit #1\s+action == SellShares\s+live", two.Output);
@@ -170,7 +170,7 @@ public class HarnessTests : TestsRuntime
 
         // Two patterns no string satisfies: refused, and specifically not reported vacuous.
         var none = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/like_impossible.dw");
+            "src/checker/vacuity.py", "tests/policies/like_impossible.dw");
 
         Assert.Equal(2, none.ExitCode);
         Assert.Contains("`like` patterns at once", none.Output);
@@ -286,7 +286,7 @@ public class HarnessTests : TestsRuntime
         // Gated on a COMPLETED approval. No permit covers the approval, so it is denied, so it is
         // recorded as `error` rather than `response`, so this gate can never open.
         var vacuous = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/approval_gate_response.dw");
+            "src/checker/vacuity.py", "tests/policies/approval_gate_response.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"action == Trade\s+VACUOUS", vacuous.Output);
@@ -294,7 +294,7 @@ public class HarnessTests : TestsRuntime
         // The same policy with `response` changed to `request` — and a witness session, because a
         // request event is recorded for every attempt, permitted or not.
         var live = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/approval_gate_request.dw");
+            "src/checker/vacuity.py", "tests/policies/approval_gate_request.dw");
 
         Assert.True(live.ExitCode == 0, live.Output);
         Assert.Matches(@"action == Trade\s+live\s+witness: Approve -> Trade", live.Output);
@@ -302,7 +302,7 @@ public class HarnessTests : TestsRuntime
         // Matched but never granted: forbid overrides permit. Distinguishing this from the case
         // above is the whole reason the spec tracks GRANTED rather than matched.
         var overridden = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/overridden_permit.dw");
+            "src/checker/vacuity.py", "tests/policies/overridden_permit.dw");
 
         Assert.True(overridden.ExitCode == 0, overridden.Output);
         Assert.Matches(@"action == Trade\s+VACUOUS", overridden.Output);
@@ -370,7 +370,7 @@ public class HarnessTests : TestsRuntime
     public async Task FieldDomainsComeFromTheLiteralsThePolicyNames()
     {
         var strings = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/string_output.dw");
+            "src/checker/vacuity.py", "tests/policies/string_output.dw");
 
         Assert.True(strings.ExitCode == 0, strings.Output);
         Assert.Matches(@"permit #2\s+action == Read\s+live", strings.Output);
@@ -379,7 +379,7 @@ public class HarnessTests : TestsRuntime
         // The docs' trading example reads an input field and an output field, and joins on the
         // input — so it only works if the two move independently.
         var trading = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw");
+            "src/checker/vacuity.py", "tests/policies/docs_trading.dw");
 
         Assert.True(trading.ExitCode == 0, trading.Output);
         Assert.Matches(@"permit #2\s+action == SellShares\s+live", trading.Output);
@@ -409,7 +409,7 @@ public class HarnessTests : TestsRuntime
     {
         // One line apart: approvals permitted, versus forbidden.
         var differs = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw",
+            "src/checker/vacuity.py", "tests/policies/docs_trading.dw",
             "--against", "tests/policies/docs_trading_forbidden.dw");
 
         Assert.True(differs.ExitCode == 0, differs.Output);
@@ -419,7 +419,7 @@ public class HarnessTests : TestsRuntime
         // "removing this changes no verdict" and "these files decide identically" are the same
         // claim from opposite ends, so a disagreement would mean one of them is wrong.
         var same = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/redundant_permit.dw",
+            "src/checker/vacuity.py", "tests/policies/redundant_permit.dw",
             "--against", "tests/policies/redundant_permit_minimal.dw");
 
         Assert.True(same.ExitCode == 0, same.Output);
@@ -429,7 +429,7 @@ public class HarnessTests : TestsRuntime
         // The difference is on an action only the SECOND file mentions, so this passes only if
         // the vocabulary spans both.
         var added = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/redundant_permit_minimal.dw",
+            "src/checker/vacuity.py", "tests/policies/redundant_permit_minimal.dw",
             "--against", "tests/policies/added_action.dw");
 
         Assert.True(added.ExitCode == 0, added.Output);
@@ -462,7 +462,7 @@ public class HarnessTests : TestsRuntime
         // A forbid on an action no permit covers. It reads like a control and denies nothing,
         // because default-deny had already shut that door.
         var forbid = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/dead_forbid.dw");
+            "src/checker/vacuity.py", "tests/policies/dead_forbid.dw");
 
         Assert.True(forbid.ExitCode == 0, forbid.Output);
         Assert.Matches(@"permit #1\s+action == Trade\s+live", forbid.Output);
@@ -471,7 +471,7 @@ public class HarnessTests : TestsRuntime
         // A gated permit sitting under an unconditional one. It fires — so it is NOT vacuous —
         // and it still decides nothing.
         var redundant = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/redundant_permit.dw");
+            "src/checker/vacuity.py", "tests/policies/redundant_permit.dw");
 
         Assert.True(redundant.ExitCode == 0, redundant.Output);
         Assert.Matches(@"permit #2\s+action == Trade\s+REDUNDANT", redundant.Output);
@@ -482,7 +482,7 @@ public class HarnessTests : TestsRuntime
         // And the distinction survives: a permit a forbid always overrides is still VACUOUS,
         // not merely redundant.
         var vacuous = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/overridden_permit.dw");
+            "src/checker/vacuity.py", "tests/policies/overridden_permit.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"permit #1\s+action == Trade\s+VACUOUS", vacuous.Output);
@@ -512,7 +512,7 @@ public class HarnessTests : TestsRuntime
     public async Task VacuityCheckerReproducesTheHandWrittenSpecsFinding()
     {
         var live = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw");
+            "src/checker/vacuity.py", "tests/policies/docs_trading.dw");
 
         Assert.True(live.ExitCode == 0, live.Output);
         Assert.Matches(@"action == SellShares\s+live\s+witness: ApproveSale -> SellShares", live.Output);
@@ -521,7 +521,7 @@ public class HarnessTests : TestsRuntime
         // untouched — and now grants nothing, because a denied approval is recorded as an `error`
         // and the `::response` it waits for is never written.
         var vacuous = await PythonHarness.RunAsync(
-            "tests/strands/vacuity.py", "tests/policies/docs_trading_forbidden.dw");
+            "src/checker/vacuity.py", "tests/policies/docs_trading_forbidden.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"action == SellShares\s+VACUOUS", vacuous.Output);

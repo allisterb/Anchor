@@ -131,7 +131,7 @@ Worth stating plainly, because a framework like this invites overclaiming:
 ## Checking an authorization policy
 
 ```bash
-python tests/strands/vacuity.py my_policy.dw
+python src/checker/vacuity.py my_policy.dw
 ```
 
 Three questions about a Dogwood policy set, each answered with a **witness session** or a bounded

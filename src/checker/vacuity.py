@@ -1,6 +1,6 @@
 """Model-check an arbitrary Dogwood policy file for vacuity, one permit at a time.
 
-    python tests/strands/vacuity.py tests/policies/approval_gate_response.dw
+    python src/checker/vacuity.py tests/policies/approval_gate_response.dw
 
 A permit is VACUOUS when no session can make it grant anything. That is not a weak control, it is
 zero control, and nothing about the policy's text says so -- it parses, it validates, and it
@@ -34,8 +34,6 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "TemporalPolicy"

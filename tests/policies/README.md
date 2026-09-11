@@ -5,7 +5,7 @@ here is generated and nothing here is a model — these are the files handed to 
 the real Dogwood engine, to see what each says about them.
 
 ```bash
-python tests/strands/vacuity.py tests/policies/docs_trading_forbidden.dw
+python src/checker/vacuity.py tests/policies/docs_trading_forbidden.dw
 python tests/strands/dogwood_replay.py
 ```
 

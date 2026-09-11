@@ -23,22 +23,27 @@ no network call, no credentials, and no AWS.
 |---|---|
 | `tool_hook_probe.py` | the [`specs/strands/ToolExecutor`](../../specs/strands/ToolExecutor) finding against a **running agent**: four tool uses in one turn, one hook body written three ways. A `def` callback never has more than one body in flight; an `await` between a counter's read and its write admits four calls against a cap of one. |
 | `shared_budget.py` | [`specs/foundations/SharedBudget/`](../../specs/foundations/SharedBudget) in Strands: several agents on one budget, with both the reserving ledger and the naive one. |
-| `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG) checks. |
+| `graph_to_tla.py` | drives [`translator.strands_graph_to_tla`](../../src/translator/strands_graph_to_tla.py) over fixture graphs and checks the result against [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG). The translation itself moved; what is here builds the graphs and runs the scenarios. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
 | `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 914 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
-| `vacuity.py` | **the tool**, answering three questions about a `.dw` file. Can each permit ever grant (**VACUOUS**)? Is each rule load-bearing, or can it be deleted (**REDUNDANT** / **DEAD**)? And with `--against other.dw`, is there a session the two versions decide differently? Each answer is a witness session or a bounded no. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 
-## The parser is not here any more
+## The library is not here any more
 
-`dogwood_parse.py`, `dogwood_schema.py`, `_toolchain.py` and `dw_to_tla.py` moved to
-[`src/translator/`](../../src/translator), along with every TLA+ emitter — which used to live
-*inside* `dogwood_differential.py`, so the translator that generates a checked-in spec imported
-from a test harness. That README records what the missing layer had already cost.
+What is left in this directory is the part that does the *testing* — building a case, running a
+corpus, driving a fixture graph, asserting the finding. The things those exercise moved out:
 
-What is left here is the part that does the *testing*: building a case, running the corpus, and
-asserting the finding. Those import `translator`; nothing in `translator` imports from here.
+| went to | what |
+|---|---|
+| [`src/translator/`](../../src/translator) | `dogwood_parse.py`, `dogwood_schema.py`, `_toolchain.py`, `dw_to_tla.py`, every TLA+ emitter (which used to live *inside* `dogwood_differential.py`), and `to_tla` (which used to live inside `graph_to_tla.py`) |
+| [`src/checker/`](../../src/checker) | `vacuity.py` — the tool, not a test of the tool |
+
+The arrow had been pointing the wrong way: `dw_to_tla.py`, whose output is a checked-in spec,
+imported `tla_cond` from a test harness, and so did the vacuity checker. Those READMEs record what
+that had already cost.
+
+Everything here imports `translator`; nothing in `translator` or `checker` imports from here.
 
 ## Translating a workflow, rather than paraphrasing one
 

@@ -17,7 +17,7 @@ really "compare what these policies decide, across every session".
 **Point it at any `.dw` file:**
 
 ```bash
-python tests/strands/vacuity.py tests/policies/docs_trading_forbidden.dw
+python src/checker/vacuity.py tests/policies/docs_trading_forbidden.dw
 ```
 ```
 docs_trading_forbidden.dw: 1 permit(s), 1 forbid(s), bound 3 attempts
@@ -857,7 +857,7 @@ set** — so if the permit it was guarding against is ever added, it silently st
 nobody will connect the two changes.
 
 ```bash
-python tests/strands/vacuity.py tests/policies/dead_forbid.dw
+python src/checker/vacuity.py tests/policies/dead_forbid.dw
 ```
 ```
   permit #1  action == Trade         live      witness: Trade
@@ -878,7 +878,7 @@ The third question the same machinery answers, and the one a policy author actua
 this rule inert* but **I am editing a set somebody else wrote — what did I just change?**
 
 ```bash
-python tests/strands/vacuity.py tests/policies/docs_trading.dw \
+python src/checker/vacuity.py tests/policies/docs_trading.dw \
     --against tests/policies/docs_trading_forbidden.dw
 ```
 ```
