@@ -75,16 +75,15 @@ def oracle_by_index(trace: list[dict], expected: dict[int, tuple[bool, list[int]
 
 def load(case: Path) -> tuple[list[dict], list[dict], dict]:
     """The policies, trace and oracle for one example, or Unsupported with the reason."""
-    if (case / "macros.dw").exists():
-        # The same feature as a call site the parser meets, so it tallies as one.
-        raise Unsupported("policy ships a macros.dw, whose definitions are not expanded",
-                          "calls a macro, which is not expanded")
-
     schema_file = case / "events.dwschema"
     schema = (parse_schema(schema_file.read_text(encoding="utf-8"))
               if schema_file.exists() else {"keys": [], "partial": {}})
 
-    policies = parse_policies((case / "policy.dw").read_text(encoding="utf-8"))
+    # A `macros.dw` sits beside the policy and its definitions are in scope for it. Inline
+    # `def`s in policy.dw itself need no special handling -- one mechanism, two spellings.
+    macros = case / "macros.dw"
+    policies = parse_policies((case / "policy.dw").read_text(encoding="utf-8"),
+                              macros.read_text(encoding="utf-8") if macros.exists() else "")
     apply_pins(policies, schema)
 
     trace = parse_trace((case / "trace.log").read_text(encoding="utf-8"), schema.get("paths"))

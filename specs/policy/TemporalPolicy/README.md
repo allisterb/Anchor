@@ -210,7 +210,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   913 (trace, expected) pairs from 470 cases, in one TLC run
+checked   914 (trace, expected) pairs from 471 cases, in one TLC run
   AGREE
 ```
 
@@ -256,30 +256,75 @@ python tests/strands/dogwood_examples.py
 ```
 86 examples, 49 with a trace and expected output
 
-checked   21 of 49 runnable examples (43%)
+checked   31 of 49 runnable examples (63%)
   AGREE
 ```
 
-**43% is the honest number, and it is much lower than the unit corpus's 90%.** Both are true;
-they measure different things. The gap is the point, so the refusals are broken out by kind
-rather than buried:
+**63% is the honest number, and it is well below the unit corpus's 90%.** Both are true; they
+measure different things. The gap is the point, so the refusals are broken out by kind rather than
+buried:
 
 | refused | why |
 |---|---|
 | 10 | calls an information provider (a Rhai script) |
-| 10 | calls a macro, which is not expanded |
 | 8 | assorted: `if`/`then`/`else`, `like`, a `when guardrails` clause, a custom bind target, a set-valued scope, an unpinned schema |
 
-The two tens are not the same kind of gap, and conflating them would overstate what is
-reachable. **Information providers are permanently out of scope**: a provider is a sandboxed Rhai
-script, so its result is a function of neither the policy nor the trace, and no model can predict
-it — refusing is the correct answer, not a missing feature. **Macros are a syntactic expansion we
-have not done**, and every one of those ten is reachable.
+**Ten of the eighteen are permanently out of scope, and refusing them is the correct answer rather
+than a gap.** An information provider is a sandboxed Rhai script, so a verdict that depends on one
+is not a function of the policy and the trace at all — there is nothing for any model to be right
+about. A checker that guessed here would be worse than one that declines.
+
+That leaves **8 of 49 — 16% — unreachable only because the work is not done**, and each is a
+different small feature rather than one missing idea.
 
 Two conventions differ from the unit corpus, and either would misalign every verdict silently:
 the oracle is the CLI's `ALLOW`/`DENY` rather than `true`/`false`, and "time point N" counts
 **decisions** here where it **indexes the trace** there. The harness keys on the `@N` timestamp,
 which means the same thing in both.
+
+#### Macros, and why they were worth doing
+
+The first measurement put macros and providers at ten each, which looked like a coin toss and was
+not. Macros are a **purely syntactic** expansion, so doing them moved 10 examples and 1 corpus case
+from refused to agreeing — 43% to 63% in one change, the largest single jump this subset has had.
+
+The two rules that matter are stated in `extension/temporal/grammar.pest`, and both would have been
+guesses otherwise:
+
+| sigil | meaning |
+|---|---|
+| `?p` | a value parameter — *"the call-site argument is spliced literally"* |
+| `$t` | a fresh binder — *"replaced with a gensym at every expansion"* |
+
+So expansion is token substitution, done **before** parsing. That ordering is the whole trick:
+splicing into the token stream means every construct the parser already knows keeps working inside
+a macro body for free, and a macro expanding to something unsupported refuses for the reason the
+*expansion* gives rather than for whatever the call site happened to look like.
+
+`$t` gensyms **per expansion, not per definition** — two calls to the same macro in one policy must
+not share a binder, or the second would capture the first's timepoints.
+
+Coming with them is the **injection operator**, which is the genuinely surprising piece:
+
+```
+def temporal same_session(?w, ?s) {
+    formerly within ?w (?s{ __drupe.session.id: context.__drupe.session.id })
+};
+```
+
+`?s{ ... }` *refines the predicate the caller passed*, forcing a field onto an event the caller
+never mentioned — here a same-session correlation, onto a policy whose author wrote nothing about
+sessions. It is the macro-level echo of the schema-pin finding above: **a policy's meaning is not in
+its own text**, and this is a second, independent mechanism that can reach in and change it. Merging
+is just concatenation of binds; if an injection names a field the caller already bound differently,
+the conjunction is unsatisfiable, which is the right answer and needs no special case.
+
+One thing here is followed rather than verified. Splicing an argument's **tokens** can re-associate
+an expression where splicing its parse tree would not — `?n < 100` with `?n` = `a && b` is the
+standard hazard. The grammar says literal, so literal is what matches the engine, but **no case in
+either corpus distinguishes the two readings**. This rests on the reference implementation's stated
+behaviour, not on evidence, and is written down because that is exactly the kind of thing that
+otherwise becomes an assumption nobody remembers making.
 
 #### A refusal message is the product
 
@@ -300,6 +345,12 @@ Writing them required reading every policy that produces one, and that is how th
 found: four cases reported a missing namespace separator, and all four were **macro calls** —
 not a diagnosis anyone would have reached from the token. A message that guesses is worse than
 one that is vague, because it sends someone to fix the wrong thing.
+
+**That row is why this section exists.** Those four cases are now *supported*, and they were
+reachable only because the message was rewritten to name the feature. The bad message hid the size
+of the opportunity, not merely the diagnosis: a bucket labelled `expected '::', got '('` reads like
+a parser bug worth an afternoon, where `calls a macro` reads like a feature worth doing — and it was
+the largest one available.
 
 Each refusal carries a coarse `kind` alongside its specific message, because once a message
 names the provider, counting messages puts every name in its own bucket and the summary stops

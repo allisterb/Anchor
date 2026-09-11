@@ -6,7 +6,11 @@ parentheses and the infix `since within` nest, and a regex that appears to handl
 
 THE SUBSET, and everything outside it raises `Unsupported`:
 
-    body   := ("when" | "unless") "temporal" "{" expr "}"
+    body   := clause+
+    clause := ("when" | "unless") ( "temporal" "{" expr "}" | "{" cedar "}" )
+    cedar  := cconj ("||" cconj)*          the Cedar level a temporal block sits inside
+    cconj  := cunary ("&&" cunary)*
+    cunary := "!" cunary | "(" cedar ")" | "temporal" "{" expr "}" | cmp
     expr   := conj
     conj   := unary ("&&" unary)*
     unary  := "!" unary | "(" expr ")" | term
@@ -54,11 +58,19 @@ also contains `context.input.amount > context.input.limit`, an enum entity
 (`Drupe::Grant_Input_role::"o'admin"`) and a comparison to a bound variable, and those are three
 further features rather than three spellings of this one.
 
-Still refused: macros (`call`), parameter sigils (`?p`, `$t`), nested temporal operators
-(`formerly` inside `formerly`), a constrained `principal` or `resource` scope, `null` values,
-non-ASCII field values (a TLA+ string literal cannot carry one), deep paths under `__drupe` beyond
-a single leaf, and `Long` values outside TLC's integer range -- the last of which no amount of
-modelling will fix.
+MACROS are expanded before parsing -- see `expand_macros`. `def temporal once(?w, ?s) { ... };`
+and `def cedar is_small(?n) { ... };`, declared inline or in a `macros.dw` beside the policy, with
+`?p` spliced literally and `$t` gensymmed per expansion. The INJECTION operator comes with them:
+`?s{ input.status: "approved" }` refines whatever predicate the caller passed, forcing a field onto
+an event the caller never mentioned.
+
+Still refused: information providers (`Lists::Allowed(...)` and friends -- sandboxed Rhai scripts,
+so a verdict is not a function of the policy and the trace at all, and REFUSING IS THE CORRECT
+ANSWER rather than a gap), `if`/`then`/`else`, Cedar's `like` / `has` / `in` / `is`, a `when`
+clause tagged with anything but `temporal`, nested temporal operators (`formerly` inside
+`formerly`), a constrained `principal` or `resource` scope, `null` values, non-ASCII field values
+(a TLA+ string literal cannot carry one), deep paths under `__drupe` beyond a single leaf, and
+`Long` values outside TLC's integer range -- the last of which no amount of modelling will fix.
 """
 
 from __future__ import annotations
@@ -98,6 +110,8 @@ TOKEN = re.compile(r"""
       (?P<str>"[^"]*")
     | (?P<dur>\d+[smhd]\b)
     | (?P<int>\d+)
+    | (?P<param>\?[A-Za-z_][A-Za-z0-9_]*)
+    | (?P<binder>\$[A-Za-z_][A-Za-z0-9_]*)
     | (?P<ident>[A-Za-z_][A-Za-z0-9_]*)
     | (?P<sym>::|&&|\|\||<=|>=|!=|==|[!(){}\[\]:.,<>=+?$-])
     | (?P<ws>\s+)
@@ -480,8 +494,10 @@ class Parser:
         # syntactic job we have not done, which is a better thing to be told than that a
         # namespace separator was missing.
         if nxt == "(" and head and re.fullmatch(r"[A-Za-z_]\w*", head) and head != "decimal":
-            raise Unsupported(f"policy calls the macro {head}(), which is not expanded",
-                              "calls a macro, which is not expanded")
+            raise Unsupported(
+                f"policy calls {head}(), which is not defined as a macro in this policy or its "
+                f"macros file -- an information provider, or a definition we were not given",
+                "calls something undefined -- a provider or an absent macro")
 
     def group(self) -> dict:
         self.expect("(")
@@ -643,6 +659,23 @@ class Parser:
             while self.accept(","):
                 binds.append(self.bind())
         self.expect("}")
+
+        # The INJECTION operator -- `?s{ input.status: "approved" }` in a macro body, which after
+        # splicing leaves `PRED{ caller binds }{ injected binds }`. It forces a field onto whatever
+        # predicate the caller passed, even one the caller never mentions; corpus case
+        # 1116_injection_onto_deep_path uses it to impose a same-session correlation.
+        #
+        # Merging is just concatenation. Every bind has to match the same event, so if an injection
+        # names a field the caller already bound to a different value, the conjunction is
+        # unsatisfiable -- which is the right answer and needs no special case.
+        while self.peek() == "{":
+            self.take()
+            if self.peek() != "}":
+                binds.append(self.bind())
+                while self.accept(","):
+                    binds.append(self.bind())
+            self.expect("}")
+
         return {"action": action[1:-1], "kind": kind, "binds": binds}
 
     def bind(self) -> dict:
@@ -728,9 +761,133 @@ class Parser:
         raise Unsupported(f"bind value {nxt!r}")
 
 
-def parse_policies(text: str) -> list[dict]:
-    """Every `permit`/`forbid` in the file, as [effect, action, cond]."""
+# `def temporal once(?w, ?s) {` -- the header only; the body is brace-matched from the `{`,
+# because a macro body contains predicates with braces of their own and a regex cannot count them.
+DEF_HEAD = re.compile(r"\bdef\s+(cedar|temporal)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{")
+
+MAX_EXPANSION_DEPTH = 8
+
+
+def collect_macros(text: str) -> tuple[dict, str]:
+    """Pull every `def` out of the text, returning the macros and what is left.
+
+    The remainder is what the policy scanner then reads, so a definition can never be mistaken for
+    a policy or leave a stray `;` behind.
+    """
+    macros, out, i = {}, [], 0
+    while (m := DEF_HEAD.search(text, i)) is not None:
+        out.append(text[i:m.start()])
+
+        depth, j = 1, m.end()
+        while j < len(text) and depth:
+            depth += (text[j] == "{") - (text[j] == "}")
+            j += 1
+        if depth:
+            raise Unsupported(f"macro {m.group(2)}() has an unterminated body")
+
+        params = [q.strip().lstrip("?") for q in m.group(3).split(",") if q.strip()]
+        macros[m.group(2)] = {"kind": m.group(1), "params": params,
+                              "body": tokenize(text[m.end():j - 1])}
+        i = j + 1 if text[j:j + 1] == ";" else j    # the `;` closing the declaration
+    out.append(text[i:])
+    return macros, "".join(out)
+
+
+def split_args(tokens: list[str], open_at: int) -> tuple[list[list[str]], int]:
+    """The comma-separated arguments of a call whose `(` is at `open_at`, and the index past `)`.
+
+    Nesting counts every bracket kind, because an argument is routinely a whole predicate --
+    `once(1h, Drupe::Action::"Read"::response{ input.user: context.input.user })` -- whose braces
+    contain a comma that is not an argument separator.
+    """
+    args, cur, depth, j = [], [], 0, open_at
+    while j < len(tokens):
+        tok = tokens[j]
+        if tok in ("(", "{", "["):
+            depth += 1
+            if depth > 1:
+                cur.append(tok)
+        elif tok in (")", "}", "]"):
+            depth -= 1
+            if depth == 0:
+                if cur or args:
+                    args.append(cur)
+                return args, j + 1
+            cur.append(tok)
+        elif tok == "," and depth == 1:
+            args.append(cur)
+            cur = []
+        else:
+            cur.append(tok)
+        j += 1
+    raise Unsupported("unbalanced brackets in a macro call")
+
+
+def expand_macros(tokens: list[str], macros: dict, counter: list[int],
+                  depth: int = 0) -> list[str]:
+    """Splice every macro call in `tokens`, recursively.
+
+    `?p` takes the call-site tokens literally and `$t` becomes a fresh binder per expansion, both
+    as the reference grammar specifies. The depth limit stands in for a cycle check:
+    `def a() { b() }; def b() { a() };` would otherwise not terminate, and refusing at a bound
+    keeps that from being a hang.
+    """
+    if depth > MAX_EXPANSION_DEPTH:
+        raise Unsupported(f"macro expansion nested deeper than {MAX_EXPANSION_DEPTH} "
+                          f"-- the definitions may be mutually recursive")
+
+    out, i = [], 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok not in macros or tokens[i + 1:i + 2] != ["("]:
+            out.append(tok)
+            i += 1
+            continue
+
+        macro = macros[tok]
+        args, after = split_args(tokens, i + 1)
+        if len(args) != len(macro["params"]):
+            raise Unsupported(f"macro {tok}() takes {len(macro['params'])} argument(s) "
+                              f"but is called with {len(args)}")
+
+        bound = {f"?{q}": expand_macros(a, macros, counter, depth + 1)
+                 for q, a in zip(macro["params"], args)}
+
+        # One gensym per EXPANSION, not per definition: two calls to the same macro in one policy
+        # must not share a binder, or the second would capture the first's timepoints.
+        fresh: dict[str, str] = {}
+        body: list[str] = []
+        for t in macro["body"]:
+            if t in bound:
+                body.extend(bound[t])
+            elif t.startswith("$"):
+                if t not in fresh:
+                    counter[0] += 1
+                    fresh[t] = f"__{t[1:]}_{counter[0]}"
+                body.append(fresh[t])
+            else:
+                body.append(t)
+
+        out.extend(expand_macros(body, macros, counter, depth + 1))
+        i = after
+    return out
+
+
+def parse_policies(text: str, macros_text: str = "") -> list[dict]:
+    """Every `permit`/`forbid` in the file, as [effect, action, cond].
+
+    `macros_text` is a separate `macros.dw`, whose definitions are in scope for `text`. Inline
+    `def`s in `text` are collected the same way, so the two spellings are one mechanism.
+    """
     text = re.sub(r"//[^\n]*", "", text)
+    macros_text = re.sub(r"//[^\n]*", "", macros_text)
+
+    shared, leftover = collect_macros(macros_text)
+    local, text = collect_macros(text)
+    if leftover.strip():
+        raise Unsupported("the macros file holds more than definitions")
+    macros = {**shared, **local}
+
     policies = []
 
     for m in re.finditer(r"(permit|forbid)\s*\((.*?)\)\s*(.*?);", text, re.S):
@@ -753,7 +910,7 @@ def parse_policies(text: str) -> list[dict]:
                              "cond": {"op": "true", "args": []}})
             continue
 
-        p = Parser(tokenize(body))
+        p = Parser(expand_macros(tokenize(body), macros, [0]))
         cond = p.body()
         if p.peek() is not None:
             raise Unsupported(f"trailing tokens from {p.peek()!r}")
