@@ -36,7 +36,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "cedar"
-JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
+
+from _toolchain import find_jar  # noqa: E402
 
 # The finite domain the two sides are compared over. Small enough to enumerate exhaustively,
 # wide enough that the interesting boundaries (the call_count < 3 threshold, the forbid that
@@ -241,7 +242,7 @@ def check(module_text: str) -> tuple[bool, str]:
     (SPECS / "CedarDifferential.cfg").write_text(CONFIG, encoding="utf-8")
 
     proc = subprocess.run(
-        ["java", "-cp", str(JAR), "tlc2.TLC", "-cleanup",
+        ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
          "-config", "CedarDifferential.cfg", "CedarDifferential.tla"],
         cwd=SPECS, capture_output=True, text=True,
     )

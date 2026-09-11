@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Installs Anchor's Python dependencies into the repo's virtual environment.
 #
-# This script is run by a person, deliberately. Nothing in the build or any agent invokes it.
+# This script is run deliberately, by a person or by CI -- never as a side effect. The build does
+# not invoke it and no agent invokes it, which is the property that matters: nothing installs
+# packages while you thought it was compiling. CI calls it from a step of its own
+# (.github/workflows/build.yml) rather than reimplementing the pip invocation, so --require-hashes
+# and --only-binary cannot drift out of one copy.
 
 set -euo pipefail
 

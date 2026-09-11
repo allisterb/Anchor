@@ -49,6 +49,50 @@ jobs:
           path: lib
           key: anchor-lib-${{ runner.os }}-${{ hashFiles('build.ps1', 'build.sh') }}
 
+      # Without this the nine Python harnesses in HarnessTests.cs SKIP, and the run reports green
+      # having exercised none of them — the graph translator, every differential test against a
+      # real engine, and the vacuity checker. That is the weakest possible signal: a build that
+      # passes because it did not look.
+      #
+      # 3.13 exactly. `check_python.py` asks the venv's own interpreter whether it clears the floor
+      # recorded in the lock's header, so an older runner default fails here with that message
+      # rather than much later inside pip.
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Keyed on the lock AND the exact interpreter. A venv records the absolute path of the base
+      # interpreter it was built from, so a patch bump under setup-python would leave a restored
+      # venv pointing at one that is no longer there. Both in the key means that invalidates
+      # instead of producing a broken environment that fails somewhere unrelated.
+      - name: Cache the Python virtual environment
+        id: venv-cache
+        uses: actions/cache@v4
+        with:
+          path: python
+          key: anchor-venv-${{ runner.os }}-${{ steps.python.outputs.python-version }}-${{ hashFiles('requirements/strands/requirements.txt') }}
+
+      # The same scripts a person runs, not a reimplementation of them. They enforce
+      # --require-hashes (every package, transitive included, matches its recorded digest) and
+      # --only-binary=:all: (no sdists, so no setup.py executes during install), and they copy
+      # pip.ini into the venv where pip actually reads it. A hand-rolled `pip install` step here
+      # would be a second code path that could silently drop one of those.
+      - name: Install the Python dependencies (Windows)
+        if: runner.os == 'Windows' && steps.venv-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          python -m venv python
+          ./requirements/strands/install.cmd
+
+      - name: Install the Python dependencies (Linux)
+        if: runner.os == 'Linux' && steps.venv-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          python -m venv python
+          ./requirements/strands/install.sh
+
       # CI is set by GitHub, and the scripts turn it into RestoreLockedMode=true, so a restore that
       # would silently re-resolve a committed packages.lock.json fails instead.
       #

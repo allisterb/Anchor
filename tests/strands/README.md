@@ -4,10 +4,11 @@ Implementations against the real SDK, for learning its surface. Nothing here is 
 spec — that is the point of the word *informal*. The verified artefacts live in
 [`specs/`](../../specs).
 
-**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all eight as part
-of the suite, each asserting the finding it exists to pin. They **skip** rather than fail when what
-they need is absent — the repo venv, which is the case in CI, and for `dogwood_replay.py` also the
-built Dogwood binary. So the pins hold locally and not on GitHub.
+**They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all nine as part
+of the suite, each asserting the finding it exists to pin, **on CI as well as locally** — the
+workflow creates the repo venv and installs the hash-locked requirements before the tests run. They
+still **skip** rather than fail when what they need is absent: the venv, and for
+`dogwood_replay.py` the built Dogwood binary, which CI does not have yet.
 
 ```bash
 python tests/strands/shared_budget.py

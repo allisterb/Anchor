@@ -41,9 +41,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
-# JAR is imported rather than spelled again: the filename carries the pinned version, so a second
-# copy of it here would be a second thing to update on a toolchain bump.
-from dogwood_differential import JAR, tla_cond  # noqa: E402
+from _toolchain import find_jar  # noqa: E402
+from dogwood_differential import tla_cond  # noqa: E402
 from dogwood_parse import Unsupported, parse_policies  # noqa: E402
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
@@ -155,7 +154,7 @@ def check_one(work: Path, target: int, attempts: int, amount: int) -> tuple[bool
         CONFIG.format(attempts=attempts, amount=amount, target=target), encoding="utf-8")
 
     proc = subprocess.run(
-        ["java", "-cp", str(JAR), "tlc2.TLC", "-cleanup",
+        ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
          "-metadir", str(work / "states"), "-config", "Vacuity.cfg", "Vacuity.tla"],
         cwd=work, capture_output=True, text=True)
     out = proc.stdout + proc.stderr

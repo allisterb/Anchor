@@ -48,7 +48,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs"
-JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
+
+from _toolchain import find_jar  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(SPECS / "strands" / "DependencyDAG"))
@@ -324,7 +325,7 @@ def check(workflow_tla: str, spec: str, invariant: str | None = None) -> tuple[b
                            encoding="utf-8")
 
         proc = subprocess.run(
-            ["java", "-cp", str(JAR), "tlc2.TLC", "-cleanup",
+            ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(work / "states"), "-config", f"{spec}.cfg", f"{spec}.tla"],
             cwd=work, capture_output=True, text=True,
         )

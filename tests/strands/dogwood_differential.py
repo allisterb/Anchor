@@ -57,9 +57,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
-JAR = REPO / "lib" / "tla2tools-1.7.4.jar"
 CORPUS = (REPO / "reference" / "projects" / "dogwood-main" / "dogwood-language"
           / "tests" / "passing" / "temporal_only" / "corpus")
+
+from _toolchain import find_jar  # noqa: E402
 
 # `@N` in a trace is seconds, fixed by corpus case 0127: a read 12s after a login is denied under a
 # `within 10s` window and one 8s after is allowed.
@@ -337,7 +338,7 @@ def check(module_text: str) -> tuple[bool, str]:
             (SPECS / "DogwoodSemantics.tla").read_text(encoding="utf-8"), encoding="utf-8")
 
         proc = subprocess.run(
-            ["java", "-cp", str(JAR), "tlc2.TLC", "-cleanup",
+            ["java", "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(work / "states"), "-config", "DogwoodCases.cfg", "DogwoodCases.tla"],
             cwd=work, capture_output=True, text=True,
         )
