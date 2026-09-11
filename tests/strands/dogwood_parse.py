@@ -24,6 +24,13 @@ Aggregations are covered in the one shape the corpus actually uses:
 
     exists (n: T). ((count for (t: Timepoint). where (phi)) == n && n >= 3)
 
+`phi` is either a temporal term or -- with NO temporal operator anywhere in it -- a bare
+conjunction of atoms, which means "at the decision's own timepoint". An unwrapped aggregate counts
+what is happening now rather than what has happened. The two are told apart by looking for a
+temporal keyword in the body, not by parsing and backtracking: a failure inside the temporal
+reading can mean "this is the bare form" or "this uses something unsupported", and catching it
+would conflate them.
+
 which says nothing more than `count(...) >= 3`. That exact shape is recognised; any other use of
 `exists` is REFUSED rather than approximated, because general existential quantification over a
 value domain is a different thing and pretending otherwise is guessing.
@@ -35,10 +42,9 @@ also contains `context.input.amount > context.input.limit`, an enum entity
 (`Drupe::Grant_Input_role::"o'admin"`) and a comparison to a bound variable, and those are three
 further features rather than three spellings of this one.
 
-Still refused: macros (`call`), parameter sigils (`?p`, `$t`), aggregate bodies with no temporal
-wrapper (which mean "this timepoint only"), `since` nested inside an aggregate body, event schemas
-that `pin` a field into every predicate, and comparisons that are neither the aggregation idiom nor
-the `cmp` above.
+Still refused: macros (`call`), parameter sigils (`?p`, `$t`), `since` nested inside an aggregate
+body, event schemas that `pin` a field into every predicate, and comparisons that are neither the
+aggregation idiom nor the `cmp` above.
 """
 
 from __future__ import annotations
@@ -132,15 +138,59 @@ class Parser:
         return out
 
     def aggregate(self) -> dict:
-        """`count for (...). where (C)` or `sum v for (...). where (C)`."""
+        """`count for (...). where (C)` or `sum v for (...). where (C)`.
+
+        Inside the body -- and ONLY there -- a bare predicate with no temporal operator is
+        allowed, and means "at the decision's own timepoint". The flag is scoped to this call
+        because that is where the corpus evidence is: a bare predicate at the top level of a
+        `when temporal` block is a different question, with nothing to check an answer against.
+        """
         kind = self.take()
         over = "" if kind == "count" else self.take()
         bs = self.binders()
         self.expect("where")
         self.expect("(")
-        cond = self.expr()
+
+        if self.body_has_temporal():
+            cond = self.expr()
+        else:
+            # No temporal operator anywhere in the body: it sees only the decision's own
+            # timepoint, so the conjuncts are ATOMS and the whole thing becomes one `at` term.
+            # Window 0 is a placeholder; the `at` arm of TermHolds never reads it.
+            at = self.atom_conj()
+            cond = {"op": "term",
+                    "term": {"op": "at", "window": 0, "atom": at, "left": at, "leftNeg": False}}
+
         self.expect(")")
         return {"kind": kind, "over": over, "binders": bs, "cond": cond}
+
+    def atom_conj(self) -> dict:
+        """`atom ("&&" atom)*`, unparenthesised -- the shape an unwrapped body has."""
+        parts = [self.atom()]
+        while self.accept("&&"):
+            parts.append(self.atom())
+        return parts[0] if len(parts) == 1 else {"op": "and", "args": parts}
+
+    def body_has_temporal(self) -> bool:
+        """Does a temporal operator appear before the `)` that closes the body?
+
+        Includes nested ones. A `since` inside a group is still outside the modelled subset, and
+        routing such a body to `expr()` keeps it REFUSED rather than silently reading it as the
+        bare form -- which would be a wrong answer rather than an absent one.
+        """
+        depth, j = 0, self.i
+        while j < len(self.t):
+            tok = self.t[j]
+            if tok == "(":
+                depth += 1
+            elif tok == ")":
+                if depth == 0:
+                    return False
+                depth -= 1
+            elif tok in ("formerly", "previous", "since"):
+                return True
+            j += 1
+        raise Unsupported("unbalanced parentheses in an aggregate body")
 
     def exists_idiom(self) -> dict:
         """`exists (n: T). ((AGG) == n && n CMP k)` -- the corpus's only use of `exists`.

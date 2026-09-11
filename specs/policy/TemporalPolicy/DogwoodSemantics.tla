@@ -149,8 +149,14 @@ TermHolds(term, trace, upto, dec, asg) ==
     LET t == dec.time
         InWindow(i) == trace[i].time <= t /\ t - trace[i].time <= term.window
     IN CASE
+        \* No temporal operator at all: the body sees ONLY the decision's own timepoint.
+        \* An aggregate written without a wrapper therefore counts what is happening now
+        \* rather than what has happened, and `tp(v)` binds v to the decision's index.
+        \* The window is meaningless here and is not consulted.
+        term.op = "at" -> AtomHolds(term.atom, upto, trace, dec, asg)
+
         \* `formerly within W A` -- A held at some point in the window.
-        term.op = "formerly" ->
+      [] term.op = "formerly" ->
             \E i \in 1..upto : InWindow(i) /\ AtomHolds(term.atom, i, trace, dec, asg)
 
         \* `previous within W A` -- the immediately preceding time point.
