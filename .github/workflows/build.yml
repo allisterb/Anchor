@@ -26,7 +26,12 @@ jobs:
           - ubuntu-22.04
 
     steps:
+      # `submodules` is false by default, so without this ext/dogwood is an empty directory and
+      # BOTH Dogwood harnesses skip: the corpus is not there for dogwood_differential.py, and
+      # neither is the source dogwood_replay.py's binary is built from.
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -92,6 +97,61 @@ jobs:
         run: |
           python -m venv python
           ./requirements/strands/install.sh
+
+      # The Dogwood CLI, for dogwood_replay.py -- the one harness that needs a live engine rather
+      # than recorded fixtures. Linux only: `RequiresExecutable` skips the test cleanly, so the
+      # Windows leg need not pay for a second Rust build to gain nothing.
+      #
+      # Keyed on the lockfile and the pinned submodule commit. `git rev-parse HEAD:ext/dogwood`
+      # reads the gitlink -- the SHA this repo pins -- so bumping the submodule rebuilds.
+      - name: Cache the Dogwood build
+        if: runner.os == 'Linux'
+        id: dogwood-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ext/dogwood/target
+          key: dogwood-${{ runner.os }}-${{ hashFiles('requirements/dogwood/Cargo.lock') }}-${{ hashFiles('.gitmodules') }}
+
+      # continue-on-error deliberately, and provisionally. A Rust toolchain problem on the runner
+      # should not turn an unrelated PR red for the sake of one test -- the harness skips when the
+      # binary is absent, and the failed step still shows as an annotation. Tighten this if it
+      # proves reliable.
+      - name: Build the Dogwood CLI (Linux)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -x
+          rustc --version
+          cargo --version
+
+          # --locked needs a Cargo.lock at the workspace root, and Dogwood ships none -- which is
+          # exactly why `cargo install --git --locked` was not an option here: it would have had
+          # nothing to lock against and would have re-resolved from crates.io, discarding the audit
+          # recorded in reference/README.md. Ours goes in first.
+          cp requirements/dogwood/Cargo.lock ext/dogwood/Cargo.lock
+
+          cargo build --release --locked --manifest-path ext/dogwood/Cargo.toml
+
+          # The lockfile must not have moved. --locked should already guarantee it; checking costs
+          # nothing and turns a silent re-resolution into a visible one.
+          diff requirements/dogwood/Cargo.lock ext/dogwood/Cargo.lock
+
+          # The `net` feature registers an http_get host function for provider scripts, which would
+          # make policy evaluation non-deterministic and network-dependent -- the thing every claim
+          # in specs/policy/TemporalPolicy is scoped against. It is off by default and no dependency
+          # edge enables it, so this should never fire; it is here because the cost of checking is a
+          # grep and the cost of being wrong is every claim in that spec.
+          for sym in http_get TcpStream connect_timeout; do
+            if grep -qa "$sym" ext/dogwood/target/release/dogwood; then
+              echo "::error::'$sym' found in the Dogwood binary - the net feature is compiled in"
+              exit 1
+            fi
+          done
+          echo "net feature confirmed absent"
 
       # CI is set by GitHub, and the scripts turn it into RestoreLockedMode=true, so a restore that
       # would silently re-resolve a committed packages.lock.json fails instead.

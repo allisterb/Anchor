@@ -100,7 +100,8 @@ public class HarnessTests : TestsRuntime
     /// never says.
     /// </para>
     /// </remarks>
-    [PythonHarness("dogwood_differential.py")]
+    [PythonHarness("dogwood_differential.py",
+                   RequiresPath = "ext/dogwood/dogwood-language/tests/passing/temporal_only/corpus")]
     public async Task DogwoodSemanticsAgreeWithTheReferenceCorpus()
     {
         var run = await PythonHarness.RunAsync("tests/strands/dogwood_differential.py");
@@ -135,7 +136,7 @@ public class HarnessTests : TestsRuntime
     /// </para>
     /// </remarks>
     [PythonHarness("dogwood_replay.py",
-                   RequiresExecutable = "reference/projects/dogwood-main/target/release/dogwood")]
+                   RequiresExecutable = "ext/dogwood/target/release/dogwood")]
     public async Task DogwoodSemanticsAgreeWithTheEngineOnErrorEvents()
     {
         var run = await PythonHarness.RunAsync("tests/strands/dogwood_replay.py");
@@ -351,12 +352,37 @@ public sealed class PythonHarnessAttribute : FactAttribute
         }
     }
 
+    /// <summary>
+    /// A repo-relative file or directory the harness needs. Skipped over when it is absent.
+    /// </summary>
+    /// <remarks>
+    /// For inputs that live outside the repo — the Dogwood corpus in particular, which sits under
+    /// the gitignored, machine-specific <c>reference/</c> tree and so is simply not there in CI.
+    /// Unlike <see cref="RequiresExecutable"/> the value is used verbatim: no extension is appended,
+    /// and a directory is as valid as a file.
+    /// </remarks>
+    public string? RequiresPath
+    {
+        get => requiresPath;
+        set
+        {
+            requiresPath = value;
+
+            if (Skip is null && value is not null && PythonHarness.RepoRoot is string root
+                && !Path.Exists(Path.Combine(root, value)))
+            {
+                Skip = $"{script}: {value} not present";
+            }
+        }
+    }
+
     #endregion
 
     #region Fields
 
     readonly string script;
     string? requiresExecutable;
+    string? requiresPath;
 
     #endregion
 }

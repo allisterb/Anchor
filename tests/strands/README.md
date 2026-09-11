@@ -7,8 +7,10 @@ spec — that is the point of the word *informal*. The verified artefacts live i
 **They are no longer hand-run only.** `HarnessTests.cs` in the test project runs all nine as part
 of the suite, each asserting the finding it exists to pin, **on CI as well as locally** — the
 workflow creates the repo venv and installs the hash-locked requirements before the tests run. They
-still **skip** rather than fail when what they need is absent: the venv, and for
-`dogwood_replay.py` the built Dogwood binary, which CI does not have yet.
+still **skip** rather than fail when what they need is absent: the venv, and the two Dogwood
+inputs that live under the gitignored `reference/` tree — the corpus for `dogwood_differential.py`
+and the built binary for `dogwood_replay.py`. Those two skip on CI and run locally, so seven of the
+nine are pinned on both.
 
 ```bash
 python tests/strands/shared_budget.py

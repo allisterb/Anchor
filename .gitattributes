@@ -5,6 +5,21 @@
 # names a file that plainly exists. Committing from Windows with core.autocrlf=true is enough to
 # introduce it, so it is pinned here rather than left to each clone's config.
 #
-# The executable bit is tracked separately, in the index rather than here:
+# The executable bit is tracked separately, in the index rather than here. A .gitattributes rule
+# cannot set it, so every new script needs this once, from a Windows clone as much as anywhere:
+#
 #   git update-index --chmod=+x <script>
+#
+# Forgetting it fails only on Linux, and only when something tries to EXECUTE the file rather than
+# read it -- so it survives every local test on Windows and surfaces as
+# "./requirements/strands/install.sh: Permission denied" in CI. That is how it was found.
+#
+# Scripts that must carry the bit, checkable with `git ls-files -s '*.sh'` (want 100755, not 100644):
+#
+#   build.sh                          the build entry point
+#   requirements/strands/install.sh   invoked by .github/workflows/build.yml
+#
+# CI invokes install.sh as ./requirements/strands/install.sh rather than `bash <path>` deliberately:
+# `bash <path>` would work with or without the bit, which means a lost bit would go unnoticed until
+# somebody tried to run it by hand. This way CI is what catches it.
 *.sh text eol=lf

@@ -1,3 +1,13 @@
 [submodule "ext/dogwood"]
 	path = ext/dogwood
 	url = https://github.com/dogwood-policy/dogwood
+	# Pinned at c6237c88, which was verified byte-for-byte against the snapshot the ledger's
+	# codepoint scan and `cargo audit` were run on: all 35652 tracked files identical, the only
+	# difference being the Cargo.lock we generate ourselves. See reference/README.md.
+	#
+	# `ignore = untracked` because we deliberately put two things in this working tree that
+	# upstream does not have: requirements/dogwood/Cargo.lock, copied to the root so `--locked`
+	# has something to lock against, and target/ from the build. Both are untracked here, so this
+	# keeps them out of the parent's `git status` — while an edit to a file Dogwood DOES track
+	# still shows up, which is the half worth keeping.
+	ignore = untracked

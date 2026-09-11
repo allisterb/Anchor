@@ -454,7 +454,7 @@ non-deterministic and network-dependent, which is exactly what this spec assumes
 arrive by accident, only via `--features net` or `--all-features`.
 
 ```
-cargo build --release --locked --manifest-path reference/projects/dogwood-main/Cargo.toml
+cargo build --release --locked --manifest-path ext/dogwood/Cargo.toml
 ```
 
 

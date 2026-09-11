@@ -20,7 +20,7 @@ one word -- `response`, `request`, `error` -- which is the point being made.
 
 REQUIRES THE BUILT BINARY, which is not in the repo. Build it with:
 
-    cargo build --release --locked --manifest-path reference/projects/dogwood-main/Cargo.toml
+    cargo build --release --locked --manifest-path ext/dogwood/Cargo.toml
 
 and re-check that the `net` feature stayed out of it — see reference/README.md. Without the binary
 this harness skips rather than pretending to pass.
@@ -48,7 +48,7 @@ POLICIES = REPO / "tests" / "policies"
 SCHEMA = POLICIES / "anchor.cedarschema"
 # `.exe` only on Windows. Hard-coding it would make this harness skip on a Linux runner even
 # once the binary is built there, and a silent skip is worse than a loud failure.
-DOGWOOD = (REPO / "reference" / "projects" / "dogwood-main" / "target" / "release"
+DOGWOOD = (REPO / "ext" / "dogwood" / "target" / "release"
            / ("dogwood.exe" if sys.platform == "win32" else "dogwood"))
 
 from dogwood_differential import case_record, check, generate_module, parse_trace  # noqa: E402
@@ -153,7 +153,7 @@ def main() -> int:
         print(f"SKIPPED: no dogwood binary at {DOGWOOD.relative_to(REPO)}\n"
               "Build it with:\n"
               "  cargo build --release --locked "
-              "--manifest-path reference/projects/dogwood-main/Cargo.toml", file=sys.stderr)
+              "--manifest-path ext/dogwood/Cargo.toml", file=sys.stderr)
         return 2
 
     print(f"{len(SCENARIOS)} scenarios, none of which the recorded corpus covers\n")

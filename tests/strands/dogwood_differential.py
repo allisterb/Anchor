@@ -57,7 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
-CORPUS = (REPO / "reference" / "projects" / "dogwood-main" / "dogwood-language"
+CORPUS = (REPO / "ext" / "dogwood" / "dogwood-language"
           / "tests" / "passing" / "temporal_only" / "corpus")
 
 from _toolchain import find_jar  # noqa: E402
