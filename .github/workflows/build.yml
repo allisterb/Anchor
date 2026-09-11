@@ -115,13 +115,17 @@ jobs:
             ext/dogwood/target
           key: dogwood-${{ runner.os }}-${{ hashFiles('requirements/dogwood/Cargo.lock') }}-${{ hashFiles('.gitmodules') }}
 
-      # continue-on-error deliberately, and provisionally. A Rust toolchain problem on the runner
-      # should not turn an unrelated PR red for the sake of one test -- the harness skips when the
-      # binary is absent, and the failed step still shows as an annotation. Tighten this if it
-      # proves reliable.
+      # NOT continue-on-error, deliberately. It was, briefly, on the reasoning that a runner
+      # toolchain problem should not redden an unrelated PR for one test. That is the wrong trade
+      # here: `RequiresExecutable` skips the replay harness when the binary is absent, so a failed
+      # build would produce "48 passed, 1 skipped" and a GREEN run -- visually identical to the
+      # Windows leg, with only an annotation to say the live-engine check had quietly stopped
+      # happening. That check is what backs the `error`-event finding in specs/policy/TemporalPolicy.
+      #
+      # The graceful skip exists for a tree that was never built, not for a build that broke. Same
+      # rule as vacuity.py's: never let a failure read as an absence of data.
       - name: Build the Dogwood CLI (Linux)
         if: runner.os == 'Linux'
-        continue-on-error: true
         shell: bash
         run: |
           set -x
