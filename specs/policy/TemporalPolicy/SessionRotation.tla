@@ -33,7 +33,7 @@
 (* NEITHER THE DECISION NOR THE POLICY IS WRITTEN HERE.                    *)
 (*                                                                         *)
 (* The decision comes from DogwoodSemantics, whose reading of `formerly`,  *)
-(* `sum` and `tp` agrees with the reference implementation on 654 recorded *)
+(* `sum` and `tp` agrees with the reference implementation on 700 recorded *)
 (* cases. The policy comes from rotation_aggregate.dw and                  *)
 (* rotation_approval.dw -- real Dogwood text, translated by the same       *)
 (* parser, into RotationPolicies.tla.                                      *)

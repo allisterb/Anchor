@@ -226,17 +226,29 @@ def tla_pred(pd: dict) -> str:
 DUMMY_PRED = '[action |-> "", kind |-> "", binds |-> <<>>]'
 
 
+# Every atom carries every field, unused ones filled in. One record shape rather than a union:
+# TLC treats a missing field as a runtime error, so uniformity is cheaper than the alternative.
+NO_CMP = 'field |-> "", cmp |-> "", value |-> [k |-> "s", v |-> ""]'
+
+
 def tla_atom(a: dict) -> str:
-    """Atoms are uniform — every node carries pred, var and args."""
+    """Atoms are uniform — every node carries pred, var, args and the comparison fields."""
     if a["op"] == "pred":
-        return f'[op |-> "pred", pred |-> {tla_pred(a["pred"])}, var |-> "", args |-> <<>>]'
+        return (f'[op |-> "pred", pred |-> {tla_pred(a["pred"])}, var |-> "", args |-> <<>>, '
+                f'{NO_CMP}]')
     if a["op"] == "tp":
-        return f'[op |-> "tp", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>]'
+        return (f'[op |-> "tp", pred |-> {DUMMY_PRED}, var |-> "{a["var"]}", args |-> <<>>, '
+                f'{NO_CMP}]')
+    if a["op"] == "cmp":
+        return (f'[op |-> "cmp", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, '
+                f'field |-> "{a["field"]}", cmp |-> "{a["cmp"]}", '
+                f'value |-> {tla_scalar(a["value"])}]')
     args = ", ".join(tla_atom(x) for x in a["args"])
-    return f'[op |-> "and", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<{args}>>]'
+    return (f'[op |-> "and", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<{args}>>, '
+            f'{NO_CMP}]')
 
 
-DUMMY_ATOM = f'[op |-> "pred", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>]'
+DUMMY_ATOM = f'[op |-> "pred", pred |-> {DUMMY_PRED}, var |-> "", args |-> <<>>, {NO_CMP}]'
 DUMMY_TERM = (f'[op |-> "formerly", window |-> 0, atom |-> {DUMMY_ATOM}, '
               f'left |-> {DUMMY_ATOM}, leftNeg |-> FALSE]')
 
@@ -298,7 +310,7 @@ def generate_module(cases: list[str]) -> str:
 \\* Policies and traces translated from the Dogwood temporal corpus; each `oracle` is
 \\* that case's recorded expected output, i.e. what the reference engine returned.
 ------------------------- MODULE DogwoodCases -------------------------
-EXTENDS Naturals, Sequences, TLC
+EXTENDS Integers, Sequences, TLC
 
 \\* The empty attribute record. An event with no `input:` carries no fields at all,
 \\* which is different from carrying fields that are empty.

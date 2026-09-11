@@ -174,7 +174,7 @@ stance every other spec here takes.
   What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
   anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **654 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **700 recorded pairs** — see below. What is
   still unchecked is most of what this spec adds on top: the session model and `Granted`. The
   request/response/error recording convention is the exception — the replay harness puts that one
   in front of the engine directly.
@@ -202,7 +202,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   654 (trace, expected) pairs from 320 cases, in one TLC run
+checked   700 (trace, expected) pairs from 344 cases, in one TLC run
   AGREE
 ```
 
@@ -247,10 +247,33 @@ Nothing is built or run for *this* harness — the expected outputs are recorded
 data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
 Either way no network is touched and no credentials exist.
 
-**The refusal count matters as much as the agreement count.** 201 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 177 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
-construct yields a disagreement it cannot attribute. What remains is mostly macro calls and
-parameter sigils, schema pins, and a handful of `Long` values outside TLC's integer range.
+construct yields a disagreement it cannot attribute.
+
+The subset was widened on 2026-09-11, from 654 pairs / 320 cases to **700 pairs / 344 cases**, by
+adding two constructs:
+
+| construct | example | cases |
+|---|---|---|
+| a parenthesised left operand of `since` | `!(Login::response{..}) since within 1h Sync::request{..}` | 13 |
+| a comparison on the request's own context | `formerly within 1h (Login::request{..} && context.input.amount > 100)` | 24 |
+
+The first needed **no semantics at all** — `DogwoodSemantics` already carried `left`/`leftNeg`; the
+parser had simply committed to reading `!(` as a negated group before anything looked for the
+`since` after it. The second is a genuine addition: a `cmp` atom that reads the **decision** event
+rather than the candidate one, so it evaluates identically at every candidate index and filters the
+request rather than the history.
+
+Both were chosen because their cases *discriminate*: 13 of 13 and 22 of 24 have a `true` somewhere
+in their expected output. A case whose every verdict is false is nearly worthless as evidence,
+since a reading that never matches anything passes it too — several otherwise-tempting buckets were
+skipped for exactly that reason.
+
+What still stands refused: macro calls and parameter sigils, the 30 schema-pin cases, aggregate
+bodies with no temporal wrapper (36 — they mean "this timepoint only", a real semantic addition),
+`since` nested inside an aggregate body, comparisons against something other than a literal, and
+ten `Long` values outside TLC's integer range, which no amount of modelling will fix.
 
 **`SessionRotation` checks a real Dogwood policy, end to end.** Neither the decision nor the
 policy is written in that spec any more:
@@ -263,7 +286,7 @@ rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 654 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 700 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -319,7 +342,7 @@ any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 654
+- The **policies** come from the parser that agrees with the reference implementation on 700
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.

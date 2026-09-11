@@ -104,11 +104,41 @@ Matches(pred, ev, dec, asg) ==
 (* which candidate is under consideration, which is why this is a separate *)
 (* evaluation indexed by `i` rather than part of CondHolds.                *)
 (***************************************************************************)
+(***************************************************************************)
+(* A comparison on the DECISION event's own context, e.g.                  *)
+(*                                                                         *)
+(*     formerly within 1h (Login::request{..} && context.input.amount > 100) *)
+(*                                                                         *)
+(* Note what it does NOT read: the candidate event. `i` is not mentioned    *)
+(* below, so a comparison evaluates identically at every candidate index -- *)
+(* it filters the REQUEST, not the history, and sits inside the group only  *)
+(* because that is where the author wrote it.                              *)
+(*                                                                         *)
+(* Kind is compared before value, as everywhere else here, because TLC      *)
+(* refuses `=` across a string and an integer rather than returning FALSE.  *)
+(* A field the decision event does not carry makes the comparison FALSE.    *)
+(***************************************************************************)
+CmpHolds(a, dec) ==
+    /\ a.field \in DOMAIN dec.input
+    /\ LET v == dec.input[a.field] IN
+       /\ v.k = a.value.k
+       /\ CASE a.cmp = "==" -> v.v = a.value.v
+            [] a.cmp = "!=" -> v.v # a.value.v
+            \* Ordering is only defined on numbers. The parser refuses `<` and friends on a
+            \* non-numeric literal, so the guard here is belt and braces rather than a branch
+            \* the corpus reaches.
+            [] a.cmp = ">"  -> v.k = "n" /\ v.v > a.value.v
+            [] a.cmp = "<"  -> v.k = "n" /\ v.v < a.value.v
+            [] a.cmp = ">=" -> v.k = "n" /\ v.v >= a.value.v
+            [] a.cmp = "<=" -> v.k = "n" /\ v.v <= a.value.v
+            [] OTHER        -> FALSE
+
 RECURSIVE AtomHolds(_, _, _, _, _)
 AtomHolds(a, i, trace, dec, asg) ==
     CASE a.op = "pred" -> Matches(a.pred, trace[i], dec, asg)
       [] a.op = "tp"   -> /\ a.var \in DOMAIN asg
                           /\ SameVal(asg[a.var], TP(i))
+      [] a.op = "cmp"  -> CmpHolds(a, dec)
       [] OTHER         -> \A k \in DOMAIN a.args : AtomHolds(a.args[k], i, trace, dec, asg)
 
 (***************************************************************************)

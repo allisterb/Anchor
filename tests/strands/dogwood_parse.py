@@ -10,10 +10,12 @@ THE SUBSET, and everything outside it raises `Unsupported`:
     expr   := conj
     conj   := unary ("&&" unary)*
     unary  := "!" unary | "(" expr ")" | term
-    term   := "formerly" "within" DUR pred
-            | "previous" "within" DUR pred
-            | [ "!" ] pred "since" "within" DUR pred
+    term   := "formerly" "within" DUR atom
+            | "previous" "within" DUR atom
+            | [ "!" ] ( pred | "(" pred ")" ) "since" "within" DUR atom
+    atom   := pred | "tp" "(" IDENT ")" | cmp | "(" atom ("&&" atom)* ")"
     pred   := NS "::Action::" STR "::" IDENT "{" binds "}"
+    cmp    := "context.input." IDENT OP LITERAL
     bind   := ("input"|"output") "." IDENT ":" rhs
             | ("callerPrincipal"|"callerResource") ":" ("principal"|"resource")
     rhs    := "context.input." IDENT | "true" | "false" | STR | "_"
@@ -26,8 +28,17 @@ which says nothing more than `count(...) >= 3`. That exact shape is recognised; 
 `exists` is REFUSED rather than approximated, because general existential quantification over a
 value domain is a different thing and pretending otherwise is guessing.
 
-Still refused: macros (`call`), parameter sigils (`?p`, `$t`), and comparisons that are not the
-aggregation idiom.
+`cmp` reads the DECISION event, not the candidate one, so it evaluates the same at every
+candidate index -- it filters the request rather than the history, and appears inside a group only
+because that is where an author writes it. Only a literal right-hand side is accepted; the corpus
+also contains `context.input.amount > context.input.limit`, an enum entity
+(`Drupe::Grant_Input_role::"o'admin"`) and a comparison to a bound variable, and those are three
+further features rather than three spellings of this one.
+
+Still refused: macros (`call`), parameter sigils (`?p`, `$t`), aggregate bodies with no temporal
+wrapper (which mean "this timepoint only"), `since` nested inside an aggregate body, event schemas
+that `pin` a field into every predicate, and comparisons that are neither the aggregation idiom nor
+the `cmp` above.
 """
 
 from __future__ import annotations
@@ -172,13 +183,29 @@ class Parser:
             # term, so a bare predicate after `!` has to be looked past before deciding.
             save = self.i
             self.take()
-            if self.peek() == "(":
+            # `!(A) since ...` is the same thing with the operand parenthesised, and it reads
+            # identically up to the closing paren. Look past it before committing: if a `since`
+            # follows, this is a negated since-left, not a negation of a group.
+            if self.peek() == "(" and self.after_group() != "since":
                 return {"op": "not", "args": [self.group()]}
             self.i = save
             return self.term()
         if self.peek() == "(":
             return self.group()
         return self.term()
+
+    def after_group(self) -> str | None:
+        """The token following the `(`...`)` starting at the cursor, without consuming anything."""
+        depth, j = 0, self.i
+        while j < len(self.t):
+            if self.t[j] == "(":
+                depth += 1
+            elif self.t[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    return self.t[j + 1] if j + 1 < len(self.t) else None
+            j += 1
+        raise Unsupported("unbalanced parentheses")
 
     def group(self) -> dict:
         self.expect("(")
@@ -198,9 +225,15 @@ class Parser:
                     "term": {"op": head, "window": window, "atom": at,
                              "left": at, "leftNeg": False}}
 
-        # Otherwise the only remaining form is an infix `since`.
+        # Otherwise the only remaining form is an infix `since`. Its left operand may be
+        # parenthesised -- `!(A) since ...` -- which changes nothing about its meaning.
         neg = self.accept("!")
-        left = self.pred()
+        if self.peek() == "(":
+            self.take()
+            left = self.pred()
+            self.expect(")")
+        else:
+            left = self.pred()
         if self.peek() != "since":
             raise Unsupported(f"bare predicate with no temporal operator (next: {self.peek()!r})")
         self.take()
@@ -232,7 +265,45 @@ class Parser:
             self.expect(")")
             return {"op": "tp", "var": var}
 
+        if self.peek() == "context":
+            return self.comparison()
+
         return {"op": "pred", "pred": self.pred()}
+
+    def comparison(self) -> dict:
+        """`context.input.FIELD OP <literal>` -- a filter on the request, not on the history.
+
+        It reads the decision event, so its value is the same at every candidate index. Only a
+        literal right-hand side is accepted; see the module header for what is refused and why.
+        """
+        self.expect("context")
+        self.expect(".")
+        self.expect("input")
+        self.expect(".")
+        field = self.take()
+
+        op = self.take()
+        if op not in ("==", "!=", ">=", "<=", ">", "<"):
+            raise Unsupported(f"comparison operator {op!r}")
+
+        neg = self.accept("-")
+        tok = self.take()
+        if tok.startswith('"'):
+            value = tok[1:-1]
+        elif tok in ("true", "false"):
+            value = tok == "true"
+        elif re.fullmatch(r"\d+", tok):
+            value = -int(tok) if neg else int(tok)
+        else:
+            # `context.input.limit`, an enum entity, or a binder variable. Each is its own
+            # feature and none is guessed at.
+            raise Unsupported(f"comparison right-hand side {tok!r} is not a literal")
+
+        if not isinstance(value, int) or isinstance(value, bool):
+            if op not in ("==", "!="):
+                raise Unsupported(f"operator {op!r} on a non-numeric value")
+
+        return {"op": "cmp", "field": field, "cmp": op, "value": value}
 
     def duration(self, tok: str) -> int:
         m = re.fullmatch(r"(\d+)([smhd])", tok)
