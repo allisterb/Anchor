@@ -26,13 +26,19 @@ no network call, no credentials, and no AWS.
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
-| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 911 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
+| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 914 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
 | `vacuity.py` | **the tool**, answering three questions about a `.dw` file. Can each permit ever grant (**VACUOUS**)? Is each rule load-bearing, or can it be deleted (**REDUNDANT** / **DEAD**)? And with `--against other.dw`, is there a session the two versions decide differently? Each answer is a witness session or a bounded no. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
-| `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |
-| `dogwood_schema.py` | reads an `event.dwschema` for the one thing in it that changes what a policy **means**: a `pin`, which forces a field of every event to equal something about the decision. A policy cannot see or bypass it. |
-| `_toolchain.py` | finds the TLA+ tools jar by glob, so its version lives only in `build.sh` next to the sha256 that checks it. |
-| `dw_to_tla.py` | translates a `.dw` policy file into the TLA+ data a spec checks, so a policy is model-checked as written rather than as paraphrased. `--check` fails if the generated module has drifted. |
+
+## The parser is not here any more
+
+`dogwood_parse.py`, `dogwood_schema.py`, `_toolchain.py` and `dw_to_tla.py` moved to
+[`src/translator/`](../../src/translator), along with every TLA+ emitter — which used to live
+*inside* `dogwood_differential.py`, so the translator that generates a checked-in spec imported
+from a test harness. That README records what the missing layer had already cost.
+
+What is left here is the part that does the *testing*: building a case, running the corpus, and
+asserting the finding. Those import `translator`; nothing in `translator` imports from here.
 
 ## Translating a workflow, rather than paraphrasing one
 

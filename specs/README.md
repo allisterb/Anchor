@@ -107,7 +107,7 @@ directions, and neither is a refinement of the other.
 | `RequestGated_SurvivesForbid.cfg` | same forbid, gate on `::request`. Satisfiable, **and that is the bad news**. |
 | `SessionRotation.tla` | a caller who controls the session id. Rotation defeats an aggregate cap and cannot touch an approval gate — the two shapes fail in opposite directions. |
 | `rotation_aggregate.dw`, `rotation_approval.dw` | the policies, as **real Dogwood text**. |
-| `RotationPolicies.tla` | generated from those by `tests/strands/dw_to_tla.py`, using the parser validated against Dogwood's corpus. The suite fails if it drifts from the `.dw` sources. |
+| `RotationPolicies.tla` | generated from those by `src/translator/dw_to_tla.py`, using the parser validated against Dogwood's corpus. The suite fails if it drifts from the `.dw` sources. |
 | `SessionRotation.cfg` | aggregate cap, rotation allowed. **Cap violated** in three steps. |
 | `NoRotation_CapHolds.cfg` | the control: same policy, rotation disabled. Cap holds — which also proves the aggregate is live. |
 | `Rotation_ApprovalGateHolds.cfg` | approval gate, rotation allowed. Gate holds. |

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 
-from dogwood_parse import Unsupported
+from .parse import Unsupported
 
 # `pin <field>: <type> = <source>` at the top level of an event block.
 PIN = re.compile(r"^\s*pin\s+([A-Za-z_]\w*)\s*:\s*[^=]+=\s*([A-Za-z_][\w.]*)\s*,?\s*$", re.M)

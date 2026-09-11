@@ -598,14 +598,14 @@ bodies written without parentheses, comparisons against something other than a l
 policy is written in that spec any more:
 
 ```
-rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
+rotation_*.dw ──> translator  ──> RotationPolicies.tla ──┐
                                                            ├──> TLC checks the properties
                              SessionRotation.tla ──────────┘
 ```
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 911 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 914 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -623,7 +623,7 @@ adversary.
 | `forbid` becomes `permit` | 3 | VIOLATED | **VIOLATED** |
 
 `RotationPolicies.tla` is generated and checked in — which is what lets the spec tests run in CI
-without a venv — so `dw_to_tla.py --check` regenerates and compares, and the suite fails on drift.
+without a venv — so `src/translator/dw_to_tla.py --check` regenerates and compares, and the suite fails on drift.
 
 ### What it caught on the first run
 
@@ -746,12 +746,12 @@ For a long time this directory model-checked *one* policy, hand-written into `Po
 removes both hand-written halves:
 
 ```
-any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
+any .dw ──> translator  ──> PolicyUnderTest.tla ──┐
                                                     ├──> TLC, once per permit
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 911
+- The **policies** come from the parser that agrees with the reference implementation on 914
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.
@@ -892,7 +892,7 @@ against, and a `NeverMatters` violation is the witness session.
 the full one and the full one minus a rule — so a diff is the same question with the second set
 coming from a different file. A `PolicyDiff.tla` would have duplicated the session model, and two
 copies of a model drift: a fix to the outcome-kind convention in one would leave the other quietly
-checking something else. This directory carries `dw_to_tla.py --check` for exactly that reason.
+checking something else. This directory carries `src/translator/dw_to_tla.py --check` for exactly that reason.
 
 ### "No difference" is the answer that must never be wrong
 
@@ -942,7 +942,7 @@ uses.
 
 ```
 approval_gate_*.dw ─┬─ dogwood replay ─────────────────────────> verdicts (the oracle)
-                    └─ dogwood_parse ──> TLA+ ──> TLC ─────────> our verdicts
+                    └─ translator  ──> TLA+ ──> TLC ─────────> our verdicts
 ```
 
 Both sides read the same policy file, so a disagreement is ours. The three gates are checked in and

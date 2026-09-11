@@ -29,16 +29,16 @@ A bare ``pip install cedarpy`` would bypass hash checking; recompile the lock in
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "cedar"
 
-from _toolchain import find_jar  # noqa: E402
+sys.path.insert(0, str(REPO / "src"))
+
+from translator import run_tlc  # noqa: E402
 
 # The finite domain the two sides are compared over. Small enough to enumerate exhaustively,
 # wide enough that the interesting boundaries (the call_count < 3 threshold, the forbid that
@@ -242,20 +242,9 @@ def check(module_text: str) -> tuple[bool, str]:
     (SPECS / "CedarDifferential.tla").write_text(module_text, encoding="utf-8")
     (SPECS / "CedarDifferential.cfg").write_text(CONFIG, encoding="utf-8")
 
-    # A temp directory for TLC's own two scratch needs. Without `-Djava.io.tmpdir` parallel runs
-    # share one, and TLC unpacks the standard modules into it: one run reads a half-written
-    # `Naturals.tla` and SANY blames whichever unrelated spec lost the race, about one run in
-    # four. `TLCProcess.cs` carries the same fix. `-metadir` is the other half -- without it the
-    # state directory lands in the checked-in specs tree.
-    with tempfile.TemporaryDirectory(prefix="anchor-cedar-") as tmp:
-        proc = subprocess.run(
-            ["java", f"-Djava.io.tmpdir={tmp}",
-             "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
-             "-metadir", str(Path(tmp) / "states"),
-             "-config", "CedarDifferential.cfg", "CedarDifferential.tla"],
-            cwd=SPECS, capture_output=True, text=True,
-        )
-    return proc.returncode == 0, proc.stdout + proc.stderr
+    # This one runs in the checked-in specs tree, so `run_tlc`'s scratch directory is doing
+    # double duty: java's temp dir AND TLC's metadir, which would otherwise be written here.
+    return run_tlc("CedarDifferential", SPECS)
 
 
 def main() -> int:

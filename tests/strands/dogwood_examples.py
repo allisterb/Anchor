@@ -37,10 +37,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO / "ext" / "dogwood" / "dogwood-docs" / "examples"
 
-from dogwood_differential import (case_record, check, generate_module,  # noqa: E402
-                                  parse_trace)
-from dogwood_parse import Unsupported, parse_policies  # noqa: E402
-from dogwood_schema import apply_pins, parse_schema  # noqa: E402
+sys.path.insert(0, str(REPO / "src"))
+
+from dogwood_differential import case_record, check, generate_module  # noqa: E402
+from translator import (Unsupported, apply_pins, parse_policies, parse_schema, parse_trace)  # noqa: E402
 
 # `@100 (time point 1): ALLOW  [rules: 0, 2]` -- rules appear only on an ALLOW.
 VERDICT = re.compile(r"@(\d+) \(time point \d+\):\s*(ALLOW|DENY)(?:\s*\[rules:\s*([\d,\s]*)\])?")

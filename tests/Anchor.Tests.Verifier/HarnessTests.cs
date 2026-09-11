@@ -394,7 +394,7 @@ public class HarnessTests : TestsRuntime
     /// Same mechanism as the load-bearing check — compare two policy sets at every decision
     /// across every session — differing only in where the second set comes from. That is why
     /// there is no separate spec: a duplicated session model would drift, and this repo already
-    /// carries <c>dw_to_tla.py --check</c> because copies drift.
+    /// carries <c>src/translator/dw_to_tla.py --check</c> because copies drift.
     /// </para>
     /// <para>
     /// <b>"No difference" is the answer that must never be wrong</b>, because it tells someone
@@ -540,7 +540,7 @@ public class HarnessTests : TestsRuntime
     [PythonHarness("dw_to_tla.py")]
     public async Task GeneratedRotationPoliciesAreUpToDate()
     {
-        var run = await PythonHarness.RunAsync("tests/strands/dw_to_tla.py", "--check");
+        var run = await PythonHarness.RunAsync("src/translator/dw_to_tla.py", "--check");
         Assert.True(run.ExitCode == 0, run.Output);
         Assert.Contains("up to date", run.Output);
     }

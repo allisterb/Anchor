@@ -13,7 +13,7 @@ The built `dogwood` binary closes it. Unlike the corpus it is a live oracle: it 
 we hand it, including ones with event kinds the corpus never uses.
 
     approval_gate_*.dw ──┬── dogwood replay ──────────────────────> verdicts (the oracle)
-                         └── dogwood_parse ──> TLA+ data ──> TLC ──> our verdicts
+                         └── translator  ──> TLA+ data ──> TLC ──> our verdicts
 
 Both sides read the same policy file, so a disagreement is ours. The three gates differ by exactly
 one word -- `response`, `request`, `error` -- which is the point being made.
@@ -51,8 +51,10 @@ SCHEMA = POLICIES / "anchor.cedarschema"
 DOGWOOD = (REPO / "ext" / "dogwood" / "target" / "release"
            / ("dogwood.exe" if sys.platform == "win32" else "dogwood"))
 
-from dogwood_differential import case_record, check, generate_module, parse_trace  # noqa: E402
-from dogwood_parse import Unsupported, parse_policies  # noqa: E402
+sys.path.insert(0, str(REPO / "src"))
+
+from dogwood_differential import case_record, check, generate_module  # noqa: E402
+from translator import Unsupported, parse_policies, parse_trace  # noqa: E402
 
 SCOPE = 'scope(principal: Anchor::OAuthUser::"alice", resource: Anchor::Gateway::"gw1")'
 CALLER = 'callerPrincipal: Anchor::OAuthUser::"alice", callerResource: Anchor::Gateway::"gw1"'

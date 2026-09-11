@@ -39,7 +39,6 @@ either, and they belong in tier 2 as nondeterministic edges.
 from __future__ import annotations
 
 import itertools
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -47,7 +46,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "strands" / "DependencyDAG"
 
-from _toolchain import find_jar  # noqa: E402
+sys.path.insert(0, str(REPO / "src"))
+
+from translator import run_tlc  # noqa: E402
 
 sys.path.insert(0, str(SPECS))
 
@@ -151,18 +152,7 @@ def check(module_text: str) -> tuple[bool, str]:
         (work / "ConditionDifferential.tla").write_text(module_text, encoding="utf-8")
         (work / "ConditionDifferential.cfg").write_text(CONFIG, encoding="utf-8")
 
-        proc = subprocess.run(
-            # Its own java temp dir. TLC unpacks the standard modules there, and parallel
-            # runs sharing one leave a half-written `Naturals.tla` behind, which SANY reports as
-            # a failure in whichever unrelated spec lost the race -- about one run in four. Same
-            # fix, and same reason, as `TLCProcess.cs`.
-            ["java", f"-Djava.io.tmpdir={work}",
-             "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
-             "-metadir", str(work / "states"),
-             "-config", "ConditionDifferential.cfg", "ConditionDifferential.tla"],
-            cwd=work, capture_output=True, text=True,
-        )
-        return proc.returncode == 0, proc.stdout + proc.stderr
+        return run_tlc("ConditionDifferential", work, work)
 
 
 def compare(label: str, condition, expect_agree: bool = True) -> bool:

@@ -8,12 +8,12 @@ authorizes nothing. AWS's own material says the automated-reasoning tools Cedar 
 answer this for the temporal part of the language.
 
 WHAT MAKES THIS MORE THAN A DEMO. Nobody hand-writes a model of the policy. The `.dw` text goes
-through `dogwood_parse` -- the parser whose reading agrees with the reference implementation on 911
+through `translator` -- the parser whose reading agrees with the reference implementation on 914
 recorded corpus pairs -- into a generated `PolicyUnderTest.tla`, and `Vacuity.tla` evaluates it with
 `DogwoodSemantics!Decide`, the same evaluator validated against those pairs and against the live
 engine on the `error`-event scenarios.
 
-    any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
+    any .dw ──> translator  ──> PolicyUnderTest.tla ──┐
                                                         ├──> TLC, once per permit
                               Vacuity.tla ──────────────┘
 
@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -41,10 +40,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPO = Path(__file__).resolve().parents[2]
 SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
-from _toolchain import find_jar  # noqa: E402
-from dogwood_differential import tla_cond  # noqa: E402
-from dogwood_parse import (Unsupported, like_matches,  # noqa: E402
-                           parse_policies, pattern_witnesses)
+sys.path.insert(0, str(REPO / "src"))
+
+from translator import (Unsupported, like_matches, parse_policies, pattern_witnesses,  # noqa: E402
+                        policy_seq, run_tlc)
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
 # and the outcome is `response` when the action completed, `error` when it was denied.
@@ -241,12 +240,6 @@ def tla_all_values(vocab: dict) -> str:
     return "{" + ", ".join(out) + "}" if out else "{}"
 
 
-def policy_seq(policies: list[dict]) -> str:
-    return ",\n".join(
-        f'    [effect |-> "{p["effect"]}", action |-> "{p["action"]}", cond |-> {tla_cond(p["cond"])}]'
-        for p in policies)
-
-
 def generate(source: Path, policies: list[dict], vocab: dict,
              other: list[dict] | None = None, other_name: str = "") -> str:
     body = policy_seq(policies)
@@ -324,20 +317,11 @@ def check_one(work: Path, target: int, attempts: int, amount: int,
         CONFIG.format(attempts=attempts, amount=amount, target=target, invariant=invariant),
         encoding="utf-8")
 
-    proc = subprocess.run(
-        # Its own java temp dir. TLC unpacks the standard modules there, and parallel runs
-        # sharing one leave a half-written `Naturals.tla` behind, which SANY reports as a failure
-        # in whichever unrelated spec lost the race -- about one run in four. Same fix, and same
-        # reason, as `TLCProcess.cs`.
-        ["java", f"-Djava.io.tmpdir={work}",
-         "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
-         "-metadir", str(work / "states"), "-config", "Vacuity.cfg", "Vacuity.tla"],
-        cwd=work, capture_output=True, text=True)
-    out = proc.stdout + proc.stderr
+    ok, out = run_tlc("Vacuity", work, work)
 
     if f"Invariant {invariant} is violated" in out:
         return True, out
-    if proc.returncode == 0 and "Model checking completed" in out:
+    if ok and "Model checking completed" in out:
         return False, out
 
     # Anything else -- a parse error, an unsupported construct reaching TLC, a TypeOK failure --
