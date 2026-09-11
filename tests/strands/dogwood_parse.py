@@ -390,6 +390,20 @@ class Parser:
                 raise Unsupported(f"scope bind value {rhs!r}")
             return {"side": "scope", "field": lhs, "kind": "scope", "name": rhs, "value": ""}
 
+        # The one nested reserved leaf the corpus writes directly. Deeper paths under
+        # `__drupe` are a separate feature and stay refused.
+        if lhs == "__drupe":
+            self.expect(".")
+            leaf = self.take()
+            if leaf != "session_id":
+                raise Unsupported(f"bind target __drupe.{leaf}")
+            self.expect(":")
+            tok = self.take()
+            if not tok.startswith('"'):
+                raise Unsupported(f"__drupe.session_id bound to {tok!r}, not a literal")
+            return {"side": "scope", "field": "__drupe.session_id", "kind": "lit",
+                    "name": "", "value": tok[1:-1]}
+
         if lhs not in ("input", "output"):
             raise Unsupported(f"bind target {lhs!r}")
         self.expect(".")

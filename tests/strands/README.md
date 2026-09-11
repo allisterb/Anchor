@@ -25,7 +25,7 @@ no network call, no credentials, and no AWS.
 | `graph_to_tla.py` | translates a live Strands `Graph` into the TLA+ that [`specs/strands/DependencyDAG/`](../../specs/strands/DependencyDAG) checks. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |
 | `condition_differential.py` | the edge-condition predicates in [`anchor_conditions.py`](../../specs/strands/DependencyDAG/anchor_conditions.py) against the Python callables they annotate. |
-| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 767 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
+| `dogwood_differential.py` | our TLA+ reading of Dogwood's temporal operators against that language's own regression corpus — 774 pairs, one TLC run. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_replay.py` | the same reading against the **built** engine, on five traces the corpus never recorded — it contains no `::error` event at all, and that kind is what the `specs/policy/TemporalPolicy` finding rests on. The policies are checked in as `tests/policies/approval_gate_*.dw`; the traces are generated here. Needs the compiled binary; skips without it. |
 | `vacuity.py` | **the tool**: point it at any `.dw` file and it model-checks every permit in it for vacuity, one TLC run each, reporting a witness session or a VACUOUS verdict. See [`specs/policy/TemporalPolicy/`](../../specs/policy/TemporalPolicy). |
 | `dogwood_parse.py` | the recursive-descent parser for the modelled Dogwood subset. Refuses anything outside it rather than guessing. |

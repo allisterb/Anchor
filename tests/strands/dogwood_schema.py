@@ -45,16 +45,25 @@ from dogwood_parse import Unsupported
 # `pin <field>: <type> = <source>` at the top level of an event block.
 PIN = re.compile(r"^\s*pin\s+([A-Za-z_]\w*)\s*:\s*[^=]+=\s*([A-Za-z_][\w.]*)\s*,?\s*$", re.M)
 
-# A nested block that contains a pin -- `__drupe: { pin session_id: ... }`. Detected only so it
-# can be refused by name rather than silently missed.
-NESTED_PIN = re.compile(r"([A-Za-z_]\w*)\s*:\s*\{[^}]*\bpin\b", re.S)
+# `__drupe: { pin session_id: String = context.__drupe.session_id }` -- a pin on a leaf inside a
+# reserved group. Captured as (group, leaf, source) and treated as the dotted path it names.
+NESTED_PIN = re.compile(
+    r"([A-Za-z_]\w*)\s*:\s*\{\s*pin\s+([A-Za-z_]\w*)\s*:\s*[^=]+=\s*([A-Za-z_][\w.]*)\s*\}", re.S)
 
 EVENT = re.compile(r"^\s*(decision\s+)?event\s+<A>::([A-Za-z_]\w*)\s*\{", re.M)
 
 CONVENTIONAL = {"request", "response", "error"}
 
-# The scope fields, and the key each one partitions on.
-SCOPE_PINS = {"callerPrincipal": "principal", "callerResource": "resource"}
+# The pinnable fields, and the key each one partitions on. `__drupe.session_id` is a leaf inside
+# a reserved group rather than a scope field, but it pins and partitions identically.
+SCOPE_PINS = {"callerPrincipal": "principal",
+              "callerResource": "resource",
+              "__drupe.session_id": "session"}
+
+# What each pin's right-hand side must name for the pin to be the correlation we model.
+PIN_SOURCE = {"callerPrincipal": "principal",
+              "callerResource": "resource",
+              "__drupe.session_id": "context.__drupe.session_id"}
 
 
 def _block(text: str, start: int) -> str:
@@ -77,15 +86,17 @@ def parse_schema(text: str) -> dict:
     """
     text = re.sub(r"//[^\n]*", "", text)
 
-    if NESTED_PIN.search(text):
-        name = NESTED_PIN.search(text).group(1)
-        raise Unsupported(f"schema pins a nested path ({name}.*), not a top-level field")
-
     kinds, pins = [], {}
     for m in EVENT.finditer(text):
         kind = m.group(2)
         kinds.append(kind)
-        pins[kind] = dict(PIN.findall(_block(text, m.end())))
+        block = _block(text, m.end())
+        declared = dict(PIN.findall(block))
+        # `__drupe: { pin session_id: String = context.__drupe.session_id }` -- a pin on a leaf
+        # inside a reserved group, which reads as the dotted path it names.
+        for group, leaf, source in NESTED_PIN.findall(block):
+            declared[f"{group}.{leaf}"] = source
+        pins[kind] = declared
 
     if not kinds:
         raise Unsupported("event schema declares no event kinds")
@@ -106,8 +117,8 @@ def parse_schema(text: str) -> dict:
 
     for kind, declared_here in pins.items():
         for field, source in declared_here.items():
-            if source != SCOPE_PINS[field]:
-                raise Unsupported(f"pin {field} = {source}, not the matching scope field")
+            if source != PIN_SOURCE[field]:
+                raise Unsupported(f"pin {field} = {source}, not the correlation we model")
 
     universal = [f for f in sorted(declared) if all(f in pins[k] for k in kinds)]
     partial = sorted(declared - set(universal))
@@ -122,7 +133,9 @@ def parse_schema(text: str) -> dict:
 
 
 def _bind(field: str) -> dict:
-    """The bind a pin injects -- the same record the parser builds for a written one."""
+    """The bind a PARTIAL pin injects -- the same record the parser builds for a written one."""
+    if field not in ("callerPrincipal", "callerResource"):
+        raise Unsupported(f"partial pin on {field}, which has no written form to inject")
     return {"side": "scope", "field": field, "kind": "scope",
             "name": SCOPE_PINS[field], "value": ""}
 

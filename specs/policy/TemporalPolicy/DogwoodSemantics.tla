@@ -78,9 +78,13 @@ TP(i) == [k |-> "t", v |-> i]
 BindHolds(b, ev, dec, asg) ==
     LET rec == CASE b.side = "input"  -> ev.input
                  [] b.side = "output" -> ev.output
-                 [] OTHER             -> [caller |-> ev.principal, callerRes |-> ev.resource]
-        fld == IF b.side \in {"input", "output"} THEN b.field
-               ELSE IF b.field = "callerPrincipal" THEN "caller" ELSE "callerRes"
+                 [] OTHER             -> [caller |-> ev.principal, callerRes |-> ev.resource,
+                                              sess |-> ev.session]
+        fld == CASE b.side \in {"input", "output"} -> b.field
+                 [] b.field = "callerPrincipal"    -> "caller"
+                 [] b.field = "callerResource"     -> "callerRes"
+                 \* `__drupe.session_id`, written by the author rather than injected.
+                 [] OTHER                          -> "sess"
     IN /\ fld \in DOMAIN rec
        /\ CASE b.kind = "any"   -> TRUE
             [] b.kind = "lit"   -> SameVal(rec[fld], b.value)
@@ -160,7 +164,12 @@ AtomHolds(a, i, trace, dec, asg) ==
 (* foreign event can be that most recent one and fail, where partitioned   *)
 (* it is skipped. Same policy, same trace, opposite verdicts.              *)
 (***************************************************************************)
-KeyOf(ev, k) == IF k = "principal" THEN ev.principal ELSE ev.resource
+KeyOf(ev, k) ==
+    CASE k = "principal" -> ev.principal
+      [] k = "resource"  -> ev.resource
+      \* `__drupe.session_id`, the one nested leaf a schema in this corpus pins. Partitioning
+      \* by it confines a policy to its own session without the policy mentioning sessions.
+      [] OTHER           -> ev.session
 
 TermHolds(term, trace, upto, dec, asg) ==
     LET t == dec.time

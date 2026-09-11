@@ -99,7 +99,7 @@ directions, and neither is a refinement of the other.
 | `TemporalPolicy/` | |
 |---|---|
 | `TemporalPolicy.tla` | the session model. Checks `NeverFires`, and **means it to fail** — a violation is the witness, silence means the permit is vacuous. |
-| `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, and the `count`/`sum` aggregations. Differential-tested against Dogwood's own corpus on 767 pairs. |
+| `DogwoodSemantics.tla` | our reading of Dogwood's temporal operators — `formerly`, `previous`, `since`, and the `count`/`sum` aggregations. Differential-tested against Dogwood's own corpus on 774 pairs. |
 | `Policies.tla` | the schema and policy set, swappable like `Workflow.tla`. |
 | `TemporalPolicy.cfg` | approvals permitted, gate on `::response`. Satisfiable. |
 | `Vacuous_ForbiddenApproval.cfg` | approvals forbidden. **Vacuous** — a permit killed by an unrelated rule. |

@@ -8,7 +8,7 @@ authorizes nothing. AWS's own material says the automated-reasoning tools Cedar 
 answer this for the temporal part of the language.
 
 WHAT MAKES THIS MORE THAN A DEMO. Nobody hand-writes a model of the policy. The `.dw` text goes
-through `dogwood_parse` -- the parser whose reading agrees with the reference implementation on 767
+through `dogwood_parse` -- the parser whose reading agrees with the reference implementation on 774
 recorded corpus pairs -- into a generated `PolicyUnderTest.tla`, and `Vacuity.tla` evaluates it with
 `DogwoodSemantics!Decide`, the same evaluator validated against those pairs and against the live
 engine on the `error`-event scenarios.

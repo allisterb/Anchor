@@ -171,6 +171,10 @@ def parse_trace(text: str) -> list[dict]:
             "output": section("output"),
             "principal": sc.group(1).strip() if sc else "",
             "resource": sc.group(2).strip() if sc else "",
+            # The reserved group a schema can pin a leaf of. Read from the event's OWN payload,
+            # like input and output -- for a decision event that is the same value its
+            # `request_context` carries, checked across every such event in the corpus.
+            "session": section("__drupe").get("session_id", ""),
             "decision": "request_context(" in line,
         })
     return events
@@ -309,6 +313,7 @@ def case_record(name: str, policies: list[dict], trace: list[dict],
         f'[time |-> {e["time"]}, action |-> "{e["action"]}", kind |-> "{e["kind"]}", '
         f'input |-> {tla_record(e["input"])}, output |-> {tla_record(e["output"])}, '
         f'principal |-> {tla_scalar(e["principal"])}, resource |-> {tla_scalar(e["resource"])}, '
+        f'session |-> {tla_scalar(e["session"])}, '
         f'isDecision |-> {tla_value(e["decision"])}]'
         for e in trace)
 

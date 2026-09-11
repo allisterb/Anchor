@@ -1,7 +1,7 @@
 """Differential test against the Dogwood engine itself, on traces we construct.
 
 `dogwood_differential.py` checks our semantics against the reference corpus. That validates a lot —
-767 pairs — but only over traces Amazon happened to record, and the corpus has a blind spot we care
+774 pairs — but only over traces Amazon happened to record, and the corpus has a blind spot we care
 about: across all 521 cases, `::error` appears in **zero** policies and **zero** traces.
 
 That matters because the `error` event kind is exactly what `specs/policy/TemporalPolicy`'s findings rest
