@@ -18,6 +18,14 @@ we hand it, including ones with event kinds the corpus never uses.
 Both sides read the same policy file, so a disagreement is ours. The three gates differ by exactly
 one word -- `response`, `request`, `error` -- which is the point being made.
 
+THE SECOND BLIND SPOT IS THE EVENT SCHEMA. A universal pin partitions the history a temporal
+predicate can see, and no policy can observe or bypass one -- so the same policy text means
+different things under different schemas. Dogwood ships four presets, and the corpus exercises the
+pin shape of only one of them: `pin callerPrincipal` appears in 16 cases and a nested `__drupe`
+leaf in 3, while `session-pinned.dwschema` -- one deployment flag from the default -- appears in
+zero. `session_gate.dw` is replayed under two of the shipped presets, unchanged, and means
+different things under each.
+
 REQUIRES THE BUILT BINARY, which is not in the repo. Build it with:
 
     cargo build --release --locked --manifest-path ext/dogwood/Cargo.toml
@@ -54,22 +62,32 @@ DOGWOOD = (REPO / "ext" / "dogwood" / "target" / "release"
 sys.path.insert(0, str(REPO / "src"))
 
 from dogwood_differential import case_record, check, generate_module  # noqa: E402
-from translator import Unsupported, parse_policies, parse_trace  # noqa: E402
+from translator import (Unsupported, apply_pins, parse_policies,  # noqa: E402
+                        parse_schema, parse_trace, stamp_keys)
+
+# The event-schema presets Dogwood SHIPS, read from the pinned submodule rather than copied here.
+# A copy would drift, and the point of these scenarios is agreement with what is actually shipped.
+EVENT_SCHEMAS = (REPO / "ext" / "dogwood" / "dogwood-language" / "configuration" / "event-schemas")
 
 SCOPE = 'scope(principal: Anchor::OAuthUser::"alice", resource: Anchor::Gateway::"gw1")'
 CALLER = 'callerPrincipal: Anchor::OAuthUser::"alice", callerResource: Anchor::Gateway::"gw1"'
 
 
-def approve(t: int, kind: str) -> str:
-    ctx = 'request_context(input: { approver: "alice" }) ' if kind == "request" else ""
+def approve(t: int, kind: str, session: str | None = None) -> str:
+    # `sessionId` rides on the payload AND on the decision's context, which is where a
+    # `pin sessionId = context.sessionId` reads its two sides from.
+    sid = f', sessionId: "{session}"' if session else ""
+    ctx = (f'request_context(input: {{ approver: "alice" }}{sid}) '
+           if kind == "request" else "")
     return (f'@{t} {SCOPE} {ctx}Anchor::Action::"Approve"::{kind}'
-            f'(input: {{ approver: "alice" }}, {CALLER}, requestId: "a{t}")')
+            f'(input: {{ approver: "alice" }}, {CALLER}, requestId: "a{t}"{sid})')
 
 
-def trade(t: int, amount: int = 1) -> str:
-    return (f'@{t} {SCOPE} request_context(input: {{ amount: {amount} }}) '
+def trade(t: int, amount: int = 1, session: str | None = None) -> str:
+    sid = f', sessionId: "{session}"' if session else ""
+    return (f'@{t} {SCOPE} request_context(input: {{ amount: {amount} }}{sid}) '
             f'Anchor::Action::"Trade"::request(input: {{ amount: {amount} }}, '
-            f'{CALLER}, requestId: "t{t}")')
+            f'{CALLER}, requestId: "t{t}"{sid})')
 
 
 # The policies are checked-in Dogwood text, not strings built here, so the artifact the finding
@@ -114,13 +132,40 @@ SCENARIOS = [
         "trace": DENIED,
         "why": "a policy can match error events directly, if it says so",
     },
+    # One policy, unchanged, under two shipped presets. The pin is the variable.
+    {
+        "name": "session gate, SAME session, session-pinned",
+        "policy": POLICIES / "session_gate.dw",
+        "trace": [approve(1, "request", "s1"), trade(3, session="s1")],
+        "schema": "session-pinned.dwschema",
+        "why": "the approval is in this session, so the pin admits it",
+    },
+    {
+        "name": "session gate, OTHER session, session-pinned",
+        "policy": POLICIES / "session_gate.dw",
+        "trace": [approve(1, "request", "s2"), trade(3, session="s1")],
+        "schema": "session-pinned.dwschema",
+        "why": "same principal, same approval, different session -- the pin hides it",
+    },
+    {
+        "name": "session gate, OTHER session, unpinned",
+        "policy": POLICIES / "session_gate.dw",
+        "trace": [approve(1, "request", "s2"), trade(3, session="s1")],
+        "schema": "unpinned.dwschema",
+        "why": "the control: without the pin the same trace permits, so the DENY above is the pin",
+    },
 ]
 
 
-def replay(policy_path: Path, trace_path: Path) -> dict[int, bool]:
-    """Ask the real engine. Returns {timestamp: allowed}."""
+def replay(policy_path: Path, trace_path: Path, schema: str | None = None) -> dict[int, bool]:
+    """Ask the real engine. Returns {timestamp: allowed}.
+
+    Without `--event-schema` the engine uses its built-in request/response/error shape, which is
+    what every scenario but the session ones wants.
+    """
+    args = ["--event-schema", str(EVENT_SCHEMAS / schema)] if schema else []
     proc = subprocess.run(
-        [str(DOGWOOD), "replay", "--policy-schema", str(SCHEMA),
+        [str(DOGWOOD), "replay", "--policy-schema", str(SCHEMA), *args,
          "--trace", str(trace_path), str(policy_path)],
         capture_output=True, text=True)
     if proc.returncode != 0:
@@ -137,10 +182,23 @@ def replay(policy_path: Path, trace_path: Path) -> dict[int, bool]:
     return out
 
 
-def model(policy_text: str, trace_lines: list[str], oracle: dict[int, bool]) -> tuple[bool, str]:
-    """Ask our TLA+ semantics the same question, with the engine's answers as the oracle."""
+def model(policy_text: str, trace_lines: list[str], oracle: dict[int, bool],
+          schema: str | None = None) -> tuple[bool, str]:
+    """Ask our TLA+ semantics the same question, with the engine's answers as the oracle.
+
+    Both halves of the schema matter and they are different things: `apply_pins` turns a PARTIAL
+    pin into an ordinary conjunct, while `stamp_keys` records a UNIVERSAL pin as a partition key on
+    every term. Omitting the second silently searches the whole trace -- which is exactly the bug
+    these scenarios were written after finding.
+    """
     policies = parse_policies(policy_text)
-    events = parse_trace("\n".join(trace_lines))
+    sch = ({"keys": [], "partial": {}} if schema is None
+           else parse_schema((EVENT_SCHEMAS / schema).read_text(encoding="utf-8")))
+    apply_pins(policies, sch)
+    if sch["keys"]:
+        stamp_keys(policies, sch["keys"])
+
+    events = parse_trace("\n".join(trace_lines), sch.get("paths"))
 
     times = [e["time"] for e in events]
     if len(times) != len(set(times)):
@@ -168,26 +226,30 @@ def main() -> int:
                 raise FileNotFoundError(s["policy"])
             trc.write_text("\n".join(s["trace"]) + "\n", encoding="utf-8")
 
-            oracle = replay(s["policy"], trc)
-            agreed, output = model(s["policy"].read_text(encoding="utf-8"), s["trace"], oracle)
+            oracle = replay(s["policy"], trc, s.get("schema"))
+            agreed, output = model(s["policy"].read_text(encoding="utf-8"), s["trace"], oracle,
+                                   s.get("schema"))
 
             verdicts = ", ".join(f"@{t}={'ALLOW' if v else 'DENY'}" for t, v in sorted(oracle.items()))
             mark = "" if agreed else "   ! MODEL DISAGREES"
             failures += not agreed
-            print(f"  {s['name']:36} {verdicts:<28}{mark}")
-            print(f"  {'':36} {s['why']}")
+            print(f"  {s['name']:43} {verdicts:<28}{mark}")
+            print(f"  {'':43} {s['why']}")
             if not agreed:
                 for line in output.splitlines():
                     if "DISAGREEMENT" in line:
-                        print(f"  {'':36} {line.strip()}")
+                        print(f"  {'':43} {line.strip()}")
             print()
 
     if failures:
         print(f"{failures} scenario(s) where our semantics and the engine disagree")
         return 1
 
-    print("our semantics agrees with the Dogwood engine on every scenario, including the\n"
-          "`error` event kind that appears nowhere in the reference corpus")
+    print("our semantics agrees with the Dogwood engine on every scenario -- both blind spots\n"
+          "the recorded corpus has: the `error` event kind, which appears in none of its 521\n"
+          "cases, and the shipped `session-pinned` event schema, whose pin shape appears in none\n"
+          "of them either. The last two scenarios are the same policy and the same trace under\n"
+          "two shipped presets, deciding differently.")
     return 0
 
 

@@ -257,6 +257,13 @@ public class HarnessTests : TestsRuntime
         // request-gate and not a response-gate.
         Assert.Contains("request-gate, approval DENIED", run.Output);
         Assert.Matches(@"response-gate, approval DENIED\s+@1=DENY, @3=DENY", run.Output);
+
+        // The second finding: one policy, one trace, two shipped event schemas, opposite verdicts.
+        // A universal pin partitions the history a temporal predicate can see, and the policy text
+        // says nothing about it — so asserting BOTH lines is the point. Either alone would pass
+        // for a model that ignored the schema entirely.
+        Assert.Matches(@"OTHER session, session-pinned\s+@1=DENY, @3=DENY", run.Output);
+        Assert.Matches(@"OTHER session, unpinned\s+@1=DENY, @3=ALLOW", run.Output);
         Assert.Matches(@"request-gate, approval DENIED\s+@1=DENY, @3=ALLOW", run.Output);
     }
 

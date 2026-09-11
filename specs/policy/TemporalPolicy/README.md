@@ -518,6 +518,29 @@ Then the recorded corpus confirmed it independently: **four unit-corpus cases** 
 refused for this now translate and agree, and their expected verdicts were produced by the engine
 long before any of this. The probe said what the reading was; the corpus said it was right.
 
+#### The shipped presets, which the corpus does not cover
+
+Dogwood ships four event schemas in `configuration/event-schemas/`, selected at deploy time. They
+are deployment postures, not fixtures, and each changes what every policy means. We accept three of
+the four with the right partition key; `custom-kinds` is refused for the feature it exists to show.
+
+The corpus exercises one pin *shape*: `pin callerPrincipal` (16 cases) and a nested `__drupe` leaf
+(3). The shipped `session-pinned` preset — `pin sessionId = context.sessionId`, one flag from the
+default — appears in **none** of the 521.
+
+So it was validated against the engine instead. `tests/policies/session_gate.dw` says only "permit
+a Trade if this principal was approved within the hour", and replayed unchanged:
+
+| | verdict |
+|---|---|
+| same session, `session-pinned` | ALLOW |
+| **other session, `session-pinned`** | **DENY** |
+| other session, `unpinned` | ALLOW |
+
+Same policy, same trace, opposite verdicts — decided by a deployment flag the policy cannot see.
+That is the schema-pin finding in the form a user will actually meet it, and all three are now
+standing scenarios in `dogwood_replay.py`.
+
 ### How `count` was decoded
 
 Corpus case 0254 is the Rosetta stone. Four identical transfers, and:

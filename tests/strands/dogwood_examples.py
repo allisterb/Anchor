@@ -40,7 +40,8 @@ EXAMPLES = REPO / "ext" / "dogwood" / "dogwood-docs" / "examples"
 sys.path.insert(0, str(REPO / "src"))
 
 from dogwood_differential import case_record, check, generate_module  # noqa: E402
-from translator import (Unsupported, apply_pins, parse_policies, parse_schema, parse_trace)  # noqa: E402
+from translator import (Unsupported, apply_pins, parse_policies,  # noqa: E402
+                        parse_schema, parse_trace, stamp_keys)
 
 # `@100 (time point 1): ALLOW  [rules: 0, 2]` -- rules appear only on an ALLOW.
 VERDICT = re.compile(r"@(\d+) \(time point \d+\):\s*(ALLOW|DENY)(?:\s*\[rules:\s*([\d,\s]*)\])?")
@@ -92,7 +93,13 @@ def load(case: Path) -> tuple[list[dict], list[dict], dict]:
     macros = case / "macros.dw"
     policies = parse_policies((case / "policy.dw").read_text(encoding="utf-8"),
                               macros.read_text(encoding="utf-8") if macros.exists() else "")
+    # Two different things, and only one of them was happening. A PARTIAL pin becomes an
+    # ordinary conjunct on the kinds that declare it; a UNIVERSAL one is a partition key that has
+    # to be stamped onto every term, or the model searches the whole trace and a policy meant to
+    # be confined to one principal or session silently is not.
     apply_pins(policies, schema)
+    if schema["keys"]:
+        stamp_keys(policies, schema["keys"])
 
     trace = parse_trace((case / "trace.log").read_text(encoding="utf-8"), schema.get("paths"))
     expected = parse_expected((case / "expected.out").read_text(encoding="utf-8"))

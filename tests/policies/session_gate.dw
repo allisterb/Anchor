@@ -1,0 +1,25 @@
+// A gate whose meaning depends on the EVENT SCHEMA, not on anything written here.
+//
+//     permit a Trade if this principal was approved within the hour
+//
+// Read the text and that is all it says. Replayed under the three shipped event-schema presets it
+// means three different things, because a universal pin partitions the history a temporal
+// predicate can see and no policy can observe or bypass one:
+//
+//   pinned.dwschema (DEFAULT)  the approval must be the same PRINCIPAL's
+//   session-pinned.dwschema    it must also be in the same SESSION -- a concurrent session of the
+//                              same user no longer counts
+//   unpinned.dwschema          any approval anywhere in the trace counts
+//
+// `dogwood_replay.py` runs the middle two against the engine. The corpus cannot: across its 521
+// cases a top-level `pin sessionId = context.sessionId` appears zero times, though it is a shipped
+// preset one deployment flag away from the default.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+)
+when temporal {
+    formerly within 1h Anchor::Action::"Approve"::request{ input.approver: "alice" }
+};
