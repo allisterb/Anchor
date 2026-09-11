@@ -17,7 +17,7 @@ really "compare what these policies decide, across every session".
 **Point it at any `.dw` file:**
 
 ```bash
-python src/checker/vacuity.py tests/policies/docs_trading_forbidden.dw
+python src/checker/properties.py tests/policies/docs_trading_forbidden.dw
 ```
 ```
 docs_trading_forbidden.dw: 1 permit(s), 1 forbid(s), bound 3 attempts
@@ -543,7 +543,7 @@ standing scenarios in `dogwood_replay.py`.
 
 #### Checking under the schema you deploy
 
-`vacuity.py` takes `--event-schema` now. Without it every answer assumes the **unpinned** reading,
+`properties.py` takes `--event-schema` now. Without it every answer assumes the **unpinned** reading,
 which is not the shipped default, and the tool says so rather than leaving it implicit:
 
 ```
@@ -654,7 +654,7 @@ metric. Once the deliverable is "point the checker at a policy somebody's pipeli
 question is no longer how much evidence a case adds but whether a real policy can be checked at
 all — **coverage, not evidence**. The same work, better justified.
 
-The parser now accepts **488 of 521** corpus policies, and `vacuity.py` checks **every one of
+The parser now accepts **488 of 521** corpus policies, and `properties.py` checks **every one of
 them**. Refusals fell from 123 cases to 53, and the pairs from 786 to 911.
 
 What that second push added was mostly *syntax the language has and we did not*: integer, decimal
@@ -933,7 +933,7 @@ set** — so if the permit it was guarding against is ever added, it silently st
 nobody will connect the two changes.
 
 ```bash
-python src/checker/vacuity.py tests/policies/dead_forbid.dw
+python src/checker/properties.py tests/policies/dead_forbid.dw
 ```
 ```
   permit #1  action == Trade         live      witness: Trade
@@ -954,7 +954,7 @@ The third question the same machinery answers, and the one a policy author actua
 this rule inert* but **I am editing a set somebody else wrote — what did I just change?**
 
 ```bash
-python src/checker/vacuity.py tests/policies/docs_trading.dw \
+python src/checker/properties.py tests/policies/docs_trading.dw \
     --against tests/policies/docs_trading_forbidden.dw
 ```
 ```

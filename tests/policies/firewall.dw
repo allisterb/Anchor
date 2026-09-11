@@ -1,0 +1,19 @@
+// SSH from the local network is allowed. Anything from outside is refused.
+//
+// The claim that sentence makes is not something the three built-in checks can evaluate: they ask
+// whether a rule is inert, duplicated, or changed by an edit, and all three would pass a policy
+// that let the whole internet in. Intent has to be written down. `firewall.tla` writes it down.
+
+permit (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.port == 22 && context.input.origin == "local" };
+
+forbid (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.origin == "external" };

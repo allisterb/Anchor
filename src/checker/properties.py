@@ -1,6 +1,6 @@
 """Model-check an arbitrary Dogwood policy file for vacuity, one permit at a time.
 
-    python src/checker/vacuity.py tests/policies/approval_gate_response.dw
+    python src/checker/properties.py tests/policies/approval_gate_response.dw
 
 A permit is VACUOUS when no session can make it grant anything. That is not a weak control, it is
 zero control, and nothing about the policy's text says so -- it parses, it validates, and it
@@ -40,256 +40,12 @@ SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 
 sys.path.insert(0, str(REPO / "src"))
 
-from translator import (Unsupported, apply_pins, like_matches,  # noqa: E402
-                        parse_policies, parse_schema, pattern_witnesses, policy_seq, run_tlc,
-                        stamp_keys)
+from translator import (DECISION_KIND, Unsupported, apply_pins,  # noqa: E402
+                        generate_policy_module, parse_policies, parse_schema, run_tlc,
+                        stamp_keys, vocabulary)
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
 # and the outcome is `response` when the action completed, `error` when it was denied.
-KINDS = ["request", "response", "error"]
-DECISION_KIND = "request"
-
-
-# ---------------------------------------------------------------------------- vocabulary
-def walk(node, seen: dict) -> None:
-    """Collect the vocabulary a policy actually reads, so nothing unused is modelled.
-
-    Field LITERALS are collected too. A field's domain is the values the policy compares it
-    against plus one it does not, so both matching and not-matching stay reachable -- which is
-    what lets fields move independently instead of sharing one domain.
-    """
-    if not isinstance(node, dict):
-        return
-
-    if pred := node.get("pred"):
-        if pred.get("action"):
-            seen["actions"].add(pred["action"])
-        if pred.get("kind"):
-            seen["kinds"].add(pred["kind"])
-        for b in pred.get("binds", []):
-            side = "input" if b["side"] == "input" else "output"
-            if b["side"] not in ("input", "output"):
-                continue
-            seen[side].add(b["field"])
-            if b["kind"] == "lit":
-                seen["literals"].setdefault((side, b["field"]), set()).add(b["value"])
-
-    if node.get("op") == "cmp":
-        seen["input"].add(node["field"])
-        seen["literals"].setdefault(("input", node["field"]), set()).add(node["value"])
-
-    if node.get("op") == "like":
-        # A pattern names no literal, so it must contribute the values that make it decidable:
-        # one the pattern matches, and one it does not. See this module's `like` note.
-        seen["input"].add(node["field"])
-        hit, miss = pattern_witnesses(node["pattern"])
-        lits = seen["literals"].setdefault(("input", node["field"]), set())
-        lits.add(hit)
-        if miss is not None:
-            lits.add(miss)
-        # Recorded so `vocabulary` can refuse a field carrying two of them; see the note there.
-        seen["patterns"].setdefault(("input", node["field"]), set()).add(
-            tuple(node["pattern"]))
-
-    if node.get("op") == "cmp2":
-        # Both sides are request fields. Neither names a literal, so both take the default
-        # numeric range -- which needs at least two values for the comparison to go either way.
-        seen["input"].add(node["field"])
-        seen["input"].add(node["other"])
-
-    for key in ("term", "atom", "left", "cond", "agg"):
-        walk(node.get(key), seen)
-    for child in node.get("args", []) or []:
-        walk(child, seen)
-
-
-def vocabulary(policies: list[dict], amounts: int = 2, max_fields: int = 4) -> dict:
-    seen = {"actions": set(), "kinds": set(), "input": set(), "output": set(),
-            "literals": {}, "patterns": {}}
-    for p in policies:
-        seen["actions"].update(p["actions"])
-        walk(p["cond"], seen)
-
-    # Two `like` patterns on ONE field need a value satisfying BOTH, or the conjunction looks
-    # unsatisfiable and the permit is reported VACUOUS though it is live -- `stock like "A*" &&
-    # stock like "*L"` is satisfied by "AAPL", while the per-pattern witnesses "A" and "L"
-    # satisfy one pattern each. A false VACUOUS tells someone to delete a working rule.
-    #
-    # Since TLC evaluates the real pattern, adding a candidate can never make something falsely
-    # live; it can only fail to be found. So look for one, and refuse only if the search fails,
-    # where "no such string exists" and "we did not look hard enough" are indistinguishable.
-    for (side, field), pats in seen["patterns"].items():
-        if len(pats) < 2:
-            continue
-        joint = joint_witness(pats)
-        if joint is None:
-            raise Unsupported(
-                f"{side}.{field} is constrained by {len(pats)} `like` patterns at once and no "
-                f"value satisfying all of them could be constructed; deciding that needs glob "
-                f"intersection, which is not modelled")
-        seen["literals"].setdefault((side, field), set()).add(joint)
-
-    # Each field gets its own domain, so fields move independently. The bound is on state space,
-    # not on soundness: the request space is the product of the domains, so it grows as
-    # values^fields. Refused above the bound rather than run until it is hopeless.
-    fields = len(seen["input"]) + len(seen["output"])
-    if fields > max_fields:
-        raise Unsupported(
-            f"policy reads {fields} input/output fields; the request space is the product of "
-            f"their domains, so this would explode (limit {max_fields}, raise with --max-fields)")
-
-    unknown = seen["kinds"] - set(KINDS)
-    if unknown:
-        raise Unsupported(f"event kinds outside AgentCore's convention: {', '.join(sorted(unknown))}")
-
-    seen["domains"] = {key: field_domain(lits, amounts)
-                       for key, lits in _all_fields(seen)}
-    return seen
-
-
-def _all_fields(seen: dict):
-    for side in ("input", "output"):
-        for field in sorted(seen[side]):
-            yield (side, field), seen["literals"].get((side, field), set())
-
-
-def joint_witness(patterns) -> str | None:
-    """A string every one of `patterns` matches, or None if none was constructed.
-
-    The candidates are what each pattern literally requires -- its non-wildcard characters, in
-    order -- tried alone and concatenated in both orders. That is enough for the shapes a prefix
-    or suffix test produces (`A*` with `*L` gives "AL"), and deliberately not a decision
-    procedure: the caller treats None as "refuse", never as "unsatisfiable".
-    """
-    pats = sorted(patterns, key=len)
-    parts = ["".join(e for e in pat if e is not None) for pat in pats]
-
-    candidates = list(parts)
-    for i, a in enumerate(parts):
-        for j, b in enumerate(parts):
-            if i != j:
-                candidates.append(a + b)
-    candidates.append("".join(parts))
-
-    for cand in candidates:
-        if all(like_matches(list(pat), cand) for pat in pats):
-            return cand
-    return None
-
-
-def field_domain(literals: set, amounts: int) -> list:
-    """The values one field may take: every literal the policy names, plus one it does not.
-
-    The extra value is what makes "this field does not match" reachable. Without it a field
-    compared only against `true` would always be true, and a policy that depends on it being
-    false would be reported vacuous when it is not.
-
-    A field with no literals -- bound only by `_` or by a join with the request's own context --
-    gets a small numeric range, which needs at least two values for a join to mean anything.
-    """
-    if not literals:
-        return [("n", x) for x in range(1, max(2, amounts) + 1)]
-
-    kinds = {type(v) is bool and "b" or (type(v) is int and "n" or "s") for v in literals}
-    if len(kinds) > 1:
-        raise Unsupported(f"field compared against mixed value kinds: {sorted(kinds)}")
-    kind = kinds.pop()
-
-    values = [(kind, v) for v in sorted(literals, key=str)]
-    if kind == "b":
-        # A boolean has only the two, and both are already reachable.
-        return [("b", False), ("b", True)]
-    values.append(("n", max(v for v in literals) + 1) if kind == "n" else ("s", "\u0000none"))
-    return values
-
-
-def tla_set(names) -> str:
-    return "{" + ", ".join(f'"{n}"' for n in sorted(names)) + "}"
-
-
-def tla_val(kind: str, value) -> str:
-    """One tagged scalar. Kind travels with the value so TLC never compares across kinds."""
-    if kind == "b":
-        return f'[k |-> "b", v |-> {"TRUE" if value else "FALSE"}]'
-    if kind == "n":
-        return f'[k |-> "n", v |-> {value}]'
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f'[k |-> "s", v |-> "{escaped}"]'
-
-
-def tla_domains(vocab: dict, side: str) -> str:
-    """`[field |-> {values}, ...]` -- what each field of one side may take."""
-    fields = sorted(vocab[side])
-    if not fields:
-        # An empty record. `[f \in {} |-> ...]` is the only way to write one in TLA+.
-        return '[f \\in {} |-> {}]'
-    entries = ", ".join(
-        f"{f} |-> {{" + ", ".join(tla_val(k, v) for k, v in vocab["domains"][(side, f)]) + "}"
-        for f in fields)
-    return f"[{entries}]"
-
-
-def tla_all_values(vocab: dict) -> str:
-    seen, out = set(), []
-    for key in sorted(vocab["domains"]):
-        for k, v in vocab["domains"][key]:
-            if (k, v) not in seen:
-                seen.add((k, v))
-                out.append(tla_val(k, v))
-    return "{" + ", ".join(out) + "}" if out else "{}"
-
-
-def generate(source: Path, policies: list[dict], vocab: dict,
-             other: list[dict] | None = None, other_name: str = "",
-             keys: list[str] | None = None) -> str:
-    body = policy_seq(policies)
-    # `Other` is the set compared against when Target = 0. With no second file it is `Policies`,
-    # which the spec never reads in that case -- Target is then a rule index.
-    other_body = policy_seq(other) if other is not None else None
-
-    other_decl = (f"\\* The second set, from {other_name}. Compared against Policies at every\n"
-                  f"\\* decision, so a divergence is a session where the edit changed behaviour.\n"
-                  f"Other ==\n  <<\n{other_body}\n  >>\n"
-                  if other_body is not None else "Other == Policies\n")
-
-    return f"""\\* GENERATED by tests/strands/vacuity.py from {source.name} -- do not edit.
-\\*
-\\* Translated by the parser that agrees with the Dogwood reference implementation on 919 recorded
-\\* corpus pairs. Vacuity.tla checks THESE records, so what is model-checked is the policy as
-\\* written rather than as paraphrased.
----------------------------- MODULE PolicyUnderTest ----------------------------
-EXTENDS Integers, Sequences
-
-Source == "{source.name}"
-
-\\* The vocabulary is lifted from the policy text: only actions, event kinds and input/output
-\\* fields some condition actually reads are modelled. A policy that joins on nothing costs nothing.
-Actions      == {tla_set(vocab["actions"])}
-Kinds        == {tla_set(vocab["kinds"] | {DECISION_KIND})}
-InputFields  == {tla_set(vocab["input"])}
-OutputFields == {tla_set(vocab["output"])}
-DecisionKind == "{DECISION_KIND}"
-
-\\* Each field's own domain: every literal the policy compares it against, plus one it does not,
-\\* so that both matching and not-matching are reachable. Fields move independently, which is
-\\* what lets a policy reading several of them be explored at all.
-InputDomain  == {tla_domains(vocab, "input")}
-OutputDomain == {tla_domains(vocab, "output")}
-AllValues    == {tla_all_values(vocab)}
-
-\\* The fields a universal pin partitions on. Empty means global-trace semantics -- which is the
-\\* `unpinned` preset, NOT the shipped default. Vacuity.tla gives a session two callers when this
-\\* is non-empty, so a partition has something to exclude.
-PinKeys == {tla_set(keys or [])}
-
-Policies ==
-  <<
-{body}
-  >>
-
-{other_decl}
-=============================================================================
-"""
 
 
 # ---------------------------------------------------------------------------- checking
@@ -347,6 +103,33 @@ def witness(out: str) -> str:
     return " -> ".join(actions) if actions else "(see TLC output, --verbose)"
 
 
+# ---------------------------------------------------------------------------- custom properties
+def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None) -> int:
+    """Check the author's claim about what this policy means."""
+    print(f"{args.policy.name} against {args.property_module.name}: "
+          f"{len(policies)} rule(s)\n")
+
+    with tempfile.TemporaryDirectory(prefix="anchor-prove-") as tmp:
+        work = Path(tmp)
+        (work / "PolicyUnderTest.tla").write_text(
+            generate_policy_module(args.policy, policies, vocab, keys=keys), encoding="utf-8")
+        shutil.copyfile(SPECS / "DogwoodSemantics.tla", work / "DogwoodSemantics.tla")
+
+        held, out = check_property(work, args.property_module)
+
+    if held:
+        print("  every claim holds over every request the property names.\n")
+        print("That is not a proof about requests it does not name. A property ranges over what it\n"
+              "says it ranges over, and nothing warns you when that is less than you meant.")
+        return 0
+
+    for v in violated_by(out) or ["TLC could not answer:\n" + out[-1200:]]:
+        print(f"  BROKEN  {v}")
+    print("\nThe policy does not mean what the property says it means. The state above is the\n"
+          "request that breaks the claim.")
+    return 1
+
+
 # ---------------------------------------------------------------------------- diff
 def diff(args, policies: list[dict], other: list[dict], vocab: dict,
          keys: list[str] | None = None) -> int:
@@ -361,7 +144,7 @@ def diff(args, policies: list[dict], other: list[dict], vocab: dict,
     with tempfile.TemporaryDirectory(prefix="anchor-diff-") as tmp:
         work = Path(tmp)
         (work / "PolicyUnderTest.tla").write_text(
-            generate(args.policy, policies, vocab, other, args.against.name, keys),
+            generate_policy_module(args.policy, policies, vocab, other, args.against.name, keys),
             encoding="utf-8")
         for module in ("Vacuity.tla", "DogwoodSemantics.tla"):
             shutil.copyfile(SPECS / module, work / module)
@@ -385,6 +168,38 @@ def diff(args, policies: list[dict], other: list[dict], vocab: dict,
     return 0
 
 
+# ---------------------------------------------------------------------------- custom properties
+def check_property(work: Path, module: Path) -> tuple[bool, str]:
+    """Run the author's own property module against the generated policy records.
+
+    Returns (it holds, TLC output). A violation is the ANSWER here, not an inversion: unlike the
+    vacuity questions, which ask for reachability and so read a counterexample as the witness, a
+    property is meant to hold and TLC's counterexample names the request that breaks it.
+    """
+    cfg = module.with_suffix(".cfg")
+    if not cfg.exists():
+        raise Unsupported(
+            f"{module.name} needs a companion {cfg.name} naming the invariants to check, e.g.\n"
+            f"      SPECIFICATION Spec\n"
+            f"      INVARIANT YourClaim\n"
+            f"    Naming them is deliberate: a property nobody listed is a property nobody checked")
+
+    shutil.copyfile(module, work / module.name)
+    shutil.copyfile(cfg, work / cfg.name)
+    return run_tlc(module.stem, work, work)
+
+
+def violated_by(out: str) -> list[str]:
+    """The invariants that failed, with the state that broke each."""
+    found = []
+    for i, line in enumerate(out.splitlines()):
+        if "is violated" in line:
+            state = [l.strip() for l in out.splitlines()[i + 1:i + 6] if l.strip().startswith("req")]
+            found.append(f"{line.split('Error: ')[-1].strip()}"
+                         + (f"{chr(10)}      {state[0]}" if state else ""))
+    return found
+
+
 # ---------------------------------------------------------------------------- entry
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -399,6 +214,9 @@ def main() -> int:
                     help="refuse a policy reading more than N input/output fields. The"
                          " request space is the product of their domains, so this bounds"
                          " state space rather than soundness (default 4)")
+    ap.add_argument("--property", type=Path, metavar="FILE.tla", dest="property_module",
+                    help="a TLA+ module of your own, extending PolicyUnderTest, stating what the "
+                         "policy is supposed to mean. Needs a companion .cfg naming its invariants")
     ap.add_argument("--event-schema", type=Path, metavar="FILE.dwschema",
                     help="the event schema the policy is deployed under. Without it every answer "
                          "assumes the UNPINNED reading, which is not the shipped default")
@@ -446,6 +264,9 @@ def main() -> int:
               "  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n"
               "  reported live here may never fire.\n")
 
+    if args.property_module is not None:
+        return prove(args, policies, vocab, schema["keys"])
+
     if args.against is not None:
         return diff(args, policies, other, vocab, schema["keys"])
 
@@ -463,7 +284,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="anchor-vacuity-") as tmp:
         work = Path(tmp)
         (work / "PolicyUnderTest.tla").write_text(
-            generate(args.policy, policies, vocab, keys=schema["keys"]), encoding="utf-8")
+            generate_policy_module(args.policy, policies, vocab, keys=schema["keys"]), encoding="utf-8")
         for module in ("Vacuity.tla", "DogwoodSemantics.tla"):
             shutil.copyfile(SPECS / module, work / module)
 

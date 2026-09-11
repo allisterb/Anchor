@@ -5,7 +5,7 @@ here is generated and nothing here is a model — these are the files handed to 
 the real Dogwood engine, to see what each says about them.
 
 ```bash
-python src/checker/vacuity.py tests/policies/docs_trading_forbidden.dw
+python src/checker/properties.py tests/policies/docs_trading_forbidden.dw
 python tests/strands/dogwood_replay.py
 ```
 
@@ -28,18 +28,20 @@ in `specs/`; a reader looking for *what Anchor can be pointed at* should look he
 
 | file | used by | what it demonstrates |
 |---|---|---|
-| [`docs_trading.dw`](docs_trading.dw) | `vacuity.py` | the AgentCore docs' own trading example. Both permits live |
-| [`docs_trading_forbidden.dw`](docs_trading_forbidden.dw) | `vacuity.py` | one line different — the sell permit is **vacuous**. Reproduces `TemporalPolicy.tla`'s finding from the text |
-| [`approval_gate_response.dw`](approval_gate_response.dw) | `vacuity.py`, `dogwood_replay.py` | gated on a *completed* approval. **Vacuous** on its own |
-| [`approval_gate_request.dw`](approval_gate_request.dw) | `vacuity.py`, `dogwood_replay.py` | one word different, and live. The weak form, and the conventional one |
+| [`docs_trading.dw`](docs_trading.dw) | `properties.py` | the AgentCore docs' own trading example. Both permits live |
+| [`docs_trading_forbidden.dw`](docs_trading_forbidden.dw) | `properties.py` | one line different — the sell permit is **vacuous**. Reproduces `TemporalPolicy.tla`'s finding from the text |
+| [`approval_gate_response.dw`](approval_gate_response.dw) | `properties.py`, `dogwood_replay.py` | gated on a *completed* approval. **Vacuous** on its own |
+| [`approval_gate_request.dw`](approval_gate_request.dw) | `properties.py`, `dogwood_replay.py` | one word different, and live. The weak form, and the conventional one |
 | [`approval_gate_error.dw`](approval_gate_error.dw) | `dogwood_replay.py` | matches the denial itself — rules out "error events are invisible" |
-| [`overridden_permit.dw`](overridden_permit.dw) | `vacuity.py` | matches everything, grants nothing. The second shape of vacuity |
-| [`dead_forbid.dw`](dead_forbid.dw) | `vacuity.py` | a forbid on an action no permit covers — **DEAD**, it denies nothing |
-| [`redundant_permit.dw`](redundant_permit.dw) | `vacuity.py` | a gated permit under an unconditional one — **REDUNDANT**, and pointedly not vacuous |
-| [`redundant_permit_minimal.dw`](redundant_permit_minimal.dw) | `vacuity.py --against` | the same file with the redundant rule deleted. Diffs clean, confirming the advice was safe |
-| [`added_action.dw`](added_action.dw) | `vacuity.py --against` | permits an action the other file never mentions. Pins the vocabulary union that keeps *no difference* honest |
-| [`string_output.dw`](string_output.dw) | `vacuity.py` | a gate on a **string** output field. Was reported VACUOUS when every output was modelled as a boolean — pins that false alarm |
-| [`scope_bind.dw`](scope_bind.dw) | `vacuity.py` | `callerPrincipal: principal`, the ordinary same-principal correlation. Crashed TLC until 2026-09-11 — no other fixture used a scope bind, so the synthesized events' missing `session` field went unnoticed |
+| [`overridden_permit.dw`](overridden_permit.dw) | `properties.py` | matches everything, grants nothing. The second shape of vacuity |
+| [`dead_forbid.dw`](dead_forbid.dw) | `properties.py` | a forbid on an action no permit covers — **DEAD**, it denies nothing |
+| [`redundant_permit.dw`](redundant_permit.dw) | `properties.py` | a gated permit under an unconditional one — **REDUNDANT**, and pointedly not vacuous |
+| [`redundant_permit_minimal.dw`](redundant_permit_minimal.dw) | `properties.py --against` | the same file with the redundant rule deleted. Diffs clean, confirming the advice was safe |
+| [`added_action.dw`](added_action.dw) | `properties.py --against` | permits an action the other file never mentions. Pins the vocabulary union that keeps *no difference* honest |
+| [`string_output.dw`](string_output.dw) | `properties.py` | a gate on a **string** output field. Was reported VACUOUS when every output was modelled as a boolean — pins that false alarm |
+| [`firewall.dw`](firewall.dw) + [`firewall.tla`](firewall.tla) | `properties.py --property` | a policy and the author's own claim about it — SSH from the local network is allowed, everything outside refused. The fourth kind of check: the only one that knows what the policy was *for* |
+| [`firewall_open.dw`](firewall_open.dw) | `properties.py --property` | the same policy after a careless edit. The built-ins call permit #1 REDUNDANT — true, and pointing at the wrong rule; deleting it shrinks the policy and leaves the internet on port 22. The property names the request that breaks the claim |
+| [`scope_bind.dw`](scope_bind.dw) | `properties.py` | `callerPrincipal: principal`, the ordinary same-principal correlation. Crashed TLC until 2026-09-11 — no other fixture used a scope bind, so the synthesized events' missing `session` field went unnoticed |
 | [`session_gate.dw`](session_gate.dw) | `dogwood_replay.py` | the only fixture here whose **verdict does not depend on its own text**. Replayed unchanged under two shipped event-schema presets it permits under one and denies under the other, because a universal pin partitions the history a temporal predicate can see |
 | [`anchor.cedarschema`](anchor.cedarschema) | `dogwood_replay.py` | the Cedar schema the real engine needs to replay a trace |
 

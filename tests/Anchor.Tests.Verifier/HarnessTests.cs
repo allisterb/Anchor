@@ -119,6 +119,57 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// A property module states what a policy is <i>supposed</i> to mean, and catches an edit the
+    /// three built-in checks describe wrongly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// VACUOUS, REDUNDANT/DEAD and diff are the claims statable <b>without knowing intent</b>. A
+    /// property is the other kind: only the author can write it. Both extend the same generated
+    /// <c>PolicyUnderTest.tla</c> — <c>Vacuity.tla</c> is itself just a property module we ship.
+    /// </para>
+    /// <para>
+    /// <c>firewall_open.dw</c> is the point. Dropping the <c>forbid</c> and widening a permit lets
+    /// the whole internet connect on port 22, and the built-in checks do <i>not</i> miss it
+    /// silently — they report <b>REDUNDANT permit #1</b>, which is true, and whose advice (delete
+    /// the redundant rule) shrinks the policy and leaves the hole. The redundancy is a symptom;
+    /// a check that cannot know what the policy was for cannot say which of the two rules is the
+    /// mistake. The property can, and names the request: port 22 from an external origin.
+    /// </para>
+    /// <para>
+    /// Both halves are asserted. That the property holds on the good policy is worth little on its
+    /// own — a claim that ranges over nothing also holds. It is the pair that means something.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task APropertyStatesWhatThePolicyIsSupposedToMean()
+    {
+        var good = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall.dw",
+            "--property", "tests/policies/firewall.tla");
+
+        Assert.True(good.ExitCode == 0, good.Output);
+        Assert.Contains("every claim holds", good.Output);
+
+        // The careless edit: the claim breaks, and the counterexample names the request.
+        var open_ = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_open.dw",
+            "--property", "tests/policies/firewall.tla");
+
+        Assert.Equal(1, open_.ExitCode);
+        Assert.Contains("OutsideIsRefused", open_.Output);
+        Assert.Contains("external", open_.Output);
+
+        // And the built-in checks on that same policy point at the WRONG rule — which is why the
+        // fourth kind of check exists rather than being a nicety.
+        var builtin = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_open.dw");
+
+        Assert.True(builtin.ExitCode == 0 || builtin.ExitCode == 1, builtin.Output);
+        Assert.Contains("REDUNDANT permit #1", builtin.Output);
+    }
+
+    /// <summary>
     /// A scope bind does not crash the checker, and <c>--event-schema</c> reaches the model.
     /// </summary>
     /// <remarks>
@@ -137,11 +188,11 @@ public class HarnessTests : TestsRuntime
     /// than the one asked should at least say which question it answered.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task ScopeBindsWorkAndTheSchemaPostureIsStated()
     {
         var bare = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/scope_bind.dw");
+            "src/checker/properties.py", "tests/policies/scope_bind.dw");
 
         Assert.True(bare.ExitCode == 0, bare.Output);
         Assert.Matches(@"permit #1\s+action == Trade\s+live", bare.Output);
@@ -152,7 +203,7 @@ public class HarnessTests : TestsRuntime
 
         // With one, it names the partition the deployment imposes.
         var pinned = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/scope_bind.dw",
+            "src/checker/properties.py", "tests/policies/scope_bind.dw",
             "--event-schema",
             "ext/dogwood/dogwood-language/configuration/event-schemas/pinned.dwschema");
 
@@ -193,11 +244,11 @@ public class HarnessTests : TestsRuntime
     /// VACUOUS on a hunch tells someone to delete a rule.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task LikePatternsAreEvaluatedByTheModel()
     {
         var one = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/like_prefix.dw");
+            "src/checker/properties.py", "tests/policies/like_prefix.dw");
 
         Assert.True(one.ExitCode == 0, one.Output);
         Assert.Matches(@"permit #1\s+action == SellShares\s+live", one.Output);
@@ -205,7 +256,7 @@ public class HarnessTests : TestsRuntime
 
         // Two patterns, jointly satisfiable: a witness is constructed and the permit stays live.
         var two = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/like_two_patterns.dw");
+            "src/checker/properties.py", "tests/policies/like_two_patterns.dw");
 
         Assert.True(two.ExitCode == 0, two.Output);
         Assert.Matches(@"permit #1\s+action == SellShares\s+live", two.Output);
@@ -213,7 +264,7 @@ public class HarnessTests : TestsRuntime
 
         // Two patterns no string satisfies: refused, and specifically not reported vacuous.
         var none = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/like_impossible.dw");
+            "src/checker/properties.py", "tests/policies/like_impossible.dw");
 
         Assert.Equal(2, none.ExitCode);
         Assert.Contains("`like` patterns at once", none.Output);
@@ -330,13 +381,13 @@ public class HarnessTests : TestsRuntime
     /// approval rather than to the model being unable to reach a response at all.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task VacuityCheckerSeparatesPoliciesOneWordApart()
     {
         // Gated on a COMPLETED approval. No permit covers the approval, so it is denied, so it is
         // recorded as `error` rather than `response`, so this gate can never open.
         var vacuous = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/approval_gate_response.dw");
+            "src/checker/properties.py", "tests/policies/approval_gate_response.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"action == Trade\s+VACUOUS", vacuous.Output);
@@ -344,7 +395,7 @@ public class HarnessTests : TestsRuntime
         // The same policy with `response` changed to `request` — and a witness session, because a
         // request event is recorded for every attempt, permitted or not.
         var live = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/approval_gate_request.dw");
+            "src/checker/properties.py", "tests/policies/approval_gate_request.dw");
 
         Assert.True(live.ExitCode == 0, live.Output);
         Assert.Matches(@"action == Trade\s+live\s+witness: Approve -> Trade", live.Output);
@@ -352,7 +403,7 @@ public class HarnessTests : TestsRuntime
         // Matched but never granted: forbid overrides permit. Distinguishing this from the case
         // above is the whole reason the spec tracks GRANTED rather than matched.
         var overridden = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/overridden_permit.dw");
+            "src/checker/properties.py", "tests/policies/overridden_permit.dw");
 
         Assert.True(overridden.ExitCode == 0, overridden.Output);
         Assert.Matches(@"action == Trade\s+VACUOUS", overridden.Output);
@@ -416,11 +467,11 @@ public class HarnessTests : TestsRuntime
     /// back, which is what this test's <c>live</c> assertion catches.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task FieldDomainsComeFromTheLiteralsThePolicyNames()
     {
         var strings = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/string_output.dw");
+            "src/checker/properties.py", "tests/policies/string_output.dw");
 
         Assert.True(strings.ExitCode == 0, strings.Output);
         Assert.Matches(@"permit #2\s+action == Read\s+live", strings.Output);
@@ -429,7 +480,7 @@ public class HarnessTests : TestsRuntime
         // The docs' trading example reads an input field and an output field, and joins on the
         // input — so it only works if the two move independently.
         var trading = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/docs_trading.dw");
+            "src/checker/properties.py", "tests/policies/docs_trading.dw");
 
         Assert.True(trading.ExitCode == 0, trading.Output);
         Assert.Matches(@"permit #2\s+action == SellShares\s+live", trading.Output);
@@ -454,12 +505,12 @@ public class HarnessTests : TestsRuntime
     /// pins exactly that, and dropping the union turns it red.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task PolicyDiffFindsASessionTheTwoVersionsDecideDifferently()
     {
         // One line apart: approvals permitted, versus forbidden.
         var differs = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/docs_trading.dw",
+            "src/checker/properties.py", "tests/policies/docs_trading.dw",
             "--against", "tests/policies/docs_trading_forbidden.dw");
 
         Assert.True(differs.ExitCode == 0, differs.Output);
@@ -469,7 +520,7 @@ public class HarnessTests : TestsRuntime
         // "removing this changes no verdict" and "these files decide identically" are the same
         // claim from opposite ends, so a disagreement would mean one of them is wrong.
         var same = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/redundant_permit.dw",
+            "src/checker/properties.py", "tests/policies/redundant_permit.dw",
             "--against", "tests/policies/redundant_permit_minimal.dw");
 
         Assert.True(same.ExitCode == 0, same.Output);
@@ -479,7 +530,7 @@ public class HarnessTests : TestsRuntime
         // The difference is on an action only the SECOND file mentions, so this passes only if
         // the vocabulary spans both.
         var added = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/redundant_permit_minimal.dw",
+            "src/checker/properties.py", "tests/policies/redundant_permit_minimal.dw",
             "--against", "tests/policies/added_action.dw");
 
         Assert.True(added.ExitCode == 0, added.Output);
@@ -506,13 +557,13 @@ public class HarnessTests : TestsRuntime
     /// rule" a no-op turns every rule redundant, and this test's <c>live</c> assertion catches it.
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task LoadBearingCheckSeparatesDeadRedundantAndLive()
     {
         // A forbid on an action no permit covers. It reads like a control and denies nothing,
         // because default-deny had already shut that door.
         var forbid = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/dead_forbid.dw");
+            "src/checker/properties.py", "tests/policies/dead_forbid.dw");
 
         Assert.True(forbid.ExitCode == 0, forbid.Output);
         Assert.Matches(@"permit #1\s+action == Trade\s+live", forbid.Output);
@@ -521,7 +572,7 @@ public class HarnessTests : TestsRuntime
         // A gated permit sitting under an unconditional one. It fires — so it is NOT vacuous —
         // and it still decides nothing.
         var redundant = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/redundant_permit.dw");
+            "src/checker/properties.py", "tests/policies/redundant_permit.dw");
 
         Assert.True(redundant.ExitCode == 0, redundant.Output);
         Assert.Matches(@"permit #2\s+action == Trade\s+REDUNDANT", redundant.Output);
@@ -532,7 +583,7 @@ public class HarnessTests : TestsRuntime
         // And the distinction survives: a permit a forbid always overrides is still VACUOUS,
         // not merely redundant.
         var vacuous = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/overridden_permit.dw");
+            "src/checker/properties.py", "tests/policies/overridden_permit.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"permit #1\s+action == Trade\s+VACUOUS", vacuous.Output);
@@ -558,11 +609,11 @@ public class HarnessTests : TestsRuntime
     /// (<c>output.approved: true</c>).
     /// </para>
     /// </remarks>
-    [PythonHarness("vacuity.py")]
+    [PythonHarness("properties.py")]
     public async Task VacuityCheckerReproducesTheHandWrittenSpecsFinding()
     {
         var live = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/docs_trading.dw");
+            "src/checker/properties.py", "tests/policies/docs_trading.dw");
 
         Assert.True(live.ExitCode == 0, live.Output);
         Assert.Matches(@"action == SellShares\s+live\s+witness: ApproveSale -> SellShares", live.Output);
@@ -571,7 +622,7 @@ public class HarnessTests : TestsRuntime
         // untouched — and now grants nothing, because a denied approval is recorded as an `error`
         // and the `::response` it waits for is never written.
         var vacuous = await PythonHarness.RunAsync(
-            "src/checker/vacuity.py", "tests/policies/docs_trading_forbidden.dw");
+            "src/checker/properties.py", "tests/policies/docs_trading_forbidden.dw");
 
         Assert.True(vacuous.ExitCode == 0, vacuous.Output);
         Assert.Matches(@"action == SellShares\s+VACUOUS", vacuous.Output);

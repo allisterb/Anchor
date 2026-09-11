@@ -37,7 +37,7 @@ corpus, driving a fixture graph, asserting the finding. The things those exercis
 | went to | what |
 |---|---|
 | [`src/translator/`](../../src/translator) | `dogwood_parse.py`, `dogwood_schema.py`, `_toolchain.py`, `dw_to_tla.py`, every TLA+ emitter (which used to live *inside* `dogwood_differential.py`), and `to_tla` (which used to live inside `graph_to_tla.py`) |
-| [`src/checker/`](../../src/checker) | `vacuity.py` — the tool, not a test of the tool |
+| [`src/checker/`](../../src/checker) | `properties.py` — the tool, not a test of the tool |
 
 The arrow had been pointing the wrong way: `dw_to_tla.py`, whose output is a checked-in spec,
 imported `tla_cond` from a test harness, and so did the vacuity checker. Those READMEs record what

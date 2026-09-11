@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from .emit import (DUMMY_ATOM, DUMMY_PRED, DUMMY_TERM, NO_CMP, policy_seq, stamp_keys, tla_atom,
                    tla_cond, tla_pattern, tla_pred, tla_record, tla_scalar, tla_value)
+from .policy_module import (DECISION_KIND, KINDS, field_domain, generate_policy_module,
+                            joint_witness, vocabulary)
 from .parse import (DECIMAL_SCALE, UNITS, WILDCARD, Dec, Parser, Unsupported, collect_macros,
                     expand_macros, like_matches, parse_decimal, parse_like_pattern, parse_policies,
                     pattern_witnesses, tokenize)
@@ -37,6 +39,9 @@ __all__ = [
     "pattern_witnesses", "tokenize",
     # schema
     "SCOPE_PINS", "apply_pins", "key_for", "parse_schema",
+    # the seam every check extends
+    "DECISION_KIND", "KINDS", "field_domain", "generate_policy_module", "joint_witness",
+    "vocabulary",
     # trace
     "braced", "parse_fields", "parse_trace", "pin_value", "split_binds",
     # emit

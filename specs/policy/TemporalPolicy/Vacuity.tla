@@ -21,14 +21,14 @@
 (*                                VACUOUS within the bound -- the finding. *)
 (*                                                                         *)
 (* So a "failing" run is the good outcome and a clean one is the alarm.    *)
-(* `src/checker/vacuity.py` inverts it before reporting, because that    *)
+(* `src/checker/properties.py` inverts it before reporting, because that    *)
 (* reading is a trap for anyone who glances at raw TLC output.             *)
 (*                                                                         *)
 (* WHAT IS DIFFERENT FROM TemporalPolicy.tla, which asks the same question *)
 (* of one hand-written policy set. Two things, and both are the point:     *)
 (*                                                                         *)
 (*   - The policies come from `PolicyUnderTest`, GENERATED from `.dw` text *)
-(*     by src/checker/vacuity.py. Nobody paraphrases the policy into     *)
+(*     by src/checker/properties.py. Nobody paraphrases the policy into     *)
 (*     TLA+ by hand, so nothing is lost between what was written and what  *)
 (*     is checked.                                                         *)
 (*   - The decision is `DogwoodSemantics!Decide`, the evaluator that       *)
@@ -63,14 +63,12 @@ D == INSTANCE DogwoodSemantics WITH Cases <- << >>
 (* an integer and refuses `"alice" \in Int` as a type test. Every value    *)
 (* the evaluator sees is tagged and compared kind-first.                   *)
 (***************************************************************************)
-Str(x)  == [k |-> "s", v |-> x]
-Num(x)  == [k |-> "n", v |-> x]
-Bool(x) == [k |-> "b", v |-> x]
+\* Str / Num / Bool / Anon come from PolicyUnderTest, which a property module extends too.
+\* Defining them here as well would be a multiply-defined symbol.
 
 \* Principal and resource are held fixed. Vacuity is a question about the
 \* temporal condition; varying the scope would multiply the state space to
 \* explore a dimension no temporal operator reads.
-Anon     == Str("caller")
 \* Named for what it is, and NOT `Other` -- PolicyUnderTest uses that for the second policy set.
 Stranger == Str("stranger")
 

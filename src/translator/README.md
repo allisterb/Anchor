@@ -62,7 +62,7 @@ Two duplications had already appeared, each character for character, which is wh
 looked like from outside:
 
 - `UNITS` — the second/minute/hour/day table — in both `dogwood_parse.py` and `dogwood_differential.py`.
-- `policy_seq` — a policy list as a TLA+ sequence — in both `dw_to_tla.py` and `vacuity.py`.
+- `policy_seq` — a policy list as a TLA+ sequence — in both `dw_to_tla.py` and `properties.py`.
 
 A third was worse than a duplication. Five harnesses each spelled out the TLC command line, and the
 `-Djava.io.tmpdir` flag that stops parallel runs corrupting each other's unpacked standard modules

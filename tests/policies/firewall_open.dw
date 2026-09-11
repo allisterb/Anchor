@@ -1,0 +1,28 @@
+// The same policy with the forbid dropped and a broader permit added -- the shape a careless edit
+// takes. It lets the entire internet connect on port 22.
+//
+// WHAT THE BUILT-IN CHECKS SAY ABOUT IT is the interesting part, and it is not "nothing". They
+// report:
+//
+//     REDUNDANT permit #1   it fires, but another permit always would too
+//
+// which is true: `port == 22 && origin == "local"` is subsumed by `port == 22`. And the advice
+// that follows from it -- delete the redundant rule -- makes the policy smaller and leaves the
+// hole exactly where it was. The redundancy is a SYMPTOM of the over-broad permit, and a check
+// that cannot know what the policy was for cannot tell you which of the two rules is the mistake.
+//
+// `firewall.tla` can, because it was told: it names the request that breaks the claim.
+
+permit (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.port == 22 && context.input.origin == "local" };
+
+permit (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.port == 22 };
