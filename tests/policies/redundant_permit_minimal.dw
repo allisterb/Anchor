@@ -1,0 +1,24 @@
+// redundant_permit.dw with the redundant rule deleted.
+//
+// The pair is the point. `vacuity.py` reports the gated permit in redundant_permit.dw as
+// REDUNDANT; this file is what you get by acting on that advice. Diffing the two confirms the
+// advice was safe:
+//
+//     python tests/strands/vacuity.py tests/policies/redundant_permit.dw \
+//         --against tests/policies/redundant_permit_minimal.dw
+//     ==> no difference
+//
+// The two findings check each other. "Deleting this rule changes no verdict" and "these two files
+// decide identically" are the same claim approached from opposite ends, so a disagreement between
+// them would mean one of the two is wrong.
+//
+// Note what the vocabulary has to do here: this file never mentions `Approve`, and the other one
+// does. The checker takes the union of both files' actions, so Approve is still attempted. Without
+// that it would report "no difference" having never tried the action the two might disagree on --
+// the one wrong answer a diff must not give.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);

@@ -51,7 +51,8 @@ CONSTANTS
 ASSUME VacuityAssumption ==
     /\ MaxAttempts \in Nat /\ MaxAttempts > 0
     /\ MaxAmount \in Nat /\ MaxAmount > 0
-    /\ Target \in DOMAIN Policies
+    \* 0 selects the diff question; any rule index selects the load-bearing one.
+    /\ Target \in (DOMAIN Policies) \union {0}
 
 \* `Cases` is only read by DogwoodSemantics!Agree, which this module never calls;
 \* the evaluator's Decide takes its trace and policies as arguments.
@@ -127,22 +128,32 @@ Hit(h, idx) ==
 Allowed(h, idx) == D!Decide(h, Policies, idx, Values)
 
 (***************************************************************************)
-(* THE POLICY SET WITHOUT `Target`, and the verdict it would give.         *)
+(* THE SECOND POLICY SET, and the verdict it would give.                   *)
 (*                                                                         *)
-(* A rule is LOAD-BEARING when deleting it changes something. That one     *)
-(* question covers both shapes worth reporting:                            *)
+(* Two questions share one mechanism -- compare the verdicts of two policy *)
+(* sets across every session -- and differ only in what the second set is. *)
 (*                                                                         *)
-(*   a DEAD forbid      never denies anything the rest would have allowed  *)
-(*   a REDUNDANT permit fires, but another permit always would too         *)
+(*   Target > 0   `Policies` without rule Target. Is that rule             *)
+(*                LOAD-BEARING? A DEAD forbid never denies anything the    *)
+(*                rest would have allowed; a REDUNDANT permit fires, but   *)
+(*                another permit always would too. Both are "deleting it   *)
+(*                changes nothing".                                        *)
 (*                                                                         *)
-(* Distinct from vacuity, and the diagnoses are worth keeping apart: a     *)
-(* vacuous permit never fires at all where a redundant one fires and is    *)
-(* covered. Vacuous implies redundant; the converse does not.              *)
+(*                Distinct from vacuity, and worth keeping apart: a        *)
+(*                vacuous permit never fires at all where a redundant one  *)
+(*                fires and is covered. Vacuous implies redundant; the     *)
+(*                converse does not.                                       *)
+(*                                                                         *)
+(*   Target = 0   `Other`, translated from a second file. Did this EDIT    *)
+(*                change any decision? The question a policy author        *)
+(*                actually has when touching a set somebody else wrote.    *)
 (***************************************************************************)
 Without == [j \in 1..(Len(Policies) - 1) |->
                IF j < Target THEN Policies[j] ELSE Policies[j + 1]]
 
-AllowedWithout(h, idx) == D!Decide(h, Without, idx, Values)
+Compared == IF Target = 0 THEN Other ELSE Without
+
+AllowedCompared(h, idx) == D!Decide(h, Compared, idx, Values)
 
 \* A permit GRANTED only when it matched and the request was allowed. A permit
 \* that matches but is always overridden by a forbid authorizes nothing, and
@@ -177,10 +188,11 @@ Attempt(action, amount, approved) ==
                             ELSE Event(action, "error", amount, FALSE, t + 1)
        IN /\ trace' = Append(withReq, outcome)
           /\ fired' = fired \union Granted(withReq, idx)
-          \* Compared on the history the FULL set produced, which is the one that really
-          \* happens. If the two never differ along any such history they never differ at
-          \* all, because the reduced set would have produced the same history.
-          /\ mattered' = (mattered \/ (ok # AllowedWithout(withReq, idx)))
+          \* Compared on the history `Policies` produced. Sound for both questions: the two
+          \* sets agree up to the FIRST point they disagree, so up to that point they have
+          \* produced the same history -- and this exploration reaches it. If they never
+          \* disagree along any such history, the other set produced those same histories too.
+          /\ mattered' = (mattered \/ (ok # AllowedCompared(withReq, idx)))
 
 \* The agent may attempt anything, with any input, and an approver may return
 \* either verdict. All of it is behaviour, so a VACUOUS result holds whatever
@@ -199,9 +211,9 @@ Spec == Init /\ [][Next]_vars
 NeverFires == Target \notin fired
 
 \* Also checked as an invariant and also MEANT TO FAIL. A violation is the witness
-\* session where deleting the rule would have changed the verdict -- so the rule is
-\* load-bearing. A clean run means it can be deleted without any session noticing:
-\* a dead forbid, or a redundant permit.
+\* session where the two sets decide differently. Read it for whichever question was
+\* asked: the rule is load-bearing (Target > 0), or the edit changed behaviour
+\* (Target = 0). A clean run means no session of this length tells them apart.
 NeverMatters == ~mattered
 
 =============================================================================

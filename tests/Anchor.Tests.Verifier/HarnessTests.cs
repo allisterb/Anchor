@@ -201,6 +201,58 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Policy diff: is there a session two versions of a policy set decide differently? The
+    /// question a policy author actually has when editing a set somebody else wrote.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Same mechanism as the load-bearing check — compare two policy sets at every decision
+    /// across every session — differing only in where the second set comes from. That is why
+    /// there is no separate spec: a duplicated session model would drift, and this repo already
+    /// carries <c>dw_to_tla.py --check</c> because copies drift.
+    /// </para>
+    /// <para>
+    /// <b>"No difference" is the answer that must never be wrong</b>, because it tells someone
+    /// their edit was safe. It rests on the action vocabulary being the <b>union</b> of both
+    /// files: take it from the first alone and an action only the second mentions is never
+    /// attempted, so the run reports no difference having never looked. The third case below
+    /// pins exactly that, and dropping the union turns it red.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("vacuity.py")]
+    public async Task PolicyDiffFindsASessionTheTwoVersionsDecideDifferently()
+    {
+        // One line apart: approvals permitted, versus forbidden.
+        var differs = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/docs_trading.dw",
+            "--against", "tests/policies/docs_trading_forbidden.dw");
+
+        Assert.True(differs.ExitCode == 0, differs.Output);
+        Assert.Contains("THEY DIFFER", differs.Output);
+
+        // Deleting the rule the checker called REDUNDANT. The two findings check each other:
+        // "removing this changes no verdict" and "these files decide identically" are the same
+        // claim from opposite ends, so a disagreement would mean one of them is wrong.
+        var same = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/redundant_permit.dw",
+            "--against", "tests/policies/redundant_permit_minimal.dw");
+
+        Assert.True(same.ExitCode == 0, same.Output);
+        Assert.Contains("no difference", same.Output);
+        Assert.DoesNotContain("THEY DIFFER", same.Output);
+
+        // The difference is on an action only the SECOND file mentions, so this passes only if
+        // the vocabulary spans both.
+        var added = await PythonHarness.RunAsync(
+            "tests/strands/vacuity.py", "tests/policies/redundant_permit_minimal.dw",
+            "--against", "tests/policies/added_action.dw");
+
+        Assert.True(added.ExitCode == 0, added.Output);
+        Assert.Contains("THEY DIFFER", added.Output);
+        Assert.Contains("Refund", added.Output);
+    }
+
+    /// <summary>
     /// Beyond vacuity: is each rule <b>load-bearing</b> — does deleting it change any verdict?
     /// One question, and it covers a dead <c>forbid</c> and a redundant <c>permit</c> alike.
     /// </summary>

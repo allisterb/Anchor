@@ -1,0 +1,27 @@
+// A version that permits an action the other file never mentions.
+//
+// Diffed against redundant_permit_minimal.dw, which permits only `Trade`:
+//
+//     python tests/strands/vacuity.py tests/policies/redundant_permit_minimal.dw \
+//         --against tests/policies/added_action.dw
+//     ==> THEY DIFFER   witness: Refund
+//
+// It exists to pin one soundness property, which is easy to lose in a refactor and silent when
+// lost. The checker builds its action vocabulary from the UNION of both files. Take it from the
+// first file alone and `Refund` is never attempted, so the run reports "no difference" having
+// never tried the only action the two disagree about.
+//
+// That is the one wrong answer a diff must not give: a false "no difference" tells someone their
+// edit was safe. Mutation-checked -- drop the union and this pair reports no difference.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"Refund",
+    resource
+);

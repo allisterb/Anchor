@@ -559,6 +559,53 @@ deletable. Mutation-checked where it would silently over-report: make the "set w
 no-op and every rule reports redundant, which the `live` assertion catches.
 
 
+### Policy diff: did this edit change anything?
+
+The third question the same machinery answers, and the one a policy author actually has. Not *is
+this rule inert* but **I am editing a set somebody else wrote — what did I just change?**
+
+```bash
+python tests/strands/vacuity.py tests/policies/docs_trading.dw \
+    --against tests/policies/docs_trading_forbidden.dw
+```
+```
+  THEY DIFFER   witness: ApproveSale
+```
+
+One TLC run rather than one per rule: `Target = 0` selects the second file as the set compared
+against, and a `NeverMatters` violation is the witness session.
+
+**There is no separate spec for it, deliberately.** Redundancy already compared two policy sets —
+the full one and the full one minus a rule — so a diff is the same question with the second set
+coming from a different file. A `PolicyDiff.tla` would have duplicated the session model, and two
+copies of a model drift: a fix to the outcome-kind convention in one would leave the other quietly
+checking something else. This directory carries `dw_to_tla.py --check` for exactly that reason.
+
+### "No difference" is the answer that must never be wrong
+
+It tells someone their edit was safe, so it gets the same care as VACUOUS. Two things hold it up.
+
+**The vocabulary spans both files.** A version that permits an action the other never mentions
+would otherwise never have that action attempted, and the run would report no difference having
+never looked. [`added_action.dw`](../../../tests/policies/added_action.dw) pins it, and dropping the
+union turns that case red — it reports "no difference" for two files that plainly differ.
+
+**Driving the exploration with one set is sound.** Verdicts are compared on histories `Policies`
+produced, which looks asymmetric. It is not: the two sets agree up to the *first* decision where
+they disagree, so up to that point they have produced the same history, and this exploration
+reaches it. If they never disagree along any such history, the other set produced those same
+histories too.
+
+### The findings check each other
+
+`redundant_permit.dw` has a gated permit the checker reports REDUNDANT.
+[`redundant_permit_minimal.dw`](../../../tests/policies/redundant_permit_minimal.dw) is what you get
+by acting on that advice, and diffing the two reports **no difference** — so the advice was safe.
+"Deleting this rule changes no verdict" and "these two files decide identically" are the same claim
+approached from opposite ends; a disagreement between them would mean one is wrong. The same holds
+for `dead_forbid.dw` minus its DEAD forbid.
+
+
 ### The two shapes of vacuity
 
 | shape | example | why a satisfiability check misses it |
