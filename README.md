@@ -52,7 +52,7 @@ what an agent *does* even when nothing constrains what it decides, so it applies
 coordination pattern rather than one. [`specs/policy/TemporalPolicy`](specs/policy/TemporalPolicy) asks whether a
 session-aware permit can ever grant anything — AWS notes that temporal policies "do not currently
 support the powerful automated reasoning analysis tools that Cedar provides" — and its reading of
-those semantics is held against the reference implementation's own corpus — **776 recorded cases**,
+those semantics is held against the reference implementation's own corpus — **786 recorded cases**,
 covering every temporal operator including the `count`/`sum` aggregations.
 
 ## Which part of Strands this applies to

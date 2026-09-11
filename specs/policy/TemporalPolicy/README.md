@@ -174,7 +174,7 @@ stance every other spec here takes.
   What that costs is that the check needs a compiled binary, so it skips where the corpus half runs
   anywhere.
 - **The differential test covers `DogwoodSemantics.tla`, not this spec.** `formerly within` as read
-  here now agrees with the reference implementation on **776 recorded pairs** — see below. What is
+  here now agrees with the reference implementation on **786 recorded pairs** — see below. What is
   still unchecked is most of what this spec adds on top: the session model and `Granted`. The
   request/response/error recording convention is the exception — the replay harness puts that one
   in front of the engine directly.
@@ -202,7 +202,7 @@ python tests/strands/dogwood_differential.py
 ```
 
 ```
-checked   776 (trace, expected) pairs from 390 cases, in one TLC run
+checked   786 (trace, expected) pairs from 398 cases, in one TLC run
   AGREE
 ```
 
@@ -247,12 +247,12 @@ Nothing is built or run for *this* harness — the expected outputs are recorded
 data. (The replay harness below does build the CLI, under the checks in the reference ledger.)
 Either way no network is touched and no credentials exist.
 
-**The refusal count matters as much as the agreement count.** 131 cases are outside the modelled
+**The refusal count matters as much as the agreement count.** 123 cases are outside the modelled
 subset and are refused rather than approximated, because a translator that quietly mishandles a
 construct yields a disagreement it cannot attribute.
 
-The subset was widened on 2026-09-11, from **654 pairs / 320 cases** to **776 pairs / 390 cases**,
-by adding six constructs:
+The subset was widened on 2026-09-11, from **654 pairs / 320 cases** to **786 pairs / 398 cases**,
+by adding seven constructs:
 
 | construct | example | cases |
 |---|---|---|
@@ -262,9 +262,12 @@ by adding six constructs:
 | an event schema that **pins** a scope field | `pin callerPrincipal: principalType(A) = principal` | 17 |
 | a pin on a nested reserved leaf | `__drupe: { pin session_id: String = context.__drupe.session_id }` | 3 |
 | a pin on a context field | `pin tenant_id: String = context.tenant_id` | 1 |
+| an aggregate body written **without parentheses** | `sum a for (a: Long). where Transfer::request{ input.amount: a }` | 8 |
 
-Two of them needed **no new semantics at all**, which is worth knowing before reaching for the
-evaluator. The `since` one was purely the parser: `DogwoodSemantics` already carried `left` and
+Three of them needed **no new semantics at all**, which is worth knowing before reaching for the
+evaluator. The parentheses one was not a missing feature at all — `aggregate()` did
+`self.expect("(")` unconditionally, so our parser was narrower than the grammar and two whole
+refusal buckets were our own strictness. The `since` one was purely the parser: `DogwoodSemantics` already carried `left` and
 `leftNeg`, and `unary()` had simply committed to reading `!(` as a negated group before anything
 looked for the `since` after it. And `1122_pin_disagree_denies_despite_author_literal` — an author
 literal that contradicts a pin — falls straight out of partitioning, with no rule of its own.
@@ -311,7 +314,7 @@ All six turn the run red. The third and fourth matter most: each is what a reaso
 implementation would do first.
 
 
-**131 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
+**123 cases still stand refused.** Of the 30 schema-bearing cases, 21 now pass and the nine
 that remain contain **no pin at all** -- they are in the corpus for renamed reserved fields, deep
 paths and injected slots, each a separate feature. The rest: macro calls and parameter sigils,
 custom event kinds, deeper `__drupe` paths, `since` nested inside an aggregate body, `count`/`sum`
@@ -329,7 +332,7 @@ rotation_*.dw ──> dogwood_parse ──> RotationPolicies.tla ──┐
 
 The policy is [`rotation_aggregate.dw`](rotation_aggregate.dw) and
 [`rotation_approval.dw`](rotation_approval.dw) — Dogwood text — translated by the same parser whose
-reading agrees with the reference implementation on 776 corpus cases, and evaluated by the same
+reading agrees with the reference implementation on 786 corpus cases, and evaluated by the same
 `DogwoodSemantics!Decide`. Even the cap is lifted from the policy text into `Cap`, so the property
 and the rule cannot disagree about what the limit is.
 
@@ -475,7 +478,7 @@ any .dw ──> dogwood_parse ──> PolicyUnderTest.tla ──┐
                           Vacuity.tla ──────────────┘
 ```
 
-- The **policies** come from the parser that agrees with the reference implementation on 776
+- The **policies** come from the parser that agrees with the reference implementation on 786
   recorded corpus pairs, so what is checked is the policy as written.
 - The **decision** is `DogwoodSemantics!Decide` — the same evaluator, validated against those pairs
   and against the live engine on the `error` scenarios.

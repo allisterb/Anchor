@@ -160,7 +160,7 @@ public class HarnessTests : TestsRuntime
     /// <remarks>
     /// <para>
     /// Nothing here is hand-modelled. The <c>.dw</c> text is parsed by the same parser that agrees
-    /// with the reference implementation on 776 corpus pairs, and evaluated by the same
+    /// with the reference implementation on 786 corpus pairs, and evaluated by the same
     /// <c>DogwoodSemantics!Decide</c>. That is what makes this "hand us a policy and we will
     /// model-check it" rather than "here is a policy we modelled".
     /// </para>

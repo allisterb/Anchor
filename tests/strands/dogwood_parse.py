@@ -24,6 +24,8 @@ Aggregations are covered in the one shape the corpus actually uses:
 
     exists (n: T). ((count for (t: Timepoint). where (phi)) == n && n >= 3)
 
+with the parentheses around `phi` optional -- `where phi` is the same thing.
+
 `phi` is either a temporal term or -- with NO temporal operator anywhere in it -- a bare
 conjunction of atoms, which means "at the decision's own timepoint". An unwrapped aggregate counts
 what is happening now rather than what has happened. The two are told apart by looking for a
@@ -149,7 +151,8 @@ class Parser:
         over = "" if kind == "count" else self.take()
         bs = self.binders()
         self.expect("where")
-        self.expect("(")
+        # Optional: `where (phi)` and `where phi` are the same thing, and the corpus writes both.
+        parens = self.accept("(")
 
         if self.body_has_temporal():
             cond = self.expr()
@@ -161,7 +164,8 @@ class Parser:
             cond = {"op": "term",
                     "term": {"op": "at", "window": 0, "atom": at, "left": at, "leftNeg": False}}
 
-        self.expect(")")
+        if parens:
+            self.expect(")")
         return {"kind": kind, "over": over, "binders": bs, "cond": cond}
 
     def atom_conj(self) -> dict:
