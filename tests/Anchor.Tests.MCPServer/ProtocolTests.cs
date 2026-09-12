@@ -143,6 +143,39 @@ public class ProtocolTests : TestsRuntime, IAsyncLifetime
             $"a path escaping the project was not refused: {text}");
     }
 
+    /// <summary>
+    /// The describe tool is reachable and cheap. Its whole value is being called BEFORE a property
+    /// module is written, so a tool an agent cannot find is a tool that does not exist.
+    /// </summary>
+    [PolicyCheck]
+    public async Task DescribePolicyModuleIsReachableAndFast()
+    {
+        await using var client = await NewClientAsync();
+
+        var tools = await client.ListToolsAsync();
+        var describe = Assert.Single(tools, t => t.Name == "DescribePolicyModule");
+        Assert.Contains("Num(22)", describe.Description ?? "");
+
+        var started = DateTime.UtcNow;
+        var r = await client.CallToolAsync("DescribePolicyModule", new Dictionary<string, object?>
+        {
+            ["policy"] = "tests/policies/firewall.dw"
+        });
+        var elapsed = DateTime.UtcNow - started;
+
+        Assert.True(r.IsError != true, Text(r));
+
+        var text = Text(r);
+        Assert.Contains("Connect", text);
+        Assert.Contains("skeleton", text);
+        Assert.Contains("PolicyUnderTest", text);
+
+        // No TLC, so this is parsing only. Ten seconds is loose enough for a cold process start and
+        // still catches a regression that made this run the model checker.
+        Assert.True(elapsed < TimeSpan.FromSeconds(10),
+            $"describe took {elapsed.TotalSeconds:0.#}s; it should not be running TLC");
+    }
+
     async Task<McpClient> NewClientAsync()
     {
         var transport = new HttpClientTransport(

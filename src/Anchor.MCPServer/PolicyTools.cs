@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -98,17 +99,76 @@ public partial class PolicyTools : Runtime
         }
 
         var run = r.Value;
-
-        // Exit 2 is the house refusal: the policy uses something outside the modelled subset, and
-        // the checker declines rather than approximating. Surfaced as its own state so an agent
-        // does not read "no findings" as "nothing wrong".
-        if (!run.Succeeded)
+        if (!Answered(run))
         {
             return new PolicyCheckResult(false, null, [], run.Output,
                 Refusal(run.ErrorOutput) ?? $"the checker exited {run.ExitCode}: {run.ErrorOutput.Trim()}");
         }
 
         return new PolicyCheckResult(true, Reading(run.Output), [.. Findings(run.Output)], run.Output, null);
+    }
+
+    [McpServerTool(Name = "DescribePolicyModule")]
+    [Description(
+        "Describes what a custom TLA+ property module may name for one policy, and returns a " +
+        "skeleton module that already runs. Use this BEFORE writing anything for `CheckPolicy`'s " +
+        "`property` argument -- that argument asks you to write TLA+ against a module Anchor " +
+        "GENERATES from the policy, and its vocabulary is derived from that policy's own text, so " +
+        "it cannot be guessed.\n\n" +
+        "The reply gives the action names, the input and output field names with each field's " +
+        "domain, the pin keys, the rule list, and the tagged-value constructors. Values are " +
+        "TAGGED: write `Num(22)`, never `22`, and an address is four octets via `Addr(a,b,c,d)` " +
+        "because TLC works in Java ints and cannot hold one as a 32-bit number.\n\n" +
+        "THE TRAP THIS EXISTS TO PREVENT. There is deliberately no `Inputs` set to quantify over. " +
+        "A request space derived from the policy's own literals cannot test a claim about a value " +
+        "the policy never mentions -- the value is absent from the vocabulary, so the claim ranges " +
+        "over nothing and PASSES having examined nothing. State the requests your claim is about, " +
+        "including values the policy never names. `plusOneValueThePolicyNeverNames` tells you the " +
+        "model already admits one such value internally, but it is not writable.\n\n" +
+        "Cheap: this parses only and runs no TLC, so it returns in well under a second. Unlike " +
+        "CheckPolicy, it answers nothing about whether the policy is correct.")]
+    public async Task<PolicyModuleDescription> DescribePolicyModuleAsync(
+        [Description("Path to the .dw policy file, relative to the project directory.")] string policy,
+        [Description("Path to the .dwschema event schema. It changes the vocabulary -- a universal pin adds partition keys -- so pass it whenever one exists.")] string? eventSchema = null,
+        [Description("Numeric domain for input fields, 1..N (default 2). Widens the domains reported here.")] int? amount = null,
+        [Description("Refuse a policy reading more than N input/output fields (default 4).")] int? maxFields = null,
+        CancellationToken cancellationToken = default)
+    {
+        var args = new List<string> { Resolve(policy, nameof(policy)), "--describe" };
+
+        Add(args, "--event-schema", eventSchema, nameof(eventSchema));
+        if (amount is int m) args.AddRange(["--amount", m.ToString()]);
+        if (maxFields is int f) args.AddRange(["--max-fields", f.ToString()]);
+
+        // No TLC here, so a minute is already generous; a policy that takes longer than this to
+        // PARSE is a bug rather than a big model.
+        var r = await PythonProcess.RunAsync(CheckerScript, [.. args], root: AnchorRoot,
+            timeout: TimeSpan.FromMinutes(1), ct: cancellationToken);
+
+        if (!r.IsSuccess)
+        {
+            return new PolicyModuleDescription(false, null, r.Message ?? "the checker could not be run");
+        }
+
+        var run = r.Value;
+        if (!Answered(run))
+        {
+            return new PolicyModuleDescription(false, null,
+                Refusal(run.ErrorOutput) ?? $"the checker exited {run.ExitCode}: {run.ErrorOutput.Trim()}");
+        }
+
+        // Passed through rather than re-modelled in C#. The checker emits this document, so a field
+        // added there reaches the agent without a second definition here to keep in step — the kind
+        // of drift the rest of this project spends its tests preventing.
+        try
+        {
+            return new PolicyModuleDescription(true, JsonSerializer.Deserialize<JsonElement>(run.Output), null);
+        }
+        catch (JsonException e)
+        {
+            return new PolicyModuleDescription(false, null,
+                $"the checker's --describe output was not valid JSON: {e.Message}");
+        }
     }
 
     /// <summary>The rule-by-rule findings in the checker's output.</summary>
@@ -147,6 +207,22 @@ public partial class PolicyTools : Runtime
               "the shipped default partitions by principal, under which a rule reported live here may never fire"
             : null;
     }
+
+    /// <summary>Did the checker reach a verdict, whatever the verdict was?</summary>
+    /// <remarks>
+    /// The checker's exit code says whether it ANSWERED, not whether the answer was good news:
+    /// <list type="bullet">
+    /// <item><c>0</c> — answered. Covers findings: a VACUOUS permit, a DEAD forbid, two policies
+    /// that differ. A finding is not an error.</item>
+    /// <item><c>1</c> — answered, and a <c>--property</c> claim is BROKEN. The most useful answer
+    /// the tool can give, and the reason this is not "nonzero means failure": treating it as a
+    /// failure reports a policy that provably violates its own stated meaning as a tool that would
+    /// not run.</item>
+    /// <item><c>2</c> — did NOT answer. The file is missing, or the policy is outside the modelled
+    /// subset and the checker refused rather than approximating.</item>
+    /// </list>
+    /// </remarks>
+    static bool Answered(PythonRun run) => run.ExitCode != DidNotAnswer;
 
     static string? Refusal(string stderr)
     {
@@ -187,6 +263,9 @@ public partial class PolicyTools : Runtime
     /// <summary>Relative to the Anchor root, which is where <see cref="PythonProcess"/> runs it.</summary>
     public const string CheckerScript = "src/checker/properties.py";
 
+    /// <summary>The one exit code that means no verdict was reached. See <c>Answered</c>.</summary>
+    public const int DidNotAnswer = 2;
+
     #endregion
 }
 
@@ -207,3 +286,9 @@ public record PolicyCheckResult(
     /// <summary>Rules that are not load-bearing. Empty on a policy where every rule matters.</summary>
     public IEnumerable<RuleFinding> Inert => Findings.Where(f => f.Verdict != "live");
 }
+
+/// <summary>
+/// What a property module may name for one policy. <paramref name="Module"/> is the checker's own
+/// <c>--describe</c> document, passed through verbatim.
+/// </summary>
+public record PolicyModuleDescription(bool Answered, JsonElement? Module, string? Error);

@@ -29,6 +29,7 @@ The bound is real: VACUOUS means "no session of up to `--attempts` attempts make
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import sys
@@ -200,6 +201,173 @@ def violated_by(out: str) -> list[str]:
     return found
 
 
+
+# ---------------------------------------------------------------------------- describe
+KIND_NAMES = {"s": "string", "n": "integer", "b": "boolean", "a": "address"}
+
+# The string `field_domain` appends so that "does not match" is reachable. A NUL byte, chosen so it
+# cannot collide with a real value -- which also makes it something no author can type. It is
+# DESCRIBED below, never offered as a literal to write.
+UNNAMED = "\u0000none"
+
+
+def writable(domain: list) -> list:
+    """The domain without the sentinel."""
+    return [(k, v) for k, v in domain if not (k == "s" and v == UNNAMED)]
+
+
+def constructor(kind: str, value) -> str:
+    """One value as a property module must WRITE it. `22` is not a value here; `Num(22)` is."""
+    if kind == "b":
+        return f'Bool({"TRUE" if value else "FALSE"})'
+    if kind == "n":
+        return f"Num({value})"
+    if kind == "a":
+        return f'Addr({", ".join(str(o) for o in value)})'
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'Str("{escaped}")'
+
+
+def skeleton(name: str, policies: list[dict], vocab: dict) -> str:
+    """A property module that compiles and checks something, for the author to edit.
+
+    Deliberately not a stub with holes. A skeleton that does not run teaches nothing about whether
+    the harness is wired correctly, and the wiring -- EXTENDS, the INSTANCE, the shape of Decide's
+    arguments -- is the part nobody can guess.
+    """
+    action = sorted(vocab["actions"])[0] if vocab["actions"] else "Act"
+    fields = sorted(vocab["input"])
+
+    if fields:
+        # Named explicitly rather than drawn from InputDomain: see the warning below. The sentinel
+        # is dropped -- it exists to make non-matching reachable inside the model, and an author
+        # who wants that here writes a value of their own.
+        sets = "\n".join(
+            f'{f}Values == {{' + ", ".join(constructor(k, v)
+                                           for k, v in writable(vocab["domains"][("input", f)])) + "}"
+            for f in fields)
+        binds = ", ".join(f"{f} \\in {f}Values" for f in fields)
+        rec = ", ".join(f"{f} |-> {f}" for f in fields)
+        requests = f"{sets}\n\nRequests == {{[{rec}] : {binds}}}"
+        claim = (f"\\* EDIT THIS. It says the policy grants every request named above, which is\n"
+                 f"\\* almost certainly not what {name}.dw means.\n"
+                 f"EverythingIsGranted == Grants(req)")
+    else:
+        requests = ('\\* This policy reads no input fields, so one request is the whole space.\n'
+                    'Requests == {[f \\in {} |-> Str("")]}')
+        claim = "EverythingIsGranted == Grants(req)"
+
+    return f"""---------------------------- MODULE {name} ----------------------------
+\\* What {name}.dw is SUPPOSED to mean, stated by its author. The three built-in findings
+\\* (VACUOUS, REDUNDANT/DEAD, diff) are the claims statable WITHOUT knowing intent; this is the
+\\* other kind, and only the author can write it.
+\\*
+\\* Check it with:  python src/checker/properties.py {name}.dw --property {name}.tla
+EXTENDS Integers, Sequences, FiniteSets, PolicyUnderTest
+
+D == INSTANCE DogwoodSemantics WITH Cases <- << >>
+
+\\* The verdict for one request. No session: "what does this policy decide for this request" is
+\\* not a temporal question, so there is no state machine beyond holding one request still.
+Grants(input) == D!Decide(<<Request("{action}", input)>>, Policies, 1, AllValues)
+
+(***************************************************************************)
+(* THE REQUESTS THIS CLAIM IS ABOUT.                                       *)
+(*                                                                         *)
+(* Written out rather than derived from InputDomain, and that is the       *)
+(* point. A space derived from the policy's own literals cannot test a     *)
+(* claim about a value the policy never mentions: delete the rule that     *)
+(* names a value and it vanishes from the vocabulary, so the claim ranges  *)
+(* over nothing and PASSES having looked at nothing.                       *)
+(*                                                                         *)
+(* Add the values your claim is about, including ones this policy never    *)
+(* mentions.                                                               *)
+(***************************************************************************)
+{requests}
+
+\\* One request, chosen nondeterministically and held, so a violation's counterexample NAMES the
+\\* request that breaks the claim rather than merely reporting that one exists.
+VARIABLE req
+Init == req \\in Requests
+Next == UNCHANGED req
+Spec == Init /\\ [][Next]_req
+
+(***************************************************************************)
+(* THE CLAIM.                                                              *)
+(***************************************************************************)
+{claim}
+
+=============================================================================
+"""
+
+
+def describe(args, policies: list[dict], vocab: dict, schema: dict, reading: str) -> int:
+    """Everything a property module may name, as JSON, plus a skeleton that already runs."""
+    name = args.policy.stem
+
+    def side(which):
+        out = []
+        for f in sorted(vocab[which]):
+            domain = vocab["domains"][(which, f)]
+            kept = writable(domain)
+            out.append({
+                "name": f,
+                "kind": KIND_NAMES.get(domain[0][0], "unknown"),
+                "domain": [constructor(k, v) for k, v in kept],
+                # The model admits one more value than the policy names, so that a condition
+                # failing to match is reachable. Not writable -- for a string it is a NUL byte --
+                # so it is reported rather than offered.
+                "plusOneValueThePolicyNeverNames": len(kept) != len(domain),
+            })
+        return out
+
+    doc = {
+        "source": args.policy.name,
+        "reading": reading,
+        "module": "PolicyUnderTest",
+        "actions": sorted(vocab["actions"]),
+        "kinds": sorted(vocab["kinds"] | {DECISION_KIND}),
+        "decisionKind": DECISION_KIND,
+        "inputFields": side("input"),
+        "outputFields": side("output"),
+        "pinKeys": schema["keys"],
+        "rules": [{"index": i, "effect": p["effect"], "actions": p["actions"] or ["(any)"]}
+                  for i, p in enumerate(policies, 1)],
+        "operators": {
+            "Request(action, input)": "one request as the evaluator reads it",
+            "Policies": "the rule set, as the sequence Decide evaluates",
+            "AllValues": "every value any field may take -- Decide's last argument",
+            "InputDomain": "[field |-> {values}] for the fields above",
+            "OutputDomain": "[field |-> {values}] for the output fields",
+            "PinKeys": "the fields a universal pin partitions on; empty means global-trace",
+        },
+        "constructors": {
+            "Str(x)": "a string",
+            "Num(x)": "an integer",
+            "Bool(x)": "TRUE or FALSE",
+            "Addr(a, b, c, d)": "an address, FOUR OCTETS -- TLC works in Java ints, so "
+                                "208.4.4.0 as 3489924096 is not a value it can hold",
+            "Anon": "the anonymous principal/resource/session a per-request claim uses",
+        },
+        "rules_for_writing_one": [
+            "EXTENDS PolicyUnderTest, and instantiate DogwoodSemantics with Cases <- << >>.",
+            "Scalars are TAGGED. Write Num(22), never 22 -- TLC refuses a cross-kind comparison "
+            "rather than quietly answering one.",
+            "There is no Inputs. State the requests your claim is about, including values this "
+            "policy never mentions, or the claim may range over nothing and pass.",
+            "The .cfg must name SPECIFICATION Spec and every INVARIANT. A property nobody listed "
+            "is a property nobody checked.",
+        ],
+        "skeleton": skeleton(name, policies, vocab),
+        "config": ("SPECIFICATION Spec\n\n"
+                   "\\* Naming the claims is deliberate. A property nobody listed is a property\n"
+                   "\\* nobody checked.\n"
+                   "INVARIANT EverythingIsGranted\n"),
+    }
+    print(json.dumps(doc, indent=2))
+    return 0
+
+
 # ---------------------------------------------------------------------------- entry
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -221,6 +389,10 @@ def main() -> int:
                     help="the event schema the policy is deployed under. Without it every answer "
                          "assumes the UNPINNED reading, which is not the shipped default")
     ap.add_argument("--verbose", action="store_true", help="print the TLC output for each permit")
+    ap.add_argument("--describe", action="store_true",
+                    help="print, as JSON, what a --property module extending PolicyUnderTest may "
+                         "name for this policy -- actions, fields, domains, constructors -- plus a "
+                         "skeleton module that already runs. Checks nothing")
     args = ap.parse_args()
 
     for f in (args.policy, args.against):
@@ -262,14 +434,21 @@ def main() -> int:
     # Say which reading produced the answers. Leaving it implicit is how a verdict computed for
     # `unpinned` gets read as one for the deployed configuration.
     if schema["keys"]:
-        print(f"under {args.event_schema.name}: partitioned by "
-              f"{', '.join(schema['keys'])} -- a temporal predicate sees only its own partition\n")
+        reading = (f"under {args.event_schema.name}: partitioned by "
+                   f"{', '.join(schema['keys'])} -- a temporal predicate sees only its own partition")
     elif args.event_schema is not None:
-        print(f"under {args.event_schema.name}: no universal pin, so global-trace semantics\n")
+        reading = f"under {args.event_schema.name}: no universal pin, so global-trace semantics"
     else:
-        print("no --event-schema given, so every answer below assumes the UNPINNED reading\n"
-              "  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n"
-              "  reported live here may never fire.\n")
+        reading = ("no --event-schema given, so every answer below assumes the UNPINNED reading\n"
+                   "  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n"
+                   "  reported live here may never fire.")
+
+    # Before the preamble is printed, because the description is JSON and a prose line above it
+    # would make the whole document unparseable.
+    if args.describe:
+        return describe(args, policies, vocab, schema, reading)
+
+    print(reading + "\n")
 
     if args.property_module is not None:
         return prove(args, policies, vocab, schema["keys"])

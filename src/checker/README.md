@@ -7,6 +7,7 @@ asking TLC questions the policy text cannot answer about itself.
 python src/checker/properties.py tests/policies/docs_trading.dw
 python src/checker/properties.py a.dw --against b.dw
 python src/checker/properties.py firewall.dw --property firewall.tla
+python src/checker/properties.py firewall.dw --describe    # what a --property module may name
 ```
 
 ## Two kinds of property, and the difference is who can state it

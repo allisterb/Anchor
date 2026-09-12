@@ -46,9 +46,20 @@ wearing a verifier's name. Containment applies to reads for that reason, not onl
 
 ## Tools
 
-| tool | answers |
-|---|---|
-| `CheckPolicy` | is each rule load-bearing — VACUOUS, REDUNDANT, DEAD or live; `against` for a diff; `property` for a claim of your own |
+| tool | answers | cost |
+|---|---|---|
+| `CheckPolicy` | is each rule load-bearing — VACUOUS, REDUNDANT, DEAD or live; `against` for a diff; `property` for a claim of your own | seconds to minutes (TLC once per rule) |
+| `DescribePolicyModule` | what a `property` module may name for this policy, plus a skeleton that already runs | well under a second (parses only) |
+
+`DescribePolicyModule` exists because `CheckPolicy`'s `property` argument asks an author to write
+TLA+ against a module we GENERATE, whose vocabulary comes from that policy's own text. It cannot be
+guessed, and a guess that parses is worse than one that does not: name a field the policy never
+reads and the claim ranges over nothing and PASSES, reporting success having examined nothing.
+
+The skeleton is not a stub with holes. It elaborates and checks something, because the wiring —
+`EXTENDS`, the `DogwoodSemantics` instantiation, the shape of `Decide`'s arguments — is exactly the
+part nobody can guess, and a skeleton that does not run teaches nothing about whether it is right.
+Its claim is deliberately wrong so that running it produces a violation naming a real request.
 
 The descriptions are written for the model that reads them rather than as API docs. Three things
 they carry deliberately, because a verdict repeated without them is more confident than it deserves:
@@ -58,6 +69,20 @@ they carry deliberately, because a verdict repeated without them is more confide
   and the shipped default partitions history by principal;
 - **a refusal is not a pass** — a policy outside the modelled subset comes back with `Answered`
   false and a reason, which is a different thing from a policy with no findings.
+
+## The checker's exit code says whether it ANSWERED
+
+Not whether the news was good, and the distinction is load-bearing enough to have already caused
+one bug here:
+
+| | |
+|---|---|
+| `0` | answered. A VACUOUS permit or a DEAD forbid is a **finding**, not an error |
+| `1` | answered, and a `--property` claim is **BROKEN** — the most useful answer the tool gives |
+| `2` | did **not** answer: the file is missing, or the policy is outside the modelled subset and the checker refused rather than approximating |
+
+Treating "nonzero" as failure reported a policy that provably violates its own stated meaning as a
+tool that would not run. `PolicyTools.Answered` is the one place this is decided.
 
 ## Tests
 
