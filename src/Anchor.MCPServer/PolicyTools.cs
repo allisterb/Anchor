@@ -109,17 +109,19 @@ public partial class PolicyTools : Runtime
         {
             // The checker could not be RUN. Distinct from a policy it declined to answer about, and
             // the distinction matters: one is our problem and the other is the policy's.
-            return new PolicyCheckResult(false, null, [], "", r.Message ?? "the checker could not be run");
+            return new PolicyCheckResult(false, null, [], "", r.Message ?? "the checker could not be run", null);
         }
 
         var run = r.Value;
         if (!Answered(run))
         {
             return new PolicyCheckResult(false, null, [], run.Output,
-                Refusal(run.ErrorOutput) ?? $"the checker exited {run.ExitCode}: {run.ErrorOutput.Trim()}");
+                Refusal(run.ErrorOutput) ?? $"the checker exited {run.ExitCode}: {run.ErrorOutput.Trim()}",
+                run.ExitCode);
         }
 
-        return new PolicyCheckResult(true, Reading(run.Output), [.. Findings(run.Output)], run.Output, null);
+        return new PolicyCheckResult(true, Reading(run.Output), [.. Findings(run.Output)], run.Output, null,
+            run.ExitCode);
     }
 
     [McpServerTool(Name = "DescribePolicyModule")]
@@ -295,8 +297,16 @@ public record PolicyCheckResult(
     string? Reading,
     IReadOnlyList<RuleFinding> Findings,
     string Output,
-    string? Error)
+    string? Error,
+    int? ExitCode = null)
 {
+    /// <summary>
+    /// A <c>property</c> claim was checked and is VIOLATED. The most useful answer the checker
+    /// gives, so it is carried rather than left to be read back out of the text. A null
+    /// <paramref name="ExitCode"/> means the checker never ran at all.
+    /// </summary>
+    public bool PropertyBroken => ExitCode == 1;
+
     /// <summary>Rules that are not load-bearing. Empty on a policy where every rule matters.</summary>
     public IEnumerable<RuleFinding> Inert =>
         Findings.Where(f => f.Verdict is not ("live" or "unknown"));

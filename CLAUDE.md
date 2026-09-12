@@ -63,7 +63,9 @@ Anchir is an entry into the Amazon Agents for Humans Hackathon: https://agentsfo
 * Anchor is written in C# and Python and organized into the following sub-projects: 
     - Anchor.Runtime at src/Anchor.Runtime provides global base types and features like logging for all other projects.    
     - Anchor.Verifiers.Dafny at src/Anchor.Verifiers.Dafny provides the Dafny verifier and language server.
-    - Anchor.Verifiers.TLAPlus at src/Anchor.Verifiers.TLAPlus provides access to the TLA+ verifier.     
+    - Anchor.Verifiers.TLAPlus at src/Anchor.Verifiers.TLAPlus provides access to the TLA+ verifier.
+    - Anchor.MCPServer at src/Anchor.MCPServer is the MCP server: the policy checker and the knowledge base as tools and resources. A **library** — it has no entry point of its own.
+    - Anchor.CLI at src/Anchor.CLI is the only executable, built as `anchor`. Verb-dispatched, `server` by default. Under stdio it logs to file only, because stdout carries MCP frames.
     - Anchor.Tests.Verifiers at tests/Anchor.Tests.Verifiers provides unit tests for verifiers.
     - specs contains TLA+ specifications for modeling Strands agent workflows.
     - docs contains documentation for the Anchor framework and its sub-projects. All agent docs should live in docs/agent.

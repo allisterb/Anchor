@@ -1,0 +1,104 @@
+namespace Anchor.CLI;
+
+using CommandLine;
+
+/// <summary>Flags every verb accepts.</summary>
+public class Options
+{
+    #region Properties
+
+    [Option("debug", Required = false, HelpText = "Debug-level logging, and to the console as well as the log file.")]
+    public bool Debug { get; set; }
+
+    [Option("anchor-root", Required = false,
+        HelpText = "The Anchor tree the Python checker runs from. Defaults to $ANCHOR_ROOT, then the enclosing checkout.")]
+    public string AnchorRoot { get; set; } = string.Empty;
+
+    [Option("project-dir", Required = false,
+        HelpText = "The directory paths are resolved inside; a path escaping it is refused. WITHOUT IT " +
+                   "THERE IS NO CONTAINMENT — any path the caller names is read as given. Pass it when serving an agent.")]
+    public string ProjectDir { get; set; } = string.Empty;
+
+    #endregion
+}
+
+/// <summary>
+/// Start the MCP server. The default verb, because that is how an MCP host launches this binary.
+/// </summary>
+/// <remarks>
+/// Default in the <c>CommandLineParser</c> sense — a host invoking <c>anchor server</c> gets here,
+/// and so would a host passing only flags. A completely bare invocation is turned into
+/// <c>--help</c> by <c>Program</c>; see the note there for why.
+/// </remarks>
+[Verb("server", isDefault: true, HelpText = "Start the Anchor MCP server in stdio or HTTP mode.")]
+public class ServerOptions : Options
+{
+    #region Properties
+
+    [Option("http", Required = false, HelpText = "Serve over HTTP instead of the default stdio.")]
+    public bool Http { get; set; }
+
+    [Option("port", Required = false, HelpText = "HTTP listening port (default: 8080).")]
+    public int? Port { get; set; }
+
+    #endregion
+}
+
+/// <summary>Model-check a Dogwood policy.</summary>
+[Verb("check", HelpText =
+    "Model-check a Dogwood policy, rule by rule: is each one load-bearing, or is it VACUOUS, " +
+    "REDUNDANT or DEAD? Runs TLC once per rule, so expect seconds. Exit codes are the checker's " +
+    "own: 0 answered, 1 a --property claim is BROKEN, 2 no verdict, 3 the checker could not be run.")]
+public class CheckOptions : Options
+{
+    #region Properties
+
+    [Value(0, MetaName = "policy", Required = true, HelpText = "Path to the .dw policy file.")]
+    public string Policy { get; set; } = string.Empty;
+
+    [Option("against", Required = false, MetaValue = "OTHER.dw",
+        HelpText = "A second .dw file. Reports a session the two policies decide DIFFERENTLY instead " +
+                   "of checking each rule — the question to ask before replacing a policy.")]
+    public string Against { get; set; } = string.Empty;
+
+    [Option("event-schema", Required = false, MetaValue = "FILE.dwschema",
+        HelpText = "The .dwschema the policy is deployed under. PASS IT IF YOU HAVE ONE: without it " +
+                   "every answer assumes the unpinned reading, which is not the shipped default.")]
+    public string EventSchema { get; set; } = string.Empty;
+
+    [Option("property", Required = false, MetaValue = "FILE.tla",
+        HelpText = "Your own claim about what the policy means, as a TLA+ module extending " +
+                   "PolicyUnderTest, with a companion .cfg naming its invariants.")]
+    public string Property { get; set; } = string.Empty;
+
+    [Option("attempts", Required = false,
+        HelpText = "Session length bound (default 3). This is the number that makes a VACUOUS verdict provisional.")]
+    public int? Attempts { get; set; }
+
+    [Option("amount", Required = false, HelpText = "Numeric domain for input fields, 1..N (default 2).")]
+    public int? Amount { get; set; }
+
+    [Option("max-fields", Required = false,
+        HelpText = "Refuse a policy reading more than N input/output fields (default 4). The request " +
+                   "space is the product of their domains.")]
+    public int? MaxFields { get; set; }
+
+    /// <summary>
+    /// Takes a number rather than being a bare switch with a default. CommandLineParser has no
+    /// optional-value option, and faking one by rewriting argv before parsing is the hand-rolled
+    /// parsing this file exists to remove. 1000 is the number to reach for.
+    /// </summary>
+    [Option("smoke", Required = false, MetaValue = "N",
+        HelpText = "Random walk of N behaviours instead of exhaustive search; try 1000. Reports only " +
+                   "`live` or `unknown`, never VACUOUS/REDUNDANT/DEAD — those are claims of absence, " +
+                   "which a random walk cannot establish.")]
+    public int? Smoke { get; set; }
+
+    [Option("verbose", Required = false, HelpText = "Include the raw TLC output for each rule.")]
+    public bool Verbose { get; set; }
+
+    [Option("timeout", Required = false, HelpText = "Seconds before giving up (default 600).")]
+    public int? Timeout { get; set; }
+
+    #endregion
+}

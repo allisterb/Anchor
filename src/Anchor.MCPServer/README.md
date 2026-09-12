@@ -3,11 +3,50 @@
 [`checker`](../checker) answers questions about a policy from a command line. This exposes those
 answers as MCP tools, over stdio for a host on a developer's machine and over HTTP for a container.
 
+Launched by [`Anchor.CLI`](../Anchor.CLI), which is the only executable — this project is a
+library. It had its own `Program.cs` once, which meant two entry points to the same server and two
+argument parsers to keep in step.
+
 ```bash
-dotnet run --project src/Anchor.MCPServer                            # stdio (default)
-dotnet run --project src/Anchor.MCPServer -- --http --port 8080      # HTTP
-dotnet run --project src/Anchor.MCPServer -- --project-dir ./policies
+anchor server                               # MCP server over stdio
+anchor server --http --port 8080            # HTTP
+anchor server --project-dir ./policies
+
+anchor check policy.dw                      # the same checker, without an agent
+anchor check a.dw --against b.dw
+anchor check policy.dw --property claim.tla
 ```
+
+`server` is the default verb, so a host may pass only flags. A **bare** `anchor` prints help
+instead: a person typing it otherwise got a process waiting silently on stdin, indistinguishable
+from a hang, printing nothing because stdio keeps stdout clear for protocol frames.
+
+`check` reaches `PolicyTools` directly rather than over the protocol, so the CLI and the MCP tool
+cannot answer differently. Its exit code is the checker's own — `0` answered, `1` a `--property`
+claim is BROKEN, `2` no verdict, `3` the checker could not be run — so a script can branch on the
+same values the Python entry point gives it.
+
+## Under stdio, stdout is the protocol
+
+A single log line written to standard output corrupts the session, and the symptom is a host
+reporting a malformed response — nothing that names logging. Three defences, not one:
+
+| | |
+|---|---|
+| the log sink is chosen from the verb **before anything can write** | stdio gets a file sink |
+| `HelpWriter` is standard error | a usage message from a malformed launch does not land on a host expecting JSON-RPC |
+| `Console.Out` is redirected to standard error for the stdio session | a stray `Console.WriteLine` anywhere beneath us goes somewhere harmless |
+
+The third is the interesting one, and it works because **the MCP transport writes frames through the
+raw standard-output handle**, which redirecting the `TextWriter` does not touch. Verified both ways:
+the transport still works, and a deliberate `Console.WriteLine` placed after the redirect does not
+reach stdout.
+
+`StdioTransportTests.NothingButProtocolReachesStdout` launches the real binary and parses **every**
+line it writes. That assertion is deliberate rather than incidental: a stray `Console.WriteLine`
+added to the stdio path was survived by two tests that drove full MCP sessions through a real
+client, because the client skips lines it cannot parse. A working session proves the frames
+arrived, not that they arrived alone.
 
 ## One registration, two transports
 

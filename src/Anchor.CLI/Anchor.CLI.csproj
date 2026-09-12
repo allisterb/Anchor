@@ -5,11 +5,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>Anchor.CLI</RootNamespace>
+
+    <!-- The binary a host launches, so `anchor version` should agree with the file it printed from.
+         Mapped to the shared property in Directory.Build.props rather than restated. -->
+    <AssemblyName>anchor</AssemblyName>
+    <AssemblyVersion>$(ProjectAssemblyVersion)</AssemblyVersion>
+    <FileVersion>$(ProjectAssemblyVersion)</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Anchor.MCPServer\Anchor.MCPServer.csproj" />
     <ProjectReference Include="..\Anchor.Runtime\Anchor.Runtime.csproj" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" />
   </ItemGroup>
 
 </Project>

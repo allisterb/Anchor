@@ -27,6 +27,22 @@ it by convention, so there is nowhere else to put them. The split is not arbitra
 | `Packages.props` | which version is **asked for** | here, with the other toolchains |
 | `packages.lock.json` | that what **arrives** is what arrived last time, by `contentHash` | beside each project |
 
+**`dotnet restore` does not recompute a lock; it updates one.** That distinction cost 47 entries to
+discover. The committed locks were carrying packages that .NET 10 now PRUNES as framework-provided
+(`Microsoft.NETCore.Platforms`, `System.Collections`, `System.Memory` and the rest of the
+netstandard shim graph) — pinned in the file, never restored in practice. `dotnet restore
+--force-evaluate` recomputes from the project files and drops them, and locked-mode restore then
+still passes, which is what says the smaller graph is the real one.
+
+So: after changing target frameworks, the SDK, or anything about how the graph is built, run
+
+```bash
+dotnet restore Anchor.sln --force-evaluate
+```
+
+and review the diff. An ordinary restore will happily leave a lock describing a graph that no longer
+exists.
+
 Changing a version here is expected to change a lock file. That diff is the thing to review.
 
 A `Directory.Packages.props` still sits at the repository root, because NuGet discovers central

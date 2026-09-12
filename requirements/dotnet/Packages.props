@@ -18,11 +18,25 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
 
-    <!-- Transitive dependencies are already pinned by the lock files, so this is belt and braces:
-         it makes a transitive version we have deliberately chosen a declared fact rather than
-         whatever the graph resolved to. Off for now because nothing here needs it — turning it on
-         requires a PackageVersion for every transitive package we want to hold, which is a claim we
-         would then have to maintain. -->
+    <!-- Transitive dependencies are already pinned by the lock files, so this would be belt and
+         braces: it makes a transitive version we have deliberately chosen a declared fact rather
+         than whatever the graph resolved to.
+
+         Off, and the reason is sharper than "not needed yet". Turning it on makes a PackageVersion
+         here bind TRANSITIVE references too, which is only safe if every such version is one we
+         actually want everything to use.
+
+         This was demonstrated rather than assumed. While `System.CommandLine` 2.0.10 was briefly a
+         direct dependency of Anchor.CLI, `DafnyPipeline` was pulling in 2.0.0-beta4.22272.1 —
+         substantially different APIs — and Anchor.Verifiers.Dafny's lock recorded the package as
+         `CentralTransitive`, `requested: [2.0.10, )`, `resolved: 2.0.0-beta4.22272.1`. With this
+         flag false the two coexisted and Dafny kept the assembly it was compiled against; turning
+         it on would have forced Dafny up and handed it an API it never saw. That direct dependency
+         is gone now (the CLI uses CommandLineParser), so the clash is not live — but the shape of
+         it is what this flag does, and Dafny still carries that beta4 transitively.
+
+         So: before enabling this, check what each PackageVersion would drag a transitive reference
+         onto. -->
     <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
@@ -52,6 +66,12 @@
     <PackageVersion Include="ModelContextProtocol" Version="1.4.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
   </ItemGroup>
+  
+  <!-- CLI -->
+  <ItemGroup Label="CLI">
+     <PackageVersion Include="CommandLineParser" Version="2.9.1" />
+  </ItemGroup>	 
+
 
   <!-- Test-only. -->
   <ItemGroup Label="Tests">

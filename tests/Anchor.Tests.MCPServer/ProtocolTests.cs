@@ -156,12 +156,10 @@ public class ProtocolTests : TestsRuntime, IAsyncLifetime
         var describe = Assert.Single(tools, t => t.Name == "DescribePolicyModule");
         Assert.Contains("Num(22)", describe.Description ?? "");
 
-        var started = DateTime.UtcNow;
         var r = await client.CallToolAsync("DescribePolicyModule", new Dictionary<string, object?>
         {
             ["policy"] = "tests/policies/firewall.dw"
         });
-        var elapsed = DateTime.UtcNow - started;
 
         Assert.True(r.IsError != true, Text(r));
 
@@ -170,10 +168,15 @@ public class ProtocolTests : TestsRuntime, IAsyncLifetime
         Assert.Contains("skeleton", text);
         Assert.Contains("PolicyUnderTest", text);
 
-        // No TLC, so this is parsing only. Ten seconds is loose enough for a cold process start and
-        // still catches a regression that made this run the model checker.
-        Assert.True(elapsed < TimeSpan.FromSeconds(10),
-            $"describe took {elapsed.TotalSeconds:0.#}s; it should not be running TLC");
+        // NO WALL-CLOCK ASSERTION HERE, deliberately. There was one — "under ten seconds, so it
+        // cannot be running TLC" — and it failed once inside the full parallel suite while passing
+        // in 615 ms alone. Raising the bound would not have fixed it: an exhaustive check of this
+        // same policy takes about five seconds, so any bound loose enough to survive a loaded
+        // machine is also loose enough to let a model-checking regression through. The assertion
+        // could not distinguish what it claimed to even when it passed.
+        //
+        // That this tool parses only is documented, not asserted. A flaky test costs more than a
+        // guard that never worked.
     }
 
     /// <summary>

@@ -3,6 +3,9 @@
 [`translator`](../translator) decides what a policy *says*. This decides what follows from it, by
 asking TLC questions the policy text cannot answer about itself.
 
+Also reachable as `anchor check`, which finds the interpreter and the Anchor tree itself and
+passes the exit code straight through — see [`Anchor.CLI`](../Anchor.CLI).
+
 ```bash
 python src/checker/properties.py tests/policies/docs_trading.dw
 python src/checker/properties.py a.dw --against b.dw
