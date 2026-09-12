@@ -7,9 +7,42 @@ versions, verify them by hash, and fail rather than silently re-resolve.**
 |---|---|
 | [`strands/`](strands) | Python. `requirements.in` → compiled lock with hashes → installed by hand. Has [its own README](strands/README.md) for the procedure. |
 | `dogwood/` | `Cargo.lock` for the Dogwood policy language, kept here rather than in the tree it describes. |
+| [`dotnet/`](dotnet) | NuGet. `Packages.props` — every package version in the repository, in one file. |
 
-Nothing in the build or in any agent installs either of these. They are run by a person,
+Nothing in the build or in any agent installs the **Python or Rust** pins. They are run by a person,
 deliberately.
+
+**`dotnet/` is the exception, and the difference matters.** Restore is part of every build, so these
+versions are consumed automatically rather than by hand. That is not a relaxation: the enforcement
+is stronger here than in either of the others, because it is the build itself that fails.
+
+## Why the .NET versions live here but the lock files do not
+
+`requirements/dotnet/Packages.props` holds the versions. The **hashes** live in a
+`packages.lock.json` beside each `.csproj`, and they have to: NuGet writes one per project and finds
+it by convention, so there is nowhere else to put them. The split is not arbitrary —
+
+| | what it pins | where |
+|---|---|---|
+| `Packages.props` | which version is **asked for** | here, with the other toolchains |
+| `packages.lock.json` | that what **arrives** is what arrived last time, by `contentHash` | beside each project |
+
+Changing a version here is expected to change a lock file. That diff is the thing to review.
+
+A `Directory.Packages.props` still sits at the repository root, because NuGet discovers central
+package management by walking up from each project and will not look anywhere else. It is a shim:
+three lines importing this directory's file. See its comment for why a shim rather than the
+`DirectoryPackagesPropsPath` override, which works for restore but not for the tools that write
+versions.
+
+What it enforces, each verified by trying it:
+
+| | |
+|---|---|
+| a project that re-declares a version | **NU1008** |
+| a package with no version here | **NU1010** |
+| a package whose bytes differ from the lock | **NU1403**, on every restore |
+| the dependency graph changing under CI | **NU1004** |
 
 ## Why the Cargo.lock lives here
 

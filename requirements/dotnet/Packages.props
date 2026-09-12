@@ -1,0 +1,64 @@
+<Project>
+
+  <!-- Central Package Management: every package version in the repository, in one place.
+
+       A PackageReference in a .csproj now carries no Version. It gets one from the matching
+       PackageVersion below, so two projects cannot disagree about a package's version — before
+       this they agreed only because someone kept them in step by hand, and nothing would have said
+       so if they stopped.
+
+       THIS IS NOT WHAT PINS THE BUILD. The lock files do that: each records a contentHash per
+       package which NuGet checks on every restore, failing with NU1403 if the bytes differ. This
+       file decides which version is asked for; packages.lock.json decides that what arrives is what
+       arrived last time. Changing a version here is expected to change a lock file, and that diff
+       is the thing to review.
+
+       Adding a package: add a PackageVersion here AND a PackageReference (no Version) in the
+       project that needs it. Restore updates that project's lock; review it. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+    <!-- Transitive dependencies are already pinned by the lock files, so this is belt and braces:
+         it makes a transitive version we have deliberately chosen a declared fact rather than
+         whatever the graph resolved to. Off for now because nothing here needs it — turning it on
+         requires a PackageVersion for every transitive package we want to hold, which is a claim we
+         would then have to maintain. -->
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Logging and configuration, used through Anchor.Runtime by everything else. -->
+  <ItemGroup Label="Runtime">
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Formatting.Compact" Version="3.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageVersion Include="Serilog.Sinks.Map" Version="2.0.0" />
+    <PackageVersion Include="SerilogTimings" Version="3.1.0" />
+  </ItemGroup>
+
+  <!-- The verifiers. $(DafnyVersion) comes from Directory.Build.props, which is imported first, so
+       that the same number also spells the DafnyPrelude.bpl content path in the .csproj — one pin,
+       two uses, which is why it stays a property rather than being written twice. -->
+  <ItemGroup Label="Verifiers">
+    <PackageVersion Include="DafnyLanguageServer" Version="$(DafnyVersion)" />
+    <PackageVersion Include="DafnyPipeline" Version="$(DafnyVersion)" />
+    <PackageVersion Include="IKVM" Version="8.15.0" />
+  </ItemGroup>
+
+  <!-- The MCP server. -->
+  <ItemGroup Label="MCP">
+    <PackageVersion Include="ModelContextProtocol" Version="1.4.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
+  </ItemGroup>
+
+  <!-- Test-only. -->
+  <ItemGroup Label="Tests">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

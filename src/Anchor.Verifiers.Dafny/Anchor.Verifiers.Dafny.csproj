@@ -9,15 +9,14 @@
   <!-- Z3Version must track DafnyOptions.DefaultZ3Version for the Dafny release above: the solver is
        probed by that exact file name, and the build scripts fetch it under it. -->
   <PropertyGroup Label="Dafny">
-    <DafnyVersion>4.11.0</DafnyVersion>
     <Z3Version>4.12.1</Z3Version>
     <Z3FileName Condition="'$(OS)' == 'Windows_NT'">z3-$(Z3Version).exe</Z3FileName>
     <Z3FileName Condition="'$(OS)' != 'Windows_NT'">z3-$(Z3Version)</Z3FileName>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="DafnyLanguageServer" Version="$(DafnyVersion)" />
-    <PackageReference Include="DafnyPipeline" Version="$(DafnyVersion)" />
+    <PackageReference Include="DafnyLanguageServer" />
+    <PackageReference Include="DafnyPipeline" />
   </ItemGroup>
 
   <!-- BoogieGenerator.ReadPrelude reads DafnyPrelude.bpl from beside the executing assembly when

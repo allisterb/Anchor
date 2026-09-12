@@ -11,6 +11,15 @@
     <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
   </PropertyGroup>
 
+  <!-- Dafny's version, here rather than in Directory.Packages.props because it is used twice: once
+       as the version of the DafnyLanguageServer / DafnyPipeline packages, and once to spell the
+       path to DafnyPrelude.bpl inside the resolved DafnyCore package. Directory.Build.props is
+       imported first, so both see it. Bumping it must be matched by the reference/ ledger, which
+       records which Dafny snapshot the API was read from. -->
+  <PropertyGroup Label="Toolchain">
+    <DafnyVersion>4.11.0</DafnyVersion>
+  </PropertyGroup>
+
   <!-- Shared assembly version. Projects opt in by mapping their AssemblyVersion /
        FileVersion / Version to this property, so bumping the version here restamps them all on the next build. -->
   <PropertyGroup Label="Versioning">
@@ -39,5 +48,32 @@
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
+  </PropertyGroup>
+
+  <!-- WHAT THE LOCK FILE ALREADY ENFORCES, so the rest of this is not mistaken for it. Each lock
+       records a contentHash per package, and NuGet checks it on EVERY restore, locked mode or not:
+       a package whose bytes differ fails with NU1403 and exit 1, and an unlocked restore does not
+       "fix" the mismatch by rewriting the hash. Verified by tampering with one, both ways. That is
+       the equivalent of pip's require-hashes mode and cargo's checksums, and needs nothing further.
+
+       RestoreLockedMode is a DIFFERENT guarantee: it refuses to change the dependency GRAPH. Adding
+       a package, or a project reference that drags one in, rewrites the lock locally without
+       complaint — which is how a 293-line lock diff once arrived unnoticed. Set here rather than
+       only in build.sh/build.ps1, so that any dotnet invocation in CI is covered rather than the
+       one the scripts happen to make.
+
+       Local builds stay unlocked on purpose: adding a package has to be possible without a flag.
+       The review gate is the lock diff, which is why every packages.lock.json is committed. -->
+  <PropertyGroup Label="Supply Chain — CI" Condition="'$(CI)' != ''">
+    <RestoreLockedMode>true</RestoreLockedMode>
+
+    <!-- Audit findings are warnings by default, which in a build this size means nobody sees them.
+         A known-vulnerable package should stop CI, not scroll past it. Note the consequence and
+         accept it deliberately: a NEW advisory against an already-pinned package turns CI red with
+         no change on our side. That is the signal working, and the fix is to bump or to justify the
+         exception, not to lower this. NU1901-1904 are the four severities; NU1905 means the audit
+         source itself was unavailable, which is a reason to distrust a clean result, so it is here
+         too. -->
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904;NU1905</WarningsAsErrors>
   </PropertyGroup>
 </Project>

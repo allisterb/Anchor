@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="IKVM" Version="8.15.0" />
+    <PackageReference Include="IKVM" />
   </ItemGroup>
 
   <!-- The tagged v1.7.4 release (sha1 bee4a54f3ee3d4afc347c3240ec2d9e93b075104), not a master

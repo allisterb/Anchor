@@ -1,0 +1,23 @@
+<Project>
+
+  <!-- The versions live in requirements/dotnet/Packages.props, with the pins for every other
+       toolchain. This file exists only to point at them.
+
+       WHY A SHIM RATHER THAN JUST MOVING THE FILE. NuGet finds central package management by
+       walking UP from each project until it meets a Directory.Packages.props, so the file has to be
+       at the root whatever its contents. The `DirectoryPackagesPropsPath` property does override
+       that search — verified working — but it overrides it for the RESTORE only: tooling that
+       writes package versions still expects the conventional location, and a Directory.Packages.props
+       created at the root by an IDE would then be silently ignored rather than merged. A shim keeps
+       discovery pointing where everyone expects and puts the content where it belongs.
+
+       Verified: a version changed in the imported file is picked up, and fails a locked restore
+       with NU1004 exactly as it did before the move.
+
+       Note for tooling: `dotnet add package` writes `Version=` into the .csproj rather than adding
+       a PackageVersion here — it does that with the conventional layout too, so this arrangement
+       costs nothing. Under central package management that .csproj edit is an NU1008 error; move
+       the version into requirements/dotnet/Packages.props and drop the attribute. -->
+  <Import Project="requirements/dotnet/Packages.props" />
+
+</Project>
