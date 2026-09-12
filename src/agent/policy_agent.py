@@ -95,6 +95,118 @@ GEMINI_KEYS = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
+# The same setting name Polson uses, so one convention covers both. Colon-delimited, which is the
+# .NET configuration spelling for nesting: {"ApiKeys": {"GoogleAgentPlatform": "..."}}.
+GEMINI_SETTING = "ApiKeys:GoogleAgentPlatform"
+
+
+def appsettings_path() -> Path | None:
+    """The development settings file, if there is one.
+
+    `ANCHOR_APPSETTINGS` first, so a container can point at a file it wrote from a secret store;
+    then beside this module, which is where a developer puts it; then the repository root.
+
+    Every one of these is gitignored by `**/*appsettings.json`. That is checked rather than assumed,
+    because the whole point of the file is that it holds a key.
+    """
+    if (override := os.environ.get("ANCHOR_APPSETTINGS")):
+        return Path(override) if Path(override).exists() else None
+
+    for candidate in (Path(__file__).resolve().parent / "appsettings.json",
+                      REPO / "appsettings.json"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def setting(name: str) -> str | None:
+    """One colon-delimited setting, or None. Never raises on a bad file, and never logs a value."""
+    path = appsettings_path()
+    if path is None:
+        return None
+
+    try:
+        # utf-8-sig: a file written by a Windows editor routinely carries a BOM, and json.loads
+        # rejects one.
+        import json
+        node = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as e:
+        # The path and the failure, never the contents: this file exists to hold a secret, so a
+        # parse error must not print it back out in a diagnostic.
+        print(f"warning: could not read {path}: {type(e).__name__}", file=sys.stderr)
+        return None
+
+    for part in name.split(":"):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+
+    return node if isinstance(node, str) and node.strip() else None
+
+
+def setting_raw(name: str):
+    """A setting of any type. `setting` is the string-only form and is what most callers want."""
+    path = appsettings_path()
+    if path is None:
+        return None
+
+    try:
+        import json
+        node = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+
+    for part in name.split(":"):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def gemini_client_args() -> dict:
+    """Arguments for the underlying `genai.Client`.
+
+    A key alone reaches the public Developer API at `generativelanguage.googleapis.com`. An Agent
+    Platform key does not work there -- it comes back 403 `API_KEY_SERVICE_BLOCKED`, which names the
+    API rather than the mistake -- and needs `enterprise=True` with a project and location instead.
+    Which one you have is a property of the key, not something worth guessing, so it is configured.
+
+    Environment before file, as everywhere else here: a deployment injects, a developer edits.
+    """
+    args: dict = {}
+
+    if (key := gemini_api_key()):
+        args["api_key"] = key
+
+    # The names google-genai reads itself, so a container that already sets them needs nothing else.
+    project = os.environ.get("GOOGLE_CLOUD_PROJECT") or setting("Google:Project")
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION") or setting("Google:Location")
+
+    if project:
+        args["project"] = project
+    if location:
+        args["location"] = location
+
+    enterprise = os.environ.get("GOOGLE_GENAI_ENTERPRISE") or setting_raw("Google:Enterprise")
+    if enterprise in (True, "true", "True", "1"):
+        args["enterprise"] = True
+
+    return args
+
+
+def gemini_api_key() -> str | None:
+    """The Gemini key, from the environment or from appsettings.json.
+
+    Environment first. Not because it is the nicer way to work -- on Windows it is markedly worse,
+    which is why the file exists -- but because a deployment injects one, and an injected secret
+    should win over a file that happened to come along for the ride.
+    """
+    for name in GEMINI_KEYS:
+        if os.environ.get(name):
+            return os.environ[name]
+
+    return setting(GEMINI_SETTING)
+
 
 def build_model(provider: str = "auto", model_id: str | None = None):
     """The model to reason with, or None for the Strands default.
@@ -105,7 +217,7 @@ def build_model(provider: str = "auto", model_id: str | None = None):
     call a model. Preferring the explicit signal fails less confusingly.
     """
     if provider == "auto":
-        provider = "gemini" if any(os.environ.get(k) for k in GEMINI_KEYS) else "bedrock"
+        provider = "gemini" if gemini_api_key() else "bedrock"
 
     if provider == "bedrock":
         # A bare string is a Bedrock model id to Strands, and None means its own default.
@@ -125,11 +237,19 @@ def build_model(provider: str = "auto", model_id: str | None = None):
             "requirements.in, recompile the lock, and install by hand. See requirements/README.md."
         ) from e
 
-    key = next((os.environ[k] for k in GEMINI_KEYS if os.environ.get(k)), None)
-    if key is None:
-        raise SystemExit(f"set one of {' or '.join(GEMINI_KEYS)} to use the Gemini provider")
+    args = gemini_client_args()
+    if "api_key" not in args:
+        raise SystemExit(
+            "no Gemini API key. Put one in an appsettings.json beside src/agent/ (or at the repo "
+            f'root) as {{"ApiKeys": {{"GoogleAgentPlatform": "..."}}}}, or set one of '
+            f"{' or '.join(GEMINI_KEYS)}. See src/agent/appsettings.json.example.")
 
-    return GeminiModel(client_args={"api_key": key}, model_id=model_id or DEFAULT_GEMINI_MODEL)
+    if args.get("enterprise") and not args.get("project"):
+        raise SystemExit(
+            "Google:Enterprise is set but Google:Project is not. An Agent Platform key needs a "
+            "project and a location; see src/agent/appsettings.json.example.")
+
+    return GeminiModel(client_args=args, model_id=model_id or DEFAULT_GEMINI_MODEL)
 
 
 def review(request: str, project_dir: Path | None = None, model: str | None = None,
@@ -140,7 +260,11 @@ def review(request: str, project_dir: Path | None = None, model: str | None = No
     client = anchor_server(project_dir)
     with client:
         tools = client.list_tools_sync()
-        agent = Agent(model=build_model(provider, model), tools=tools, system_prompt=SYSTEM_PROMPT)
+        # callback_handler=None turns off Strands' default printer. Left on, it streams the answer
+        # to stdout as it is generated AND we print the returned result, so the review arrives
+        # twice — which reads as a bug in the checker rather than in the plumbing.
+        agent = Agent(model=build_model(provider, model), tools=tools,
+                      system_prompt=SYSTEM_PROMPT, callback_handler=None)
         return str(agent(request))
 
 

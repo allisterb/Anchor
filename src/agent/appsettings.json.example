@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Copy this file to appsettings.json in this directory and fill it in.",
+    "appsettings.json is gitignored by **/*appsettings.json; this .example is not, because the",
+    "pattern ends at .json. Keep it that way: this file must never hold a real key.",
+    "THE Google BLOCK IS NOT OPTIONAL FOR A GOOGLE AGENT PLATFORM KEY.", 
+    "Leave the Google block out entirely for an ordinary Developer API key."
+  ],
+  "ApiKeys": {
+    "AmazonBedrock": "",
+    "GoogleAgentPlatform": ""
+  },
+  "Google": {
+    "Enterprise": true,
+    "Project": "your-project-id",
+    "Location": "global"
+  }
+}

@@ -88,3 +88,13 @@ cedarpy==4.8.7
 #
 #   boto3, botocore, s3transfer, urllib3, jmespath, python-dateutil, six  — the AWS SDK, expected,
 #                       and the churn source. boto3/botocore publish most weekdays.
+
+
+# The Gemini model provider's SDK. `strands/models/gemini.py` ships inside strands-agents; this is
+# only the client underneath it. 
+#   google-genai   https://github.com/googleapis/python-genai
+#
+# The name is corroborated the same way cedarpy's is: strands-agents declares
+# `gemini = ["google-genai>=1.67.0,<3.0.0"]` in its own metadata, so the distribution below is the
+# one AWS's SDK depends on rather than one we picked. Pin inside that range.
+google-genai==2.23.0
