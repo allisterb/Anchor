@@ -176,6 +176,38 @@ public class ProtocolTests : TestsRuntime, IAsyncLifetime
             $"describe took {elapsed.TotalSeconds:0.#}s; it should not be running TLC");
     }
 
+    /// <summary>
+    /// The knowledge base over the wire, both ways it is offered. Needs no Python and no JVM, so it
+    /// is a plain Fact: a host with neither should still be able to read the reference.
+    /// </summary>
+    [Fact]
+    public async Task TheKnowledgeBaseIsReachableAsToolsAndAsResources()
+    {
+        await using var client = await NewClientAsync();
+
+        var tools = await client.ListToolsAsync();
+        Assert.Single(tools, t => t.Name == "ListKnowledge");
+        Assert.Single(tools, t => t.Name == "ReadKnowledge");
+
+        var listed = await client.CallToolAsync("ListKnowledge", new Dictionary<string, object?>());
+        Assert.True(listed.IsError != true, Text(listed));
+        Assert.Contains("reading-verdicts", Text(listed));
+
+        var read = await client.CallToolAsync("ReadKnowledge", new Dictionary<string, object?>
+        {
+            ["names"] = new[] { "reading-verdicts" }
+        });
+        Assert.True(read.IsError != true, Text(read));
+        Assert.Contains("VACUOUS", Text(read));
+
+        // And as resources, for a host that reads those instead.
+        var resources = await client.ListResourcesAsync();
+        var article = Assert.Single(resources, r => r.Uri == "anchor://knowledge/reading-verdicts");
+
+        var contents = await client.ReadResourceAsync(article.Uri);
+        Assert.Contains("VACUOUS", string.Concat(contents.Contents.OfType<TextResourceContents>().Select(c => c.Text)));
+    }
+
     async Task<McpClient> NewClientAsync()
     {
         var transport = new HttpClientTransport(

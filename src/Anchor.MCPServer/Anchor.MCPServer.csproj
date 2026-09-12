@@ -15,6 +15,12 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <!-- Embedded rather than copied beside the assembly: a file on disk is a path to resolve, and a
+       path to resolve behaves one way in the test run and another in a container. -->
+  <ItemGroup>
+    <EmbeddedResource Include="knowledge\*.md" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />

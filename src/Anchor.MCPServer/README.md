@@ -50,6 +50,7 @@ wearing a verifier's name. Containment applies to reads for that reason, not onl
 |---|---|---|
 | `CheckPolicy` | is each rule load-bearing — VACUOUS, REDUNDANT, DEAD or live; `against` for a diff; `property` for a claim of your own | seconds to minutes (TLC once per rule) |
 | `DescribePolicyModule` | what a `property` module may name for this policy, plus a skeleton that already runs | well under a second (parses only) |
+| `ListKnowledge` / `ReadKnowledge` | the reference articles below | in-process |
 
 `CheckPolicy`'s `smoke` argument runs TLC as a random walk instead of exhaustively, for a model too
 big to exhaust. Its results read differently and the tool description says so at length: `live` is
@@ -76,6 +77,33 @@ they carry deliberately, because a verdict repeated without them is more confide
   and the shipped default partitions history by principal;
 - **a refusal is not a pass** — a policy outside the modelled subset comes back with `Answered`
   false and a reason, which is a different thing from a policy with no findings.
+
+## The knowledge base
+
+Six articles in [`knowledge/`](knowledge), embedded in the assembly and served **both** as tools and
+as MCP resources at `anchor://knowledge/<name>` — resources are the natural fit, some hosts never
+surface them, and a reference an agent cannot reach is one that does not exist.
+
+| article | for |
+|---|---|
+| `reading-verdicts` | what each verdict means, and what it does not |
+| `event-schemas-and-pins` | why a `.dwschema` changes what a policy MEANS |
+| `the-modelled-subset` | what gets REFUSED, and why refusing beats approximating |
+| `writing-a-property-module` | stating intent, and the no-`Inputs` trap |
+| `smoke-vs-exhaustive` | the inverted polarity |
+| `what-anchor-does-not-check` | the limits to state alongside a verdict |
+
+**They carry the reasoning the tool descriptions cannot.** A description can say "the bound is
+real"; only prose can explain why a bounded negative reported without its bound becomes a claim
+nobody checked. That gap is where over-reporting happens.
+
+Reference that has fallen behind the code is worse than none, because it is believed — so
+`KnowledgeTests.EveryVerdictTheCheckerCanEmitIsDocumented` fails until a newly added verdict is
+explained, and a second test holds the smoke article's polarity in place.
+
+Article names reach a lookup, so they are validated: no path separators, no traversal, no null
+bytes, letters/digits/hyphen/underscore only, 100 characters. A documentation tool that could be
+steered into reading arbitrary paths would be a file-disclosure tool with a friendly name.
 
 ## The checker's exit code says whether it ANSWERED
 

@@ -99,6 +99,14 @@ public class AnchorMCPServer : Runtime
         }
 
         mcp.WithTools(tools);
+        mcp.WithTools<KnowledgeTools>();
+
+        // The same articles twice, by design. Resources are the natural fit; some hosts never
+        // surface them, and a reference an agent cannot reach is one that does not exist.
+        mcp.WithResources(KnowledgeBase.Resources());
+
+        Info("{0} knowledge-base article(s) registered.", KnowledgeBase.Articles.Count);
+
         return mcp;
     }
 
