@@ -51,6 +51,13 @@ wearing a verifier's name. Containment applies to reads for that reason, not onl
 | `CheckPolicy` | is each rule load-bearing — VACUOUS, REDUNDANT, DEAD or live; `against` for a diff; `property` for a claim of your own | seconds to minutes (TLC once per rule) |
 | `DescribePolicyModule` | what a `property` module may name for this policy, plus a skeleton that already runs | well under a second (parses only) |
 
+`CheckPolicy`'s `smoke` argument runs TLC as a random walk instead of exhaustively, for a model too
+big to exhaust. Its results read differently and the tool description says so at length: `live` is
+sound, `unknown` is **not a finding**, and a smoke run can never report VACUOUS, REDUNDANT or DEAD.
+`PolicyCheckResult.Unsettled` carries the unknowns, and `Inert` deliberately excludes them -- an
+agent that folded the two together would recommend deleting a working rule. See
+[`checker`](../checker) for the reasoning.
+
 `DescribePolicyModule` exists because `CheckPolicy`'s `property` argument asks an author to write
 TLA+ against a module we GENERATE, whose vocabulary comes from that policy's own text. It cannot be
 guessed, and a guess that parses is worse than one that does not: name a field the policy never

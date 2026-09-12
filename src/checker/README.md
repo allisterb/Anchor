@@ -8,7 +8,32 @@ python src/checker/properties.py tests/policies/docs_trading.dw
 python src/checker/properties.py a.dw --against b.dw
 python src/checker/properties.py firewall.dw --property firewall.tla
 python src/checker/properties.py firewall.dw --describe    # what a --property module may name
+python src/checker/properties.py big.dw --smoke 1000      # random walk, for a model too big to exhaust
 ```
+
+## The smoke tier, and why its polarity is backwards from every other smoke test
+
+`--smoke N` runs TLC as a random walk of N behaviours instead of exhausting the state space. The
+usual reason to do that is a sound NEGATIVE: find a counterexample and the spec is broken, find none
+and you have learnt nothing.
+
+**Here it is the other way round.** This checker already reads TLC backwards -- a violation is the
+GOOD outcome, the witness proving a rule does something. So a random walk gives a sound POSITIVE:
+
+| smoke says | means | sound? |
+|---|---|---|
+| `live` | a witness was found, so the rule really does change a verdict | **yes** -- a witness is a witness however it was reached |
+| `unknown` | this walk did not reach a session where the rule matters | it is **not a verdict**, and never means the rule is inert |
+
+So a smoke run can report `live`, and **can never report VACUOUS, REDUNDANT or DEAD**. Those three
+are claims of ABSENCE, a random walk cannot establish absence, and each of them tells someone to
+delete a rule.
+
+**What it is for is not speed on the cases exhaustive already handles.** Exhaustive search stops at
+the first violation, so a live rule is found quickly either way. It is for models where exhaustive
+does not finish at all -- which is exactly what raising `--attempts` to gain confidence in a VACUOUS
+verdict produces. There, smoke turns "no answer about anything" into "these rules are definitely
+live, and the rest I could not settle".
 
 ## Two kinds of property, and the difference is who can state it
 

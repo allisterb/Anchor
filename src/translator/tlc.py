@@ -41,8 +41,13 @@ def find_jar() -> Path:
     return jars[-1]
 
 
-def run_tlc(module: str, cwd: Path, scratch: Path | None = None) -> tuple[bool, str]:
+def run_tlc(module: str, cwd: Path, scratch: Path | None = None,
+            extra: list[str] | None = None) -> tuple[bool, str]:
     """Run TLC on `module` in `cwd`, returning (it passed, everything it printed).
+
+    `extra` goes in front of `-config`, which is where TLC wants mode flags such as
+    `-simulate num=N`. Passed through rather than enumerated here: this module knows how to start a
+    JVM safely, not what any particular check is asking.
 
     THE `-Djava.io.tmpdir` IS NOT OPTIONAL, and it is why this function exists. TLC unpacks the
     standard modules into java's temp directory; runs sharing one leave a half-written
@@ -61,6 +66,7 @@ def run_tlc(module: str, cwd: Path, scratch: Path | None = None) -> tuple[bool, 
             ["java", f"-Djava.io.tmpdir={tmp}",
              "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(Path(tmp) / "states"),
+             *(extra or []),
              "-config", f"{module}.cfg", f"{module}.tla"],
             cwd=cwd, capture_output=True, text=True)
         return proc.returncode == 0, proc.stdout + proc.stderr

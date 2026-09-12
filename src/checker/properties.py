@@ -69,22 +69,43 @@ INVARIANT {invariant}
 
 
 def check_one(work: Path, target: int, attempts: int, amount: int,
-              invariant: str = "NeverFires") -> tuple[bool, str]:
+              invariant: str = "NeverFires",
+              smoke: int | None = None) -> tuple[bool | None, str]:
     """Returns (a witness exists, TLC output). Raises if TLC could not answer.
 
     `NeverFires`   a witness means the permit CAN grant something -- it is live.
     `NeverMatters` a witness means deleting the rule WOULD change a verdict -- it is load-bearing.
+
+    THREE answers, not two:
+
+        True   a witness was found. SOUND either way -- a witness is a witness however it was
+               reached, so a smoke run that finds one has settled the question.
+        False  no witness EXISTS. Only exhaustive search can say this.
+        None   no witness was found by a random walk, which says nothing about whether one exists.
+
+    `smoke` is a number of random behaviours. It can only ever return True or None, because the
+    claims False supports -- VACUOUS, REDUNDANT, DEAD -- are claims of ABSENCE, and a random walk
+    cannot establish absence. Reporting one from a smoke run would be the silent-wrong-answer
+    direction, and it would tell someone to delete a working rule.
     """
     (work / "Vacuity.cfg").write_text(
         CONFIG.format(attempts=attempts, amount=amount, target=target, invariant=invariant),
         encoding="utf-8")
 
-    ok, out = run_tlc("Vacuity", work, work)
+    # A fixed seed, so a verdict is reproducible. TLC randomises the seed by default, which would
+    # make `unknown` mean something different on every run and a reported witness unreproducible.
+    extra = ["-simulate", f"num={smoke}", "-seed", "0"] if smoke else None
+    ok, out = run_tlc("Vacuity", work, work, extra)
 
     if f"Invariant {invariant} is violated" in out:
         return True, out
     if ok and "Model checking completed" in out:
         return False, out
+
+    # Simulation ran to the end of its budget and found nothing. Positive evidence that it RAN --
+    # not merely the absence of a violation -- so a crash cannot arrive here dressed as "unknown".
+    if smoke and ok and "Random Simulation" in out and "Finished in" in out:
+        return None, out
 
     # Anything else -- a parse error, an unsupported construct reaching TLC, a TypeOK failure --
     # is not an answer. Never let it read as "vacuous"; that is the silent-wrong-answer direction.
@@ -389,6 +410,12 @@ def main() -> int:
                     help="the event schema the policy is deployed under. Without it every answer "
                          "assumes the UNPINNED reading, which is not the shipped default")
     ap.add_argument("--verbose", action="store_true", help="print the TLC output for each permit")
+    ap.add_argument("--smoke", type=int, metavar="N", nargs="?", const=1000,
+                    help="run TLC as a random walk of N behaviours (default 1000) instead of "
+                         "exhaustively. Reports `live` -- which is SOUND, a witness is a witness "
+                         "however it was found -- or `unknown`. It can never report VACUOUS, "
+                         "REDUNDANT or DEAD: those are claims of absence, and a random walk cannot "
+                         "establish absence. For models too big to exhaust")
     ap.add_argument("--describe", action="store_true",
                     help="print, as JSON, what a --property module extending PolicyUnderTest may "
                          "name for this policy -- actions, fields, domains, constructors -- plus a "
@@ -459,8 +486,10 @@ def main() -> int:
     permits = [i + 1 for i, p in enumerate(policies) if p["effect"] == "permit"]
     forbids = [i + 1 for i, p in enumerate(policies) if p["effect"] == "forbid"]
 
+    tier = (f", SMOKE: {args.smoke} random sessions, not exhaustive"
+            if args.smoke else "")
     print(f"{args.policy.name}: {len(permits)} permit(s), {len(forbids)} forbid(s), "
-          f"bound {args.attempts} attempts\n")
+          f"bound {args.attempts} attempts{tier}\n")
 
     if not policies:
         print("nothing to check -- the file declares no rules")
@@ -480,24 +509,32 @@ def main() -> int:
 
             # Does deleting this rule change any verdict? One question, both shapes: a forbid
             # that never denies, and a permit some other permit always covers.
-            matters, out = check_one(work, i, args.attempts, args.amount, "NeverMatters")
+            matters, out = check_one(work, i, args.attempts, args.amount, "NeverMatters",
+                                     smoke=args.smoke)
 
             # For a permit, ask the sharper question too. Vacuous implies redundant, so a
             # permit reported vacuous is also deletable -- but "never fires at all" is a more
             # useful thing to be told than "something else covers it".
             fires = None
             if rule["effect"] == "permit":
-                fires, fout = check_one(work, i, args.attempts, args.amount, "NeverFires")
+                fires, fout = check_one(work, i, args.attempts, args.amount, "NeverFires",
+                                        smoke=args.smoke)
                 if fires:
                     out = fout
 
-            if rule["effect"] == "permit" and not fires:
+            # `None` only ever arrives from a smoke run, and only the absence claims are
+            # blocked by it: a witness found by a random walk settles `live` for good.
+            if matters:
+                verdict, note = "live", f"witness: {witness(out)}"
+            elif rule["effect"] == "permit" and fires is None:
+                verdict, note = "unknown", f"no witness in {args.smoke} random sessions -- not a verdict"
+            elif rule["effect"] == "permit" and not fires:
                 verdict, note = "VACUOUS", f"no session of up to {args.attempts} attempts makes it grant"
+            elif matters is None:
+                verdict, note = "unknown", f"no witness in {args.smoke} random sessions -- not a verdict"
             elif not matters:
                 verdict = "REDUNDANT" if rule["effect"] == "permit" else "DEAD"
                 note = "deleting it changes no verdict in any session"
-            else:
-                verdict, note = "live", f"witness: {witness(out)}"
 
             findings.append((i, rule["effect"], verdict))
             print(f"  {label:34} {verdict:10}{note}")
@@ -506,7 +543,20 @@ def main() -> int:
                 print("\n".join(f"      {line}" for line in out.splitlines()))
 
     print()
-    dead = [(i, e, v) for i, e, v in findings if v != "live"]
+
+    # `unknown` is NOT a finding, and must not be summarised as one. Advice to delete a rule we
+    # merely did not search hard enough for is the one wrong answer that matters here.
+    unknown = [(i, e, v) for i, e, v in findings if v == "unknown"]
+    if unknown:
+        for i, effect, _ in unknown:
+            print(f"unknown {effect} #{i}")
+        print()
+        print(f"A random walk of {args.smoke} sessions found no witness for these. That is NOT a")
+        print("finding: it does not mean the rule is inert, only that this search did not reach a")
+        print("session where it matters. Re-run without --smoke to get a verdict, or raise --smoke")
+        print("to search further.\n")
+
+    dead = [(i, e, v) for i, e, v in findings if v not in ("live", "unknown")]
     if dead:
         for i, effect, verdict in dead:
             print(f"{verdict} {effect} #{i}")
@@ -526,7 +576,7 @@ def main() -> int:
         for verdict in ("VACUOUS", "REDUNDANT", "DEAD"):
             if verdict in seen:
                 print(legend[verdict])
-    else:
+    elif not unknown:
         print(f"every rule is load-bearing within {args.attempts} attempts.\n"
               "That is not a proof of correctness -- only that none of them is inert.")
 

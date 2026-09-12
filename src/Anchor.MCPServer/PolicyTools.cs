@@ -63,7 +63,8 @@ public partial class PolicyTools : Runtime
         "live under the unpinned reading may never fire under the deployed one. The tool echoes which " +
         "reading it used; do not drop that from your summary.\n\n" +
         "This runs TLC once per rule, so expect seconds to minutes, not milliseconds. It is not a " +
-        "linter and it is not a retry-on-timeout call.")]
+        "linter and it is not a retry-on-timeout call.\n\n" +
+        "IF IT DOES NOT FINISH, use `smoke` rather than lowering `attempts`. See that argument.")]
     public async Task<PolicyCheckResult> CheckPolicyAsync(
         [Description("Path to the .dw policy file, relative to the project directory.")] string policy,
         [Description("Optional second .dw file. Given one, the tool stops checking rules and instead reports a session the two policies decide DIFFERENTLY -- the question to ask before replacing a policy with an edited version.")] string? against = null,
@@ -73,6 +74,18 @@ public partial class PolicyTools : Runtime
         [Description("Numeric domain for input fields, 1..N (default 2).")] int? amount = null,
         [Description("Refuse a policy reading more than N input/output fields (default 4). The request space is the product of their domains, so this bounds the state space rather than soundness.")] int? maxFields = null,
         [Description("Include the raw TLC output for each rule. Verbose and rarely what you want.")] bool? verbose = null,
+        [Description(
+            "Run TLC as a random walk of N behaviours instead of exhaustively -- for a model too " +
+            "big to exhaust, which is what raising `attempts` eventually produces. Try 1000.\n\n" +
+            "READ THE RESULT DIFFERENTLY. A smoke run reports only `live` or `unknown`. `live` is " +
+            "SOUND -- a witness is a witness however it was found, so the rule really does change " +
+            "a verdict. `unknown` is NOT a finding: it means this random walk did not reach a " +
+            "session where the rule matters, never that no such session exists. A smoke run can " +
+            "never report VACUOUS, REDUNDANT or DEAD, because those are claims of ABSENCE and a " +
+            "random walk cannot establish absence.\n\n" +
+            "So: never summarise `unknown` as 'the rule is fine' or as 'the rule is inert', and " +
+            "never suggest deleting a rule on the strength of it. Re-run without `smoke` for a " +
+            "verdict, or raise N to search further.")] int? smoke = null,
         [Description("Seconds to allow before giving up (default 600).")] int? timeoutSeconds = null,
         CancellationToken cancellationToken = default)
     {
@@ -85,6 +98,7 @@ public partial class PolicyTools : Runtime
         if (attempts is int a) args.AddRange(["--attempts", a.ToString()]);
         if (amount is int m) args.AddRange(["--amount", m.ToString()]);
         if (maxFields is int f) args.AddRange(["--max-fields", f.ToString()]);
+        if (smoke is int s) args.AddRange(["--smoke", s.ToString()]);
         if (verbose is true) args.Add("--verbose");
 
         var timeout = TimeSpan.FromSeconds(timeoutSeconds ?? 600);
@@ -249,7 +263,7 @@ public partial class PolicyTools : Runtime
     // "  permit #1  action == Connect       live      witness: Connect"
     // Anchored on the verdict word rather than on column positions: the label is padded to 34 and a
     // longer one simply runs into the verdict with no separator at all.
-    [GeneratedRegex(@"^[ \t]+(?<effect>permit|forbid)[ \t]+#(?<rule>\d+)[ \t]+action == .+?[ \t]+(?<verdict>VACUOUS|REDUNDANT|DEAD|live)\b(?<note>.*)$",
+    [GeneratedRegex(@"^[ \t]+(?<effect>permit|forbid)[ \t]+#(?<rule>\d+)[ \t]+action == .+?[ \t]+(?<verdict>VACUOUS|REDUNDANT|DEAD|unknown|live)\b(?<note>.*)$",
         RegexOptions.Multiline)]
     private static partial Regex FindingLine();
 
@@ -284,7 +298,15 @@ public record PolicyCheckResult(
     string? Error)
 {
     /// <summary>Rules that are not load-bearing. Empty on a policy where every rule matters.</summary>
-    public IEnumerable<RuleFinding> Inert => Findings.Where(f => f.Verdict != "live");
+    public IEnumerable<RuleFinding> Inert =>
+        Findings.Where(f => f.Verdict is not ("live" or "unknown"));
+
+    /// <summary>
+    /// Rules a smoke run could not settle. NOT findings: `unknown` means the random walk did not
+    /// reach a session where the rule matters, never that no such session exists. Reporting these
+    /// as deletable would be advice to delete a working rule.
+    /// </summary>
+    public IEnumerable<RuleFinding> Unsettled => Findings.Where(f => f.Verdict == "unknown");
 }
 
 /// <summary>
