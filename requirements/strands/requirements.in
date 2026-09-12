@@ -98,3 +98,20 @@ cedarpy==4.8.7
 # `gemini = ["google-genai>=1.67.0,<3.0.0"]` in its own metadata, so the distribution below is the
 # one AWS's SDK depends on rather than one we picked. Pin inside that range.
 google-genai==2.23.0
+
+# NOT ADDED, and the reasoning is worth keeping because the error message argues for it loudly.
+#
+# Bedrock's own error is `pip install "botocore[crt]"`, and it is real: botocore's login credential
+# provider is CRT-backed, so a machine whose [default] profile carries `login_session` cannot build
+# ANY boto client without that extra -- which would have meant adding `botocore[crt]` here and, with
+# it, `awscrt`, a native TLS/HTTP/signing library, to every install and to the arm64 image.
+#
+# It is not needed, because the credentials were never going to be used. A Bedrock API key
+# authenticates as a bearer token and supersedes SigV4 at signing time (measured -- `before-send`
+# shows `Authorization: Bearer`), yet `create_client` resolves the credential chain first and then
+# discards it. So the chain is walked for nothing, and a chain that RAISES takes the client down
+# over a discarded value.
+#
+# `keyed_session` in src/agent/policy_agent.py points the client at os.devnull for both config files
+# when a key is present, so the chain finds nothing, returns None rather than raising, and the
+# bearer token carries the request. Config, not a dependency -- see docs/model-providers.md.

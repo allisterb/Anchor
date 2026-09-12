@@ -80,13 +80,36 @@ def anchor_server(project_dir: Path | None = None):
     for.
     """
     from mcp import StdioServerParameters, stdio_client
+    from mcp.client.stdio import get_default_environment
     from strands.tools.mcp import MCPClient
 
     root = str(project_dir or REPO)
+    cli = find_cli()
+
+    # A framework-dependent build is a .dll that `dotnet` runs; a self-contained publish -- what the
+    # container carries, because it needs no .NET runtime installed -- is a native executable that
+    # runs itself. Told apart by the suffix rather than configured, since getting it wrong produces
+    # "cannot execute binary file" rather than anything about the build.
+    command, prefix = ("dotnet", [str(cli)]) if cli.suffix == ".dll" else (str(cli), [])
+
+    # `stdio_client` does NOT inherit our environment. It passes a scrubbed allow-list -- PATH, HOME,
+    # TEMP and a few others -- which is a good default: it stops a server we launch from reading the
+    # API key we hold. It also drops ANCHOR_ROOT, which is the one variable the server needs to find
+    # the tree when there is no `Anchor.sln` to walk up to.
+    #
+    # In a checkout the fallback covers it and nothing looks wrong. In the CONTAINER there is no
+    # solution file, so every tool call came back "No Anchor tree found" -- through the agent, which
+    # reported honestly that it could not review anything. Extending the allow-list by exactly one
+    # entry keeps the property the default was protecting.
+    env = get_default_environment()
+    if (anchor_root := os.environ.get("ANCHOR_ROOT")):
+        env["ANCHOR_ROOT"] = anchor_root
+
     params = StdioServerParameters(
-        command="dotnet",
-        args=[str(find_cli()), "server", "--project-dir", root],
-        cwd=root)
+        command=command,
+        args=[*prefix, "server", "--project-dir", root],
+        cwd=root,
+        env=env)
 
     return MCPClient(lambda: stdio_client(params))
 
@@ -194,6 +217,153 @@ def gemini_client_args() -> dict:
     return args
 
 
+# Bedrock takes an API key as a BEARER TOKEN in the environment rather than as a constructor
+# argument: botocore builds the variable name from the service's signing name, so `bedrock` gives
+# `AWS_BEARER_TOKEN_BEDROCK`. Confirmed against the installed botocore rather than assumed.
+BEDROCK_TOKEN_ENV = "AWS_BEARER_TOKEN_BEDROCK"
+
+BEDROCK_SETTING = "ApiKeys:AmazonBedrock"
+
+
+def bedrock_api_key() -> str | None:
+    """The Bedrock API key, from the environment or from appsettings.json. Environment first."""
+    return os.environ.get(BEDROCK_TOKEN_ENV) or setting(BEDROCK_SETTING)
+
+
+def isolate_from_shared_config(key: str | None, profile: str | None) -> bool:
+    """Whether to build the client without reading `~/.aws` at all.
+
+    AN API KEY MEANS THE MACHINE'S AWS CONFIG IS IRRELEVANT, and reading it anyway is what breaks.
+    `Session.create_client` resolves the credential chain BEFORE consulting the bearer token and
+    then discards the result, because bearer auth supersedes SigV4 at signing time. So the chain is
+    walked for nothing -- and a chain that RAISES takes the client down over a value that was never
+    going to be used. That is the whole of the `botocore[crt]` failure: a `[default]` profile
+    carrying `login_session`, with nothing answering earlier, reaches a CRT-backed provider.
+
+    Skipping the chain therefore changes no behaviour, it only removes a failure mode. Which is why
+    it is the default when a key is configured rather than something to opt into.
+
+    A named profile wins, because naming one is an explicit request to use it. `Bedrock:UseAwsConfig`
+    forces the question either way.
+    """
+    if (configured := setting_raw("Bedrock:UseAwsConfig")) is not None:
+        return configured in (False, "false", "False", "0", 0)
+    return bool(key) and not profile
+
+
+def keyed_session(boto3, region: str | None):
+    """A boto3 session that cannot see `~/.aws`, for key-only authentication.
+
+    Scoped rather than global: pointing `AWS_CONFIG_FILE` at nowhere would work identically but
+    would change credential resolution for everything else in the process, and this agent spawns
+    children. `os.devnull` is used rather than a made-up path because it is guaranteed to exist, to
+    be empty, and to parse as a config file with no profiles in it on every platform.
+
+    NO PROFILE MEANS NO PROFILE REGION, so a region must be given -- `Bedrock:Region`, or
+    `AWS_REGION`. That is the same bargain the Google provider makes: authenticate by key, and state
+    the things the key does not carry.
+    """
+    import botocore.session
+
+    if not region:
+        raise SystemExit(
+            'Bedrock needs a region. With an API key the machine\'s AWS config is not read, so the '
+            'region cannot come from a profile -- set "Bedrock": {"Region": "us-east-1"} in '
+            "appsettings.json, or AWS_REGION in the environment.")
+
+    # `session_vars` remaps (config key, env var, default, converter) per setting, and is the
+    # supported way to do this. `set_config_variable` is NOT enough: it stores an instance override,
+    # and an override of None reads as "unset" and falls straight through to the environment again.
+    #
+    # AWS_PROFILE has to go with the config files rather than being left behind. An empty config
+    # contains no profiles, so an inherited name raises ProfileNotFound -- a confusing failure in a
+    # session whose whole point is needing no profile. `build_bedrock_model` routes a named profile
+    # away from here before that can bite, which is precisely why it would go unnoticed.
+    inner = botocore.session.Session(session_vars={
+        "profile":          (None, None, None, None),
+        "config_file":      (None, None, os.devnull, None),
+        "credentials_file": (None, None, os.devnull, None),
+    })
+    return boto3.Session(botocore_session=inner, region_name=region)
+
+
+def build_bedrock_model(model_id: str | None, streaming: bool | None = None):
+    """A Bedrock model, authenticated by API key if there is one and by ordinary AWS credentials
+    otherwise.
+
+    THE KEY GOES INTO THE ENVIRONMENT, which is a process-global mutation and worth saying out loud.
+    `BedrockModel` has no `api_key` parameter because bearer-token auth is not a boto3 credential --
+    botocore reads `AWS_BEARER_TOKEN_BEDROCK` itself when the client is constructed. Setting it here
+    is the supported route, not a workaround.
+
+    No key is a normal configuration, not an error: boto3 then finds credentials the usual way, from
+    `~/.aws` or an instance role, which is what a deployed container would use.
+    """
+    import boto3
+    from strands.models import BedrockModel
+
+    if (key := bedrock_api_key()):
+        os.environ[BEDROCK_TOKEN_ENV] = key
+
+    region = (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+              or setting("Bedrock:Region"))
+
+    # A named profile, for naming a DIFFERENT ACCOUNT. Note that it is NOT an authentication setting
+    # when a key is present: the bearer token supersedes whatever credentials the profile yields, so
+    # a profile holding expired keys behaves exactly like one holding good ones.
+    profile = os.environ.get("AWS_PROFILE") or setting("Bedrock:Profile")
+
+    session = (boto3.Session(profile_name=profile, region_name=region) if profile
+               else keyed_session(boto3, region) if isolate_from_shared_config(key, profile)
+               else None)
+
+    # The region rides on the SESSION when there is one. `BedrockModel` raises "Cannot specify both
+    # `region_name` and `boto_session`", so passing both -- which a configured profile and a
+    # configured region would have done -- fails before any request is made.
+    where = {} if session else {"region_name": region}
+
+    # model_id is left out when not given so that BedrockModel picks its own regional default; a
+    # hardcoded one here would name a model the account may not have enabled.
+    config = {"model_id": model_id} if model_id else {}
+
+    # Some models accept tools only OUTSIDE streaming mode -- `ai21.jamba-1-5-large-v1:0` answers
+    # "This model doesn't support tool use in streaming mode", and this agent is nothing but tool
+    # use. Configurable rather than guessed from the model id, which would be a list to maintain.
+    if streaming is None and (configured := setting_raw("Bedrock:Streaming")) is not None:
+        streaming = configured not in (False, "false", "False", "0", 0)
+    if streaming is not None:
+        config["streaming"] = streaming
+
+    try:
+        return BedrockModel(boto_session=session, **where, **config)
+    except Exception as e:
+        # Name the cause. The raw error is "Missing Dependency: ... pip install botocore[crt]",
+        # which describes a package rather than the configuration that reached for it.
+        #
+        # Reaching here means the shared config WAS read -- so either a profile is named, or there
+        # is no API key to authenticate with instead. Both are answerable without installing
+        # anything, which is why neither branch below recommends the package.
+        if "crt" in str(e) or "login credential provider" in str(e):
+            why = (f'the profile "{profile}" was named, so the AWS config was read'
+                   if profile else
+                   "no Bedrock API key is configured, so ordinary AWS credentials were required")
+            fix = ('drop the profile setting and authenticate by key instead, or name a profile '
+                   'that does not use `login_session`'
+                   if profile else
+                   'put a key in "ApiKeys": {"AmazonBedrock": "..."} -- the AWS config is then not '
+                   "read at all -- or make the default profile usable")
+            raise SystemExit(
+                f"Bedrock could not build a client: {e}\n\n"
+                "This is the AWS credential chain, not the API key. `create_client` resolves "
+                "credentials BEFORE it consults the bearer token and then discards them, since "
+                "bearer auth supersedes SigV4 at signing -- so a chain that raises takes the "
+                "client down over a value that was never going to be used. A `[default]` profile "
+                "carrying `login_session` reaches a CRT-backed provider and raises.\n\n"
+                f"Here, {why}.\n\nTo fix it, {fix}. Installing the optional botocore[crt] also "
+                "works and is what the message suggests, but it is not required for key auth.") from e
+        raise
+
+
 def gemini_api_key() -> str | None:
     """The Gemini key, from the environment or from appsettings.json.
 
@@ -208,7 +378,8 @@ def gemini_api_key() -> str | None:
     return setting(GEMINI_SETTING)
 
 
-def build_model(provider: str = "auto", model_id: str | None = None):
+def build_model(provider: str = "auto", model_id: str | None = None,
+                streaming: bool | None = None):
     """The model to reason with, or None for the Strands default.
 
     `auto` picks Gemini when an API key is in the environment and Bedrock otherwise. That ordering
@@ -220,8 +391,7 @@ def build_model(provider: str = "auto", model_id: str | None = None):
         provider = "gemini" if gemini_api_key() else "bedrock"
 
     if provider == "bedrock":
-        # A bare string is a Bedrock model id to Strands, and None means its own default.
-        return model_id
+        return build_bedrock_model(model_id, streaming)
 
     if provider != "gemini":
         raise SystemExit(f"unknown provider {provider!r}; expected 'bedrock', 'gemini' or 'auto'")
@@ -253,7 +423,7 @@ def build_model(provider: str = "auto", model_id: str | None = None):
 
 
 def review(request: str, project_dir: Path | None = None, model: str | None = None,
-           provider: str = "auto") -> str:
+           provider: str = "auto", streaming: bool | None = None) -> str:
     """Run one review. Returns what the agent said."""
     from strands import Agent
 
@@ -263,7 +433,7 @@ def review(request: str, project_dir: Path | None = None, model: str | None = No
         # callback_handler=None turns off Strands' default printer. Left on, it streams the answer
         # to stdout as it is generated AND we print the returned result, so the review arrives
         # twice — which reads as a bug in the checker rather than in the plumbing.
-        agent = Agent(model=build_model(provider, model), tools=tools,
+        agent = Agent(model=build_model(provider, model, streaming), tools=tools,
                       system_prompt=SYSTEM_PROMPT, callback_handler=None)
         return str(agent(request))
 
@@ -281,6 +451,10 @@ def main() -> int:
                          "GOOGLE_API_KEY is set, and bedrock otherwise")
     ap.add_argument("--model", type=str, default=None,
                     help="model id; defaults to the provider's own default")
+    ap.add_argument("--no-stream", action="store_true",
+                    help="disable streaming. Some Bedrock models accept tools only outside "
+                         "streaming mode -- ai21.jamba answers 'This model doesn't support tool "
+                         "use in streaming mode', and this agent is nothing but tool use")
     ap.add_argument("--ask", type=str, default=None,
                     help="ask something else about the policy instead of the standard review")
     args = ap.parse_args()
@@ -300,7 +474,8 @@ def main() -> int:
     print(f"asking the model to review {args.policy} (this makes live model calls)\n",
           file=sys.stderr)
 
-    print(review(request, args.project_dir, args.model, args.provider))
+    print(review(request, args.project_dir, args.model, args.provider,
+                 streaming=False if args.no_stream else None))
     return 0
 
 

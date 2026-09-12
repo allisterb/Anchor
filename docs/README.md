@@ -2,7 +2,8 @@
 
 | | |
 |---|---|
-| [`verifying-a-strands-graph.md`](verifying-a-strands-graph.md) | the procedure for taking a Strands `Graph` and establishing what it will and will not do |
+| [`verifying-a-strands-graph.md`](verifying-a-strands-graph.md) | the procedure for taking a Strands `Graph` and establishing what it will and will not do |
+| [`model-providers.md`](model-providers.md) | the reviewing agent runs on **Amazon Bedrock or Google Gemini**; how to configure either, and what each is verified to do |
 | [`agent/`](agent) | internal working notes — handoffs, task writeups, and anything else produced while doing the work rather than describing it. **Gitignored**, so this directory is local to a machine and backed up separately; a fresh clone will not have it |
 | [`agent/HANDOFF.md`](agent/HANDOFF.md) | current state of the work, and findings worth not re-deriving. **Start here** if you are picking the project up — and if it is missing, that is why |
 

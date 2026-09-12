@@ -1,0 +1,40 @@
+# What the image build may see. Everything here is either huge, machine-specific, or a secret.
+#
+# The build context is sent to the daemon in full before anything runs, so an exclusion here is not
+# only a size optimisation -- it decides what a Dockerfile COULD copy, deliberately or by mistake.
+
+# SECRETS. First, and by more than one pattern, because one of these holds a live API key. The
+# container gets its key from the environment (a secret store injects it); a key baked into a layer
+# is a key published to anyone who can pull the image.
+**/appsettings.json
+**/*.pem
+**/*.key
+.env
+.env.*
+
+# Third-party trees. `reference/` is gitignored and machine-specific; `ext/dogwood` is 58 MB of Rust
+# the runtime path never touches -- the checker needs only the translator, the JVM and the jar.
+reference/
+ext/
+
+# Local build output and environments. `python/` is a Windows venv and would be useless and wrong in
+# a linux/arm64 image; requirements.txt is installed fresh inside it instead.
+python/
+**/bin/
+**/obj/
+**/__pycache__/
+**/*.pyc
+.venv/
+
+# Version control and IDE state.
+.git/
+.github/
+.vs/
+.vscode/
+*.user
+
+# Test fixtures and docs the runtime does not read. The policies under tests/ are kept: they are
+# what a demo checks, and they are small.
+docs/
+tests/Anchor.Tests.Verifier/
+tests/Anchor.Tests.MCPServer/

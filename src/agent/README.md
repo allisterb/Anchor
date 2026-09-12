@@ -39,7 +39,7 @@ A review needs credentials, a network call and a bill. Everything underneath it 
 
 | | needs a model? | what it proves |
 |---|---|---|
-| [`tests/strands/agent_wiring.py`](../../tests/strands/agent_wiring.py) | no | the server launches, every tool is advertised, every article is reachable both as a tool and as a resource, a real check runs, containment holds, a refusal is still a refusal |
+| [`tests/strands/agent_wiring.py`](../../tests/strands/agent_wiring.py) | no | the server launches, every tool is advertised, every article is reachable both as a tool and as a resource, a real check runs, containment holds, a refusal is still a refusal — and Bedrock builds a client without reading `~/.aws`, signing with the bearer token, which is what keeps a native dependency out of the lock |
 | `policy_agent.py` | yes | whether a model given only a thin prompt reports honestly |
 
 That split earned itself immediately. Building the agent found a bug nothing else had: **`CheckPolicy`
@@ -53,4 +53,33 @@ the transport every host actually uses was broken. See `AToolThatSpawnsAChildPro
 |---|---|
 | `ANCHOR_CLI` | path to `anchor.dll`. Otherwise a Release build is preferred, then Debug |
 | `--project-dir` | the directory policy paths resolve inside; a path escaping it is refused. Defaults to the repo, and the agent is exactly the caller containment exists for |
-| `--model` | model id. Defaults to the Strands default, which is Bedrock and needs AWS credentials |
+| `--provider` | `auto`, `bedrock` or `gemini`. `auto` picks Gemini when a key is present and Bedrock otherwise — an API key in config was put there deliberately, whereas `~/.aws` exists on most machines whether or not the account can call a model |
+| `--model` | model id. Defaults to the provider's own default |
+
+## The model: Amazon or Google
+
+Either **Amazon Bedrock** or **Google Gemini** — `--provider auto|bedrock|gemini`. Nothing else in
+Anchor changes when you switch; only this last step needs an account.
+
+Configuration, the setup each provider needs, and what each is verified to do live in one place:
+**[`docs/model-providers.md`](../../docs/model-providers.md)**. The short version:
+
+| | |
+|---|---|
+| Gemini | a key in `ApiKeys:GoogleAgentPlatform`. An *Agent Platform* key also needs the `Google` block — without it, `403 API_KEY_SERVICE_BLOCKED` |
+| Bedrock | a bearer token in the environment (`AWS_BEARER_TOKEN_BEDROCK`), which `ApiKeys:AmazonBedrock` is put into for you, plus a **region** — with a key, `~/.aws` is not read, so nothing supplies one. Ordinary AWS credentials work too |
+
+Two facts belong beside the code rather than in that document, because they are why
+`build_bedrock_model` looks the way it does:
+
+**botocore resolves the credential chain when the CLIENT is built** — before the bearer token is
+consulted, and then discards it, because bearer auth supersedes SigV4 at signing. Walking the chain
+can therefore only fail, never help. `keyed_session` points a scoped session at `os.devnull` for both
+AWS config files when a key is present, which is what keeps `botocore[crt]` out of the dependency
+list: the provider that needs it is never reached.
+
+**`BedrockModel` refuses `region_name` beside `boto_session`.** A configured profile and a
+configured region is an ordinary combination, so the region rides on the `Session`.
+
+Copy [`appsettings.json.example`](appsettings.json.example) to `appsettings.json` here. It is
+gitignored by `**/*appsettings.json`; the `.example` is not, because the pattern ends at `.json`.

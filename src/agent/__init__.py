@@ -7,6 +7,8 @@ therefore the only part that cannot be tested without credentials and a bill.
 
 from __future__ import annotations
 
-from .policy_agent import SYSTEM_PROMPT, anchor_server, build_model, find_cli, review
+from .policy_agent import (SYSTEM_PROMPT, anchor_server, bedrock_api_key, build_model,
+                           find_cli, gemini_api_key, review)
 
-__all__ = ["SYSTEM_PROMPT", "anchor_server", "build_model", "find_cli", "review"]
+__all__ = ["SYSTEM_PROMPT", "anchor_server", "bedrock_api_key", "build_model", "find_cli",
+           "gemini_api_key", "review"]

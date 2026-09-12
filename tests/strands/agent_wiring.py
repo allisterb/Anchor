@@ -14,13 +14,16 @@ the questions the agent will ask.
 
 from __future__ import annotations
 
+import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
 from agent import anchor_server, find_cli  # noqa: E402
+from agent.policy_agent import BEDROCK_TOKEN_ENV  # noqa: E402
 
 # The tools a review cannot proceed without, and the articles the system prompt sends the agent to.
 REQUIRED_TOOLS = {"CheckPolicy", "DescribePolicyModule", "ListKnowledge", "ReadKnowledge"}
@@ -34,6 +37,103 @@ def check(label: str, ok: bool, detail: str = "") -> None:
     print(f"  {'ok  ' if ok else 'FAIL'}  {label}{('  -- ' + detail) if detail and not ok else ''}")
     if not ok:
         failures.append(label)
+
+
+def check_bedrock_isolation() -> None:
+    """That authenticating by API key does not read `~/.aws`, and that this is why no native
+    dependency is needed.
+
+    NO CREDENTIALS AND NO NETWORK. Clients are constructed and one request is signed and then
+    aborted at `before-send`, so nothing leaves the machine and no quota is touched. The bearer
+    token here is a dummy; a real one would prove nothing extra, since it is never validated.
+
+    What this pins down is a decision that is invisible at runtime and silently reversible: botocore
+    resolves the credential chain before consulting the bearer token and then discards it, so a
+    chain that raises kills the client over a value nothing uses. `keyed_session` stops the chain
+    being walked. If someone "simplifies" that away, a machine whose default profile uses
+    `login_session` goes back to failing with `pip install botocore[crt]`.
+    """
+    import boto3
+    from agent.policy_agent import isolate_from_shared_config, keyed_session
+
+    # The decision table. A key means the machine's config is irrelevant; naming a profile is an
+    # explicit request for it; no key means ordinary credentials are genuinely needed.
+    check("a key and no profile isolates from ~/.aws",
+          isolate_from_shared_config("some-key", None) is True)
+    check("a named profile reads ~/.aws",
+          isolate_from_shared_config("some-key", "work") is False)
+    check("no key reads ~/.aws",
+          isolate_from_shared_config(None, None) is False)
+
+    # No profile means no profile region, so one has to be given. Silence here would mean picking
+    # up whichever region the SDK defaults to, which decides WHICH MODELS EXIST.
+    try:
+        keyed_session(boto3, None)
+        check("a missing region is refused, not defaulted", False, "no SystemExit")
+    except SystemExit as e:
+        check("a missing region is refused, not defaulted", "region" in str(e).lower())
+
+    # A stray AWS_PROFILE is set deliberately, because it must NOT leak in: an empty config has no
+    # profiles, so an inherited name would raise ProfileNotFound inside a session built to need none.
+    with environment(AWS_PROFILE="no-such-profile-for-testing",
+                     **{BEDROCK_TOKEN_ENV: "wiring-test-not-a-real-token"}):
+        try:
+            client = keyed_session(boto3, "us-east-1").client("bedrock-runtime")
+        except Exception as e:  # noqa: BLE001 -- failing to construct IS the finding
+            # What a machine with a `login_session` default profile gets if the isolation is ever
+            # removed. Note the message names botocore[crt], not the configuration that reached it.
+            check("a client builds without reading ~/.aws, and AWS_PROFILE does not leak", False,
+                  f"{type(e).__name__}: {str(e).splitlines()[0][:110]}")
+            return
+
+        check("a client builds without reading ~/.aws, and AWS_PROFILE does not leak", True)
+
+        # THE ONE THAT MATTERS. None means the chain was never walked -- which is the whole reason
+        # botocore[crt] is not a dependency.
+        check("the credential chain is not walked",
+              client._request_signer._credentials is None,
+              repr(client._request_signer._credentials))
+
+        # And the request is still authenticated, by the token rather than by SigV4.
+        signed = {}
+
+        def before_send(request, **kwargs):
+            signed["auth"] = request.headers.get("Authorization")
+            raise _Abort()
+
+        client.meta.events.register("before-send.bedrock-runtime.*", before_send)
+        try:
+            client.converse(modelId="amazon.nova-lite-v1:0",
+                            messages=[{"role": "user", "content": [{"text": "x"}]}])
+        except Exception:
+            pass
+        auth = signed.get("auth")
+        auth = auth.decode() if isinstance(auth, bytes) else auth
+        scheme = auth.split(" ", 1)[0] if auth else None
+        check("the request is signed with the bearer token", scheme == "Bearer", repr(scheme))
+
+
+@contextmanager
+def environment(**values: str):
+    """Set environment variables for the block and put the originals back afterwards.
+
+    A test that leaves `AWS_PROFILE` or a bearer token behind would change what every LATER check in
+    this process sees, so the restore matters more than it looks.
+    """
+    previous = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for name, was in previous.items():
+            if was is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = was
+
+
+class _Abort(Exception):
+    """Stops a signed request before any network I/O."""
 
 
 def main() -> int:
@@ -85,6 +185,9 @@ def main() -> int:
         refused = str(client.call_tool_sync("wiring-refuse", "CheckPolicy",
                                             {"policy": "tests/policies/like_impossible.dw"}))
         check("a policy outside the subset is REFUSED, not empty", "REFUSED" in refused)
+
+        # --- Bedrock credential isolation, which costs nothing to check --------------------------
+        check_bedrock_isolation()
 
     print()
     if failures:
