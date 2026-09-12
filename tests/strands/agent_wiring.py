@@ -113,6 +113,36 @@ def check_bedrock_isolation() -> None:
         check("the request is signed with the bearer token", scheme == "Bearer", repr(scheme))
 
 
+def check_refusals() -> None:
+    """That a far-side refusal is reported as an outcome, not as a traceback.
+
+    A QUOTA ERROR IS NOT A CRASH -- it means every layer worked and the account said no at the end.
+    The distinction is easy to lose in a refactor, and losing it makes a working setup look broken.
+    """
+    from agent.policy_agent import refused
+
+    import io, contextlib
+
+    def report(message: str) -> tuple[int, str]:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = refused(RuntimeError(message))
+        return code, err.getvalue()
+
+    code, text = report("An error occurred (ThrottlingException) ...: Too many tokens per day")
+    check("a spent daily quota is explained, not dumped",
+          code == 2 and "DAILY TOKEN BUDGET" in text and "Traceback" not in text, text[:80])
+
+    code, text = report("ValidationException: This model doesn't support tool use in streaming mode")
+    check("a model that refuses streamed tools points at --no-stream",
+          code == 2 and "--no-stream" in text, text[:80])
+
+    # An unrecognised failure must NOT be dressed up as something understood.
+    code, text = report("something nobody has seen before")
+    check("an unknown failure is passed through plainly",
+          code == 1 and "something nobody has seen before" in text, text[:80])
+
+
 @contextmanager
 def environment(**values: str):
     """Set environment variables for the block and put the originals back afterwards.
@@ -188,6 +218,7 @@ def main() -> int:
 
         # --- Bedrock credential isolation, which costs nothing to check --------------------------
         check_bedrock_isolation()
+        check_refusals()
 
     print()
     if failures:

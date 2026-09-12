@@ -438,6 +438,47 @@ def review(request: str, project_dir: Path | None = None, model: str | None = No
         return str(agent(request))
 
 
+# What the far side says when it will not answer, and what that means for the person running this.
+# Matched on the exception type where the SDK gives us one and on the message otherwise, because
+# botocore's ClientError carries the interesting part only in its text.
+REFUSALS = (
+    ("Too many tokens per day",
+     "The account's DAILY TOKEN BUDGET is spent. It resets; nothing is wrong with the setup."),
+    ("Too many requests",
+     "Rate limited. Wait and retry -- this is throughput, not quota."),
+    ("Model use case details have not been submitted",
+     "This model is not enabled for the account. Submit use case details in the Bedrock console, "
+     "or pass --model with one that is."),
+    # Matched without the contraction: the message is "doesn't" for one model and "don't" for
+    # another, and the first version of this line caught neither of them.
+    ("support tool use in streaming mode",
+     "This model will not take tools while streaming, and this agent is nothing but tool use. "
+     "Re-run with --no-stream."),
+    ("AccessDenied",
+     "The credentials reached Bedrock and were refused. Check the key and the region."),
+    ("API_KEY_SERVICE_BLOCKED",
+     "A Google Agent Platform key needs the Google block -- Enterprise, Project, Location. See "
+     "src/agent/appsettings.json.example."),
+)
+
+
+def refused(e: Exception) -> int:
+    """Report a far-side refusal as an outcome rather than a traceback.
+
+    A QUOTA ERROR IS NOT A CRASH. It means every layer worked -- credentials, region, routing, tool
+    negotiation -- and the account said no at the end. Thirty lines of Python stack describe none of
+    that, and bury the one sentence that does.
+    """
+    text = str(e)
+    for needle, meaning in REFUSALS:
+        if needle.lower() in text.lower():
+            print(f"the model refused: {text.splitlines()[0]}\n\n{meaning}", file=sys.stderr)
+            return 2
+    # Not one we recognise, so do not pretend to explain it. The full text, without the stack.
+    print(f"{type(e).__name__}: {text}", file=sys.stderr)
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("policy", type=str, help="a .dw policy file, relative to the project directory")
@@ -474,8 +515,11 @@ def main() -> int:
     print(f"asking the model to review {args.policy} (this makes live model calls)\n",
           file=sys.stderr)
 
-    print(review(request, args.project_dir, args.model, args.provider,
-                 streaming=False if args.no_stream else None))
+    try:
+        print(review(request, args.project_dir, args.model, args.provider,
+                     streaming=False if args.no_stream else None))
+    except Exception as e:  # noqa: BLE001 -- the far side refusing is an outcome, not a crash
+        return refused(e)
     return 0
 
 
