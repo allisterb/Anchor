@@ -78,6 +78,37 @@ public class StdioTransportTests : TestsRuntime
     }
 
     /// <summary>
+    /// A tool that SPAWNS A CHILD PROCESS, over stdio. This is the gap that let a real bug ship.
+    /// </summary>
+    /// <remarks>
+    /// The stdio tests above call knowledge tools, which run in-process; the one test that called
+    /// <c>CheckPolicy</c> spoke HTTP to an in-process server. So no test ever ran the tool that
+    /// starts python — and then java — while the server's own stdin was an MCP pipe.
+    /// <para>
+    /// It hung, forever, and only over stdio: <c>PythonProcess</c> did not redirect the child's
+    /// stdin, so python inherited the protocol pipe. Five seconds over HTTP, never over stdio,
+    /// which is the transport every MCP host actually uses. Found by pointing an agent at the
+    /// server, not by any test we had.
+    /// </para>
+    /// </remarks>
+    [CliPolicyFact]
+    public async Task AToolThatSpawnsAChildProcessAnswersOverStdio()
+    {
+        await using var client = await NewClientAsync();
+
+        var r = await client.CallToolAsync("CheckPolicy", new Dictionary<string, object?>
+        {
+            ["policy"] = "tests/policies/dead_forbid.dw"
+        });
+
+        Assert.True(r.IsError != true, Text(r));
+
+        var text = Text(r);
+        Assert.Contains("DEAD", text);
+        Assert.Contains("UNPINNED", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// EVERY line on stdout is a JSON-RPC message. Asserted directly, against the raw pipe.
     /// </summary>
     /// <remarks>
