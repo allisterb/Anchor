@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>b2e7f381-4a96-4c05-9d72-1f38ab5c60e4</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <SearchPath>..</SearchPath>
+    <SearchPath>..\</SearchPath>
     <WorkingDirectory>..\..</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>annotations</Name>

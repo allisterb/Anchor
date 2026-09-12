@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Anchor.MCPServer</RootNamespace>
+  </PropertyGroup>
+
+  <!-- WebApplication, for the HTTP transport. The Web SDK would pull in static files, Razor and a
+       wwwroot this server has no use for; a framework reference is the same ASP.NET Core without
+       the parts a tool server does not serve. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Anchor.Runtime\Anchor.Runtime.csproj" />
+    <ProjectReference Include="..\Anchor.Verifiers.TLAPlus\Anchor.Verifiers.TLAPlus.csproj" />
+  </ItemGroup>
+
+</Project>

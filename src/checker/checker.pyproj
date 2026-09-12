@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>8d41c0b7-5e2a-4f63-9a18-c7b0e6d3a294</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <SearchPath>..</SearchPath>
+    <SearchPath>..\</SearchPath>
     <WorkingDirectory>..\..</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>checker</Name>

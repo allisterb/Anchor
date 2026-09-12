@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>3f6b1d24-9c0e-4a17-8b5d-2e91c7a4f0b3</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <SearchPath>..</SearchPath>
+    <SearchPath>..\</SearchPath>
     <WorkingDirectory>..\..</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>translator</Name>
