@@ -1,116 +1,147 @@
-# `deploy` — Anchor on Bedrock AgentCore
+# Deploying to Bedrock AgentCore Runtime
 
-AgentCore's contract is short, and all of it is mandatory:
+The agent packaged as a container and run by AWS. [`Dockerfile`](Dockerfile) is the image,
+[`iam/`](iam) is the execution role, [`render.py`](render.py) fills in the account-specific parts.
+
+Everything below uses `<account-id>`, `<region>`, `<ecr-repo>` and `<agent-name>` rather than real
+values. Substitute your own, or let `render.py` read the account from your current credentials.
+
+```bash
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+export REGION=<region>
+export REPO=<ecr-repo>
+export AGENT=<agent-name>
+```
+
+## What is in the image, and why it is bigger than an agent usually is
 
 | | |
 |---|---|
-| platform | `linux/arm64` |
-| port | 8080 |
-| endpoints | `POST /invocations`, `GET /ping` |
-| registry | the image must live in ECR |
+| the `anchor` CLI | the MCP server the agent talks to, published self-contained so no .NET runtime is needed |
+| a JVM | TLC is the model checker and it is a real JVM — IKVM cannot run it in-process |
+| `tla2tools.jar` | the TLA+ tools; architecture-neutral bytecode |
+| CPython | the translator, the checker, and the agent itself |
 
-`src/agent/server.py` is our side of it — two routes on Starlette. AWS's example uses FastAPI; that
-is not installed here and adding it would mean another pass through a hash-locked requirements file
-for two routes and a JSON body. `starlette` and `uvicorn` arrive with `mcp` already.
+**Not** in it: Rust and the Dogwood binary. The runtime path references Dogwood only in comments —
+it is the differential *test* oracle, and tests do not ship. That removed the slowest and least
+predictable part of an emulated arm64 build.
 
-## What the image carries, and what it does not
+Two things in the Dockerfile look like overhead and are not. `libicu72` is required: a slim Python
+image has no ICU and the self-contained binary dies at startup without it. The alternative,
+`InvariantGlobalization`, is smaller and *wrong* — it silently changes culture-sensitive string
+behaviour, so the container would differ from every developer machine in ways nothing reports.
 
-| in | why |
-|---|---|
-| the `anchor` CLI | the MCP server the agent talks to. Published **self-contained**, so no .NET runtime is installed |
-| a headless JRE | TLC is a real JVM program; IKVM cannot run it in-process |
-| `tla2tools.jar` | architecture-neutral bytecode, fetched and digest-checked at build time |
-| CPython 3.13 | the translator, the checker, and the agent |
+## 1. Build
 
-**Not** in the image: Rust and the Dogwood binary. The runtime path references Dogwood only in
-comments — it is the differential *test* oracle, and tests do not ship. That was originally called
-out as the main ARM64 risk, a slow Rust build under emulation; checking rather than assuming removed
-it entirely.
-
-## Five things that had to change, four of them only findable by running it
-
-**`RuntimeIdentifiers` is declared repo-wide** in `Directory.Build.props`. Publishing for
-`linux-arm64` adds a `net10.0/linux-arm64` section to every lock file — IKVM and `System.Data.Odbc`
-resolve per-RID — and a locked restore inside the image fails with `NU1004` if that section is not
-already committed. Setting it on `Anchor.CLI` alone was not enough: the RID propagates through every
-`ProjectReference`, and the failure named `Anchor.Runtime`, `Anchor.Verifiers.TLAPlus` and
-`Anchor.MCPServer`, none of which mention a RID themselves.
-
-**The agent launches the CLI two ways.** A framework-dependent build is a `.dll` that `dotnet` runs;
-the self-contained publish in the image is a native executable that runs itself. `anchor_server()`
-tells them apart by suffix, because getting it wrong produces "cannot execute binary file" rather
-than anything about the build.
-
-**libicu is not optional.** A slim Python image has no ICU, and the self-contained `anchor` binary
-dies at startup with "Couldn't find a valid ICU package installed on the system". The cheaper fix,
-`InvariantGlobalization`, is the wrong one: it silently changes culture-sensitive string behaviour,
-so the container would differ from every developer machine in ways nothing reports.
-
-**The publish output is a directory, not a file.** `-o /out/cli` emits 363 files and the executable
-is one of them. `COPY /out/anchor /app/anchor` made `/app/anchor` a directory, `ANCHOR_CLI` named it,
-and the first MCP call failed with "is a directory: permission denied".
-
-**`ANCHOR_ROOT` does not reach the MCP server on its own.** `stdio_client` passes a scrubbed
-allow-list to servers it launches -- PATH, HOME, TEMP and a few more -- rather than inheriting the
-environment. That is a good default: it stops a server we launch from reading the API key we hold.
-It also drops `ANCHOR_ROOT`, and in a checkout nothing looks wrong because the server falls back to
-walking up to `Anchor.sln`. In the image there is no solution file, so every tool call returned "No
-Anchor tree found" -- reported honestly by the agent, which said it could not review anything.
-`anchor_server()` extends the allow-list by exactly that one entry.
-
-## Build
-
-The .NET stage runs on `$BUILDPLATFORM` and **cross-compiles**, so the C# build never goes through
-QEMU. Only the Python stage is emulated.
+AgentCore requires `linux/arm64`. The .NET stage runs on `$BUILDPLATFORM` and cross-compiles, so
+only the Python layers are emulated.
 
 ```bash
-docker buildx build --platform linux/arm64 -f deploy/Dockerfile -t anchor:arm64 --load .
-docker run --platform linux/arm64 -p 8080:8080 -e GEMINI_API_KEY=... anchor:arm64
-```
-
-```bash
-curl http://localhost:8080/ping
-curl -X POST http://localhost:8080/invocations -H 'Content-Type: application/json' \
-  -d '{"input": {"prompt": "Review tests/policies/dead_forbid.dw"}}'
-```
-
-## Push and deploy
-
-```bash
-aws ecr create-repository --repository-name anchor --region <region>
-aws ecr get-login-password --region <region> \
-  | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
-
 docker buildx build --platform linux/arm64 -f deploy/Dockerfile \
-  -t <account>.dkr.ecr.<region>.amazonaws.com/anchor:latest --push .
-
-aws bedrock-agentcore-control create-agent-runtime \
-  --agent-runtime-name anchor \
-  --agent-runtime-artifact '{"containerConfiguration":{"containerUri":"<account>.dkr.ecr.<region>.amazonaws.com/anchor:latest"}}' \
-  --network-configuration '{"networkMode":"PUBLIC"}' \
-  --protocol-configuration '{"serverProtocol":"HTTP"}' \
-  --role-arn arn:aws:iam::<account>:role/<AgentRuntimeRole> \
-  --environment-variables '{"GEMINI_API_KEY":"..."}'
+  -t $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest --load .
 ```
 
-Then `aws bedrock-agentcore invoke-agent-runtime`. The session id must be **33 characters or more**.
+**Check that no secret went in.** [`.dockerignore`](../.dockerignore) excludes `**/appsettings.json`
+as its first entry, because a key baked into a layer is a key published to anyone who can pull the
+image. Verify rather than trust:
 
-### The key
+```bash
+docker run --rm --entrypoint sh $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest \
+  -c 'find / -name "appsettings*.json" -not -path "*/dotnet/*" 2>/dev/null; echo "(end)"'
+```
 
-Inject it; never bake it. `.dockerignore` excludes `**/appsettings.json` by its own pattern before
-anything else, because a key in a layer is a key published to everyone who can pull the image. The
-agent reads the environment before the file for exactly this reason — a deployment injects, a
-developer edits.
+## 2. Push
 
-`--environment-variables` above is the simplest form. A secret store is better, and the agent needs
-no change for it: anything that puts `GEMINI_API_KEY` in the process environment works.
+```bash
+aws ecr get-login-password --region $REGION \
+  | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$REGION.amazonaws.com
+docker push $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest
+```
 
-## The other deployment, which is one flag away
+## 3. The execution role
 
-`serverProtocol` also accepts **`MCP`**. That deploys the MCP server itself rather than the agent —
-AgentCore hosts the tools, and a caller brings their own model. It needs no API key in the container
-at all, and the image already contains everything for it: the CMD becomes
-`/app/cli/anchor server --http --port 8080`.
+AgentCore assumes a role to run the container. The trust policy names
+`bedrock-agentcore.amazonaws.com` and is conditioned on your account and region, so another
+account's AgentCore cannot assume it.
 
-Worth knowing because the two answer different questions. `HTTP` gives a judge a URL that returns a
-policy review; `MCP` gives any agent formally-checked policy tools. The image is the same.
+```bash
+python deploy/render.py trust-policy     --region $REGION --agent-name $AGENT -o /tmp/trust.json
+python deploy/render.py execution-policy --region $REGION --agent-name $AGENT --ecr-repo $REPO -o /tmp/exec.json
+
+aws iam create-role --role-name AmazonBedrockAgentCoreRuntime$AGENT \
+  --assume-role-policy-document file:///tmp/trust.json
+aws iam put-role-policy --role-name AmazonBedrockAgentCoreRuntime$AGENT \
+  --policy-name ${AGENT}AgentCoreRuntimeExecution --policy-document file:///tmp/exec.json
+```
+
+Two deliberate narrowings against the policy AWS documents:
+
+- **ECR is scoped to the one repository**, not `repository/*`. The role needs to pull one image.
+- **`GetWorkloadAccessTokenForUserId` is omitted.** AWS's own guidance is to deny it outside
+  development: it issues workload tokens from a caller-supplied user id with no IdP verification.
+  `GetWorkloadAccessTokenForJWT` is kept.
+
+## 4. Create the runtime
+
+```bash
+aws bedrock-agentcore-control create-agent-runtime --region $REGION \
+  --agent-runtime-name $AGENT \
+  --agent-runtime-artifact "{\"containerConfiguration\":{\"containerUri\":\"$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/$REPO:latest\"}}" \
+  --role-arn arn:aws:iam::$ACCOUNT:role/AmazonBedrockAgentCoreRuntime$AGENT \
+  --network-configuration '{"networkMode":"PUBLIC"}' \
+  --protocol-configuration '{"serverProtocol":"HTTP"}'
+```
+
+`serverProtocol` is **HTTP**, not MCP. The container speaks the AgentCore contract —
+`POST /invocations`, `GET /ping` — and the MCP server lives *inside* it, launched over stdio as a
+child process. Declaring MCP here would advertise a protocol the container does not speak on 8080.
+
+## 5. Invoke
+
+```bash
+echo '{"input":{"prompt":"Review the policy at tests/policies/dead_forbid.dw"}}' > /tmp/payload.json
+
+aws bedrock-agentcore invoke-agent-runtime --region $REGION \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 600 \
+  --agent-runtime-arn arn:aws:bedrock-agentcore:$REGION:$ACCOUNT:runtime/<runtime-id> \
+  --payload file:///tmp/payload.json --content-type application/json \
+  /tmp/response.json
+```
+
+**Both flags are needed and neither is obvious.** Without `--cli-binary-format raw-in-base64-out`
+the CLI expects the payload to be base64 already and rejects plain JSON as *"Invalid base64"*.
+Without `--cli-read-timeout` the default 60 seconds expires long before a check involving a JVM,
+TLC and a model call — and that timeout looks like a hung agent rather than an impatient client.
+
+## Traps worth knowing
+
+**A 500 does not reach you.** AgentCore replaces the response body with *"Received error (500) from
+runtime. Please check your CloudWatch logs for more information."* — so a handler that returns its
+reason without logging it produces a failure that reaches neither the caller nor the log. Found
+exactly that way; `server.py` now logs the traceback and the classified explanation before
+returning. If you add a failure path, log it.
+
+**`CreateOAuth2Token ... invalid, expired, revoked, or malformed`** from the control plane, while
+`aws sts get-caller-identity` succeeds, has been transient. Retry before investigating: it recovered
+on its own after a couple of minutes here, with nothing about the role or the runtime changed.
+
+**The image tag is resolved when the runtime is created or updated**, not per session. Pushing a new
+`:latest` changes nothing until `update-agent-runtime` is called, which cuts a new version.
+
+## Credentials inside the container
+
+**No API key needs to reach AWS.** With no key configured, `build_bedrock_model` falls through to
+ordinary credential resolution, which in a container is the task role — the execution role above,
+which carries `bedrock:InvokeModel`. `AWS_REGION` is set by the runtime.
+
+That is why the image ships no key and why `.dockerignore` excludes `appsettings.json`: the
+deployed path authenticates by role, and the key is a *developer-machine* convenience.
+
+Using Gemini instead would mean putting a key in `--environment-variables`, where it is readable by
+anyone with `GetAgentRuntime`. Prefer the role.
+
+## Logs
+
+```bash
+aws logs tail /aws/bedrock-agentcore/runtimes/<runtime-id>-DEFAULT --region $REGION --follow
+```

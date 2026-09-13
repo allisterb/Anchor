@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from starlette.requests import Request                # noqa: E402
 from starlette.responses import JSONResponse          # noqa: E402
 from starlette.routing import Route                   # noqa: E402
 
-from agent.policy_agent import review                 # noqa: E402
+from agent.policy_agent import explain, review        # noqa: E402
 
 
 async def ping(_: Request) -> JSONResponse:
@@ -67,10 +68,21 @@ async def invocations(request: Request) -> JSONResponse:
     try:
         answer = await run_in_threadpool(review, prompt, PROJECT_DIR)
     except Exception as e:                                    # noqa: BLE001
+        # LOG IT AS WELL AS RETURNING IT, which is not belt and braces -- it is the only way the
+        # detail survives. AgentCore replaces a 500 body with "Received error (500) from runtime.
+        # Please check your CloudWatch logs", so a handler that only returns the reason produces a
+        # failure that reaches neither the caller nor the logs. Found exactly that way.
+        traceback.print_exc(file=sys.stderr)
+        if (meaning := explain(e)) is not None:
+            print(f"the model refused: {e}\n\n{meaning}", file=sys.stderr, flush=True)
+
         # The type and message, never a traceback: a stack trace across this boundary tells a
-        # caller about our filesystem and nothing about their request.
-        return JSONResponse(
-            {"error": f"the review failed: {type(e).__name__}: {e}"}, status_code=500)
+        # caller about our filesystem and nothing about their request. The traceback went to the
+        # log above, where it belongs.
+        body = {"error": f"the review failed: {type(e).__name__}: {e}"}
+        if meaning is not None:
+            body["meaning"] = meaning
+        return JSONResponse(body, status_code=500)
 
     return JSONResponse({"output": {
         "message": answer,

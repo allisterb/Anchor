@@ -462,6 +462,17 @@ REFUSALS = (
 )
 
 
+def explain(e: Exception) -> str | None:
+    """What a far-side refusal means, or None if it is not one we recognise.
+
+    Shared by the CLI and the AgentCore server so that a deployed failure reads the same as a local
+    one. Returning None rather than a guess matters: an unrecognised error dressed up as a known
+    one sends the reader somewhere there is nothing to find.
+    """
+    text = str(e)
+    return next((meaning for needle, meaning in REFUSALS if needle.lower() in text.lower()), None)
+
+
 def refused(e: Exception) -> int:
     """Report a far-side refusal as an outcome rather than a traceback.
 
@@ -469,13 +480,11 @@ def refused(e: Exception) -> int:
     negotiation -- and the account said no at the end. Thirty lines of Python stack describe none of
     that, and bury the one sentence that does.
     """
-    text = str(e)
-    for needle, meaning in REFUSALS:
-        if needle.lower() in text.lower():
-            print(f"the model refused: {text.splitlines()[0]}\n\n{meaning}", file=sys.stderr)
-            return 2
+    if (meaning := explain(e)) is not None:
+        print(f"the model refused: {str(e).splitlines()[0]}\n\n{meaning}", file=sys.stderr)
+        return 2
     # Not one we recognise, so do not pretend to explain it. The full text, without the stack.
-    print(f"{type(e).__name__}: {text}", file=sys.stderr)
+    print(f"{type(e).__name__}: {e}", file=sys.stderr)
     return 1
 
 
