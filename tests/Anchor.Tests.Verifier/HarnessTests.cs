@@ -643,6 +643,52 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Blame minimisation: <b>which</b> part of an inert rule made it inert. A verdict sends a
+    /// reader back to re-read their own condition; a minimal core is an instruction.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Unsat-core minimisation, one level of decomposition below the rule: drop conjuncts and
+    /// re-ask, keeping only those whose presence still kills it. Greedy, so the result is
+    /// <i>1-minimal</i> — removing any single term from the answer revives the rule — which is
+    /// what N runs can honestly claim, as against 2^N for globally smallest.
+    /// </para>
+    /// <para>
+    /// <b>Both halves of this fixture are load-bearing.</b> The permit's answer is a PAIR: neither
+    /// origin term is unsatisfiable alone, so a per-term check finds nothing and only a core
+    /// catches the contradiction — while the irrelevant port term must be dropped. The forbid is
+    /// dead for a reason that is not in its condition at all, which is why the search asks
+    /// "inert with NO condition?" first; skipping that question yields a confident answer pointing
+    /// at the wrong term.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task BlameNamesTheTermsThatMakeARuleInert()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/vacuous_two_terms.dw");
+
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        // The contradictory pair, and NOT the satisfiable term alongside them.
+        Assert.Contains("because: input.origin == nowhere && input.origin == local", run.Output);
+        Assert.DoesNotContain("because: input.port == 22", run.Output);
+
+        // The forbid's deadness is structural, so the condition must not be blamed for it.
+        Assert.Contains("the condition is not why", run.Output);
+        Assert.DoesNotContain("because: input.origin == external", run.Output);
+
+        // --no-blame turns the whole search off, which is the point of having the flag.
+        var quiet = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/vacuous_two_terms.dw", "--no-blame");
+
+        Assert.True(quiet.ExitCode == 0, quiet.Output);
+        Assert.Contains("VACUOUS", quiet.Output);
+        Assert.DoesNotContain("because:", quiet.Output);
+        Assert.DoesNotContain("the condition is not why", quiet.Output);
+    }
+
+    /// <summary>
     /// The bounded repair loop — propose, check, feed the objection back, revise — driven by a
     /// scripted proposer so the mechanics are verified without a model.
     /// </summary>

@@ -79,6 +79,29 @@ once — almost always a condition that was rewritten rather than extended, and 
 `EQUIVALENT` is a claim of absence, so it carries the bound like every other one. It licenses "no
 session of up to N attempts tells them apart", not "the edit is safe".
 
+## Why it is inert, not just that it is
+
+Under an inert rule the checker says which part of it is responsible. Two shapes, and they call
+for different advice:
+
+| | |
+|---|---|
+| `because: <terms>` | **these terms** are the reason. Removing any one of them revives the rule |
+| `the condition is not why` | it is inert **even with no condition at all** — the reason is structural |
+
+**Quote the terms.** "This forbid never denies anything" sends someone back to re-read their own
+condition; "it cannot fire because `input.origin == nowhere && input.origin == local`" tells them
+what to change. The terms are read from the *parsed* form, so if one looks unlike what they wrote,
+that disagreement is itself worth raising.
+
+**A structural answer means do not touch the condition.** The usual cause is that nothing the rule
+guards was ever permitted — a forbid over an action with no permit, or one whose only permit is
+itself VACUOUS. Editing the condition there changes nothing, and suggesting it wastes the reader's
+time on the wrong file.
+
+The set is **minimal, not smallest**: removing any single term revives the rule, which is what a
+linear search can honestly claim. Do not describe it as the only possible explanation.
+
 ## A refusal is not a pass
 
 If `Answered` is false the checker produced **no verdict at all** — the policy uses something

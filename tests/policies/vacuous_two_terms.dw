@@ -1,0 +1,38 @@
+// A permit that can never fire, and only ONE of its two conditions is the reason.
+//
+// This exists to pin blame minimisation. The rule is VACUOUS, which the checker already reported
+// before that feature existed -- what it could not say was WHICH term made it so, and that is the
+// part somebody has to fix.
+//
+//     python src/checker/properties.py tests/policies/vacuous_two_terms.dw
+//     ==> permit #1 ... VACUOUS
+//         because: input.origin == nowhere && input.origin == local
+//
+// THE ANSWER IS A PAIR, and that is the point: neither origin term is unsatisfiable on its own.
+// A field's domain in the model is the literals the policy names plus one it does not, so
+// "nowhere" and "local" are both perfectly reachable values -- just never on the same request.
+// It is their CONJUNCTION that cannot hold, which is exactly the kind of blame a per-term check
+// would miss and a minimal core catches.
+//
+// `input.port == 22` is satisfiable and irrelevant, and a correct minimisation drops it. Keeping
+// it would be true and useless; blaming it alone would be wrong.
+//
+// The forbid is the other half of the fixture. It is DEAD for a reason that has nothing to do
+// with its condition: the only permit is vacuous, so nothing is ever allowed, so no forbid can
+// deny anything that would have been. A minimiser that went straight to the terms would produce
+// a confident answer pointing at `origin == "external"` -- which is why the search asks "would it
+// still be inert with NO condition?" first.
+
+permit (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.port == 22 && context.input.origin == "nowhere" && context.input.origin == "local" };
+
+forbid (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.origin == "external" };

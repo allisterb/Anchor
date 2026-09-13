@@ -270,6 +270,135 @@ def witness(out: str) -> str:
     return " -> ".join(actions) if actions else "(see TLC output, --verbose)"
 
 
+
+# ---------------------------------------------------------------------------- blame
+#
+# A verdict says a rule is inert. It does not say WHICH PART of it made it inert, and that is the
+# part somebody has to fix. "This forbid never denies anything" sends a reader back to re-read
+# their own condition; "it cannot fire because `port > 1024` and `port == 3389` cannot both hold"
+# is an instruction.
+#
+# The method is unsat-core minimisation, one level of decomposition below the rule: drop conjuncts
+# and re-ask, keeping only those whose presence is still enough to kill it. Greedy, so the result
+# is 1-MINIMAL -- removing any single term from the answer revives the rule -- which is not the
+# same as globally smallest, and is the honest thing to claim for N runs rather than 2^N.
+
+
+def conjuncts(cond) -> list[dict]:
+    """The top-level conjuncts of a condition. Empty when there is no condition to blame."""
+    if not isinstance(cond, dict) or cond.get("op") == "true":
+        return []
+    if cond.get("op") == "and":
+        return list(cond["args"])
+    return [cond]
+
+
+def rebuild(terms: list[dict]) -> dict:
+    """A condition from a subset of conjuncts. No terms means an unconditional rule."""
+    if not terms:
+        return {"op": "true", "args": []}
+    return terms[0] if len(terms) == 1 else {"op": "and", "args": terms}
+
+
+def describe_term(term) -> str:
+    """One conjunct, close to how it was written. Falls back rather than guessing.
+
+    This reads the PARSED form, not the source text, because the parse is what was checked -- a
+    conjunct quoted from the file could differ from the one the verdict is about if the parser
+    read it differently, and that is precisely the disagreement worth not hiding.
+    """
+    if not isinstance(term, dict):
+        return str(term)
+
+    # `term` wraps a temporal position; unwrap it, keeping the window if there is one.
+    if term.get("op") == "term":
+        inner = term.get("term", {})
+        window = inner.get("window", 0)
+        atom = describe_term(inner.get("atom", inner))
+        if inner.get("op") == "since":
+            return f"{atom} since ..."
+        return atom if not window else f"formerly within {window}s {atom}"
+
+    op = term.get("op")
+    field = term.get("field", "")
+    if op == "cmp":
+        return f"input.{field} {term.get('cmp', '?')} {term.get('value')}"
+    if op == "cmpvar":
+        return f"input.{field} {term.get('cmp', '?')} {term.get('other', 'a bound value')}"
+    if op == "like":
+        pattern = "".join("*" if p is None else str(p) for p in term.get("pattern", []))
+        return f'input.{field} like "{pattern}"'
+    if op == "inrange":
+        net = ".".join(str(o) for o in term.get("net", []))
+        return f"input.{field} in {net}/{term.get('prefix', '?')}"
+    if op == "agg":
+        return f"{term.get('agg', {}).get('kind', 'count')}(...) {term.get('cmp', '?')} {term.get('value')}"
+    if op == "not":
+        return "not (" + "; ".join(describe_term(a) for a in term.get("args", [])) + ")"
+    if op in ("and", "or"):
+        joiner = " && " if op == "and" else " || "
+        return "(" + joiner.join(describe_term(a) for a in term.get("args", [])) + ")"
+
+    # Something this renderer does not model. Named by its operator rather than silently omitted,
+    # because a blame report missing a term is a blame report that is wrong.
+    return f"<{op}{' on input.' + field if field else ''}>"
+
+
+def still_inert(work: Path, policies: list[dict], vocab: dict, keys, index: int,
+                terms: list[dict], invariant: str, args) -> bool:
+    """Is rule `index` still inert when its condition is only `terms`?
+
+    The VOCABULARY IS NOT RECOMPUTED. It comes from the whole policy as written, so dropping a
+    conjunct does not shrink the request space along with it -- otherwise removing the term that
+    mentions a field would also remove the values that field can take, and the rule would look
+    revived because the question got smaller.
+    """
+    trial = list(policies)
+    trial[index - 1] = {**policies[index - 1], "cond": rebuild(terms)}
+    (work / "PolicyUnderTest.tla").write_text(
+        generate_policy_module(args.policy, trial, vocab, keys=keys), encoding="utf-8")
+    # `check_one` returns (verdict, output) -- UNPACKED, because comparing the tuple itself to
+    # False is always false, which made every trial look revived and left the core never shrinking.
+    # False means no witness: still inert. True means it fired, None cannot occur -- blame is not
+    # attempted under --smoke, because it would be minimising against an answer that is not one.
+    found, _ = check_one(work, index, args.attempts, args.amount, invariant)
+    return found is False
+
+
+def blame(work: Path, policies: list[dict], vocab: dict, keys, index: int,
+          verdict: str, args) -> tuple[str, list[str]]:
+    """Why rule `index` is inert: ("structural" | "terms" | "none", the terms to blame).
+
+    Costs one TLC run per conjunct plus one, so a two-term rule costs three. Only ever run for a
+    rule already found inert, which is the rare case rather than the common one.
+    """
+    terms = conjuncts(policies[index - 1].get("cond"))
+    # REDUNDANT and DEAD are both "deleting it changes nothing"; VACUOUS is "it never fires".
+    invariant = "NeverFires" if verdict == "VACUOUS" else "NeverMatters"
+
+    if not terms:
+        return "structural", []
+
+    # First the question that makes the rest worth asking: would it be inert with NO condition?
+    # If so the condition is not the reason, and minimising within it would produce a confident
+    # answer pointing at the wrong thing.
+    if still_inert(work, policies, vocab, keys, index, [], invariant, args):
+        return "structural", []
+
+    core = list(terms)
+    for term in terms:
+        trial = [t for t in core if t is not term]
+        if still_inert(work, policies, vocab, keys, index, trial, invariant, args):
+            core = trial
+
+    # Restore the module, so anything written afterwards -- `--keep`, a later rule's run -- sees
+    # the policy as written rather than the last trial.
+    (work / "PolicyUnderTest.tla").write_text(
+        generate_policy_module(args.policy, policies, vocab, keys=keys), encoding="utf-8")
+
+    return ("terms", [describe_term(t) for t in core]) if core else ("none", [])
+
+
 # ---------------------------------------------------------------------------- custom properties
 def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None) -> int:
     """Check the author's claim about what this policy means."""
@@ -683,6 +812,10 @@ def main() -> int:
                     help="emit the result as JSON, including the witness SESSION as structured "
                          "events rather than a one-line summary. For an agent, or anything else "
                          "that has to act on the answer instead of read it")
+    ap.add_argument("--no-blame", action="store_true",
+                    help="skip working out WHICH condition term makes an inert rule inert. That "
+                         "search costs one extra TLC run per term of each inert rule, and it is "
+                         "the difference between a verdict and an instruction")
     ap.add_argument("--keep", type=Path, metavar="DIR",
                     help="write the generated TLA+ module, its .cfg and the raw TLC output here "
                          "instead of discarding them. What a reader who knows TLA+ needs in order "
@@ -822,6 +955,12 @@ def main() -> int:
                 verdict = "REDUNDANT" if rule["effect"] == "permit" else "DEAD"
                 note = "deleting it changes no verdict in any session"
 
+            # Only for a rule already found inert, and never under --smoke: minimising against
+            # `unknown` would be minimising against the absence of an answer.
+            why, culprits = ("", [])
+            if verdict in ("VACUOUS", "REDUNDANT", "DEAD") and not args.smoke and not args.no_blame:
+                why, culprits = blame(work, policies, vocab, schema["keys"], i, verdict, args)
+
             story = narrate(witness_events(out)) if verdict == "live" else []
             detail.append({
                 "index": i,
@@ -834,6 +973,9 @@ def main() -> int:
                 "witness": witness(out) if verdict == "live" else None,
                 "session": witness_events(out) if verdict == "live" else [],
                 "narrative": story,
+                # Why it is inert: "structural" (the condition is not the reason), "terms" (these
+                # are), or "" when the search was not run. Absent reasons are not guessed at.
+                "blame": {"kind": why, "terms": culprits} if why else None,
             })
             findings.append((i, rule["effect"], verdict))
 
@@ -848,6 +990,11 @@ def main() -> int:
             if verdict == "live" and any("(" in line and "()" not in line for line in story):
                 for line in story:
                     print(f"      {line}")
+
+            if why == "terms":
+                print(f"      because: {' && '.join(culprits)}")
+            elif why == "structural":
+                print("      the condition is not why -- it is inert even with no condition at all")
 
             if args.verbose:
                 print("\n".join(f"      {line}" for line in out.splitlines()))
