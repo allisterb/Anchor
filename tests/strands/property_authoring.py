@@ -237,6 +237,22 @@ def main() -> int:
           bool(said) and "Parse Error" in said[0]
           and re.search(r"at line \d+, column \d+", said[0]) is not None, str(said[:1]))
 
+    # --- AND A MODULE THAT COMPILES BUT DOES NOT EVALUATE ----------------------------------------
+    # The same conflation one layer down, and it survived the SANY fix because SANY resolves NAMES
+    # and not record FIELDS. A sweep of five real policies came back four-BROKEN on this: TLC died
+    # with "Attempted to select nonexistent field", no claim was ever decided, and the checker
+    # reported that the policy does not mean what the property says.
+    crashed = score(POLICIES / "firewall.dw", POLICIES / "firewall_bad_field.tla", mutants=1)
+    check("a module that dies while evaluating is not scored", crashed["ran"] is False,
+          str(crashed.get("exitCode")))
+    check("...and gets NO VERDICT rather than BROKEN", crashed["exitCode"] == 2,
+          str(crashed.get("exitCode")))
+    check("...and claims nothing about the policy",
+          "does not mean what the property says" not in crashed["output"],
+          crashed["output"][-300:])
+    check("...and names the field TLC choked on",
+          "nonexistent field" in crashed["output"], crashed["output"][-300:])
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed: {', '.join(failures)}")

@@ -524,8 +524,24 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
             return mutation_report(args, policies, vocab, keys, held=True)
         return 0
 
+    # A MODULE THAT CRASHED IS NOT A PROPERTY THAT FAILED, and TLC exits non-zero either way.
+    # SANY clears the module's syntax before this point, but a module that COMPILES can still die
+    # while evaluating -- "Attempted to select nonexistent field" is the common one, from a field
+    # name that does not exist on a record. There is no violated invariant in that output, and
+    # reporting it as BROKEN asserts that the policy does not mean what the property says, drawn
+    # from a run in which no claim was ever decided. Four of five policies in a real sweep came
+    # back BROKEN this way.
+    violations = violated_by(out)
+    if not violations:
+        print(f"  {args.property_module.name} COMPILED BUT DID NOT EVALUATE. TLC says:\n")
+        for line in [ln for ln in out.splitlines() if ln.startswith("Error:")][:6]:
+            print(f"      {line}")
+        print("\nNothing was checked. No claim was decided either way, so there is no verdict\n"
+              "about the policy here -- the module needs fixing first.")
+        return 2
+
     source = args.property_module.read_text(encoding="utf-8", errors="replace")
-    for v in violated_by(out) or ["TLC could not answer:\n" + out[-1200:]]:
+    for v in violations:
         print(f"  BROKEN  {v}")
 
         # THE CLAIM ITSELF, quoted from the module. A violation reports a NAME and a state, and

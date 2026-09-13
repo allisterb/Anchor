@@ -1,9 +1,9 @@
 """Anchor's property-authoring pipeline, as the Strands `Graph` that runs it.
 
-    describe ──> draft ──> preflight ──┬──> score ──┬──> check ──> answer ──> report
-                                       │            │                          ^  ^
-                                       └────────────┴──────────────────────────┘  │
-                                            a rejection still reports ────────────┘
+    describe ──┬──> draft ──> preflight ──┬──> score ──┬──> check ──> answer ──> report
+               │                          │            │                            ^
+               └──────────────────────────┴────────────┴────────────────────────────┘
+                     every rejection still reports, and nothing raises
 
 THE SEPARATION IS THE POINT. The agent that DRAFTS the property is not the agent that ANSWERS with
 it. Asked to produce both an artifact and its specification, a model finds that a trivial
@@ -39,6 +39,7 @@ the object that runs are the same object.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import time
 from collections.abc import AsyncGenerator
@@ -95,8 +96,8 @@ class Computed(Model):
     It costs nothing and reports nothing: zero tokens, no network, no credentials.
     """
 
-    def __init__(self, run, fn) -> None:
-        self.run, self.fn = run, fn
+    def __init__(self, run, fn, name: str = "") -> None:
+        self.run, self.fn, self.name = run, fn, name
 
     def get_config(self) -> Any:
         return {}
@@ -117,7 +118,21 @@ class Computed(Model):
         system_prompt_content=None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
-        text = self.fn(self.run, incoming(messages))
+        # NO STAGE MAY RAISE. A node that raises does not merely fail: `_execute_node` re-raises
+        # for fail-fast (graph.py:1147), the run ends ABORTED, and `report` never runs -- so there
+        # is no findings.md at all, which is the one outcome this pipeline exists to prevent. It
+        # is also the hole in `AlwaysReports`, which is stated over `phase = "DONE"` and says
+        # nothing about an abort.
+        #
+        # The property cannot be strengthened to cover ABORTED -- the model lets ANY node fail, so
+        # no shape satisfies it. The obligation is therefore discharged HERE, by leaving the
+        # executor no exception to see, and what remains is an assumption named in the report: a
+        # stage that crashes is a rejection, not an abort.
+        try:
+            text = self.fn(self.run, incoming(messages))
+        except Exception as e:                              # noqa: BLE001 - reported, not raised
+            self.run.crashed.append(f"{self.name or 'a stage'} failed: {e}")
+            text = gate(False, f"{self.name or 'this stage'} could not run: {e}")
 
         yield {"messageStart": {"role": "assistant"}}
         yield {"contentBlockStart": {"start": {}}}
@@ -174,6 +189,7 @@ class Run:
     module_name: str = "Intent"
     mutants: int = 8
     rounds: int = 3
+    max_fields: int | None = None
 
     round: int = 0
     attempts: list[str] = field(default_factory=list)
@@ -184,6 +200,7 @@ class Run:
     # the number to reason about when bounding a run.
     limits: dict[str, int] = field(default_factory=dict)
     capped: list[str] = field(default_factory=list)
+    crashed: list[str] = field(default_factory=list)
     calls: list["Call"] = field(default_factory=list)
 
     vocab: dict = field(default_factory=dict)
@@ -262,11 +279,19 @@ def gate(ok: bool, said: str) -> str:
 # ------------------------------------------------------------------------------------------------
 def stage_describe(run: Run, _: str) -> str:
     """The vocabulary, and the request built from it. Not guessed and not asked of the model."""
-    run.vocab = author.describe(run.policy, run.event_schema)
+    run.vocab = author.describe(run.policy, run.event_schema, max_fields=run.max_fields)
     if run.vocab.get("_failed"):
-        raise RuntimeError(f"could not read {run.policy.name}: {run.vocab.get('_why')}")
+        # A GATE, not an exception. An unreadable policy is an ordinary outcome -- a wrong path, a
+        # syntax error, a schema that will not load -- and raising here would abort the run and
+        # produce no findings.md, which is a worse answer than saying what went wrong.
+        run.rejected_at = "describe"
+        run.complaints = [f"{run.policy.name} could not be read: {run.vocab.get('_why')}"]
+        return gate(False, run.complaints[0])
+
     run.vocab["requiredModuleName"] = run.module_name
-    return author.draft_prompt(run.vocab, run.intent)
+    actions = len(run.vocab.get("actions") or [])
+    return gate(True, f"read {run.policy.name}: {actions} action(s), and a vocabulary the module "
+                      f"may name")
 
 
 def stage_draft(run: Run, asked: str, drafter) -> str:
@@ -290,7 +315,10 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
     feedback = ""
     for attempt in range(1, max(1, run.rounds) + 1):
         run.round = attempt
-        prompt = author.draft_prompt(run.vocab, run.intent, feedback) if feedback else asked
+        # BUILT FROM THE VOCABULARY, never from what the parent node said. `describe` emits a
+        # verdict now, and a prompt assembled out of another node's framed output would carry that
+        # marker into the model's instructions.
+        prompt = author.draft_prompt(run.vocab, run.intent, feedback)
         text, cut = ask(drafter, prompt, run, f"draft round {attempt}")
         module, config = author.parse_draft(text)
         run.attempts.append(text)
@@ -313,7 +341,8 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
         # names the line, the column and the token, and one more round is seconds.
         scratch.write_text(module, encoding="utf-8")
         scratch.with_suffix(".cfg").write_text(config, encoding="utf-8")
-        ok, out = author.compiles(run.policy, scratch, event_schema=run.event_schema)
+        ok, out = author.compiles(run.policy, scratch, event_schema=run.event_schema,
+                                  max_fields=run.max_fields)
         if not ok:
             feedback = ("Your module did not compile. Fix exactly this and return the whole "
                         f"module again:\n\n{out[:2000]}")
@@ -377,7 +406,7 @@ def stage_score(run: Run, _: str) -> str:
     run.module_path.with_suffix(".cfg").write_text(run.config, encoding="utf-8")
 
     run.score = author.score(run.policy, run.module_path, event_schema=run.event_schema,
-                             mutants=run.mutants)
+                             max_fields=run.max_fields, mutants=run.mutants)
     run.complaints = author.assess(run.score, run.config)
     if run.complaints:
         run.rejected_at = "score"
@@ -390,8 +419,15 @@ def stage_score(run: Run, _: str) -> str:
 
 def stage_check(run: Run, _: str) -> str:
     """The checks, run. Two invocations because `--property` REPLACES the derived questions."""
+    # THE DERIVED QUESTIONS GET NO --max-fields, deliberately. They quantify over the product of
+    # every field domain, so above the checker's own limit they do not finish -- measured at 7
+    # minutes and still running on agent-policy.dw. Left at the default they REFUSE in about a
+    # second, with the reason, which is the honest answer and the cheap one. The property run
+    # below takes the raised limit, because a property module states its OWN request set and is
+    # therefore not subject to that product at all: the same policy answers it in 3 seconds.
     run.rules = repair.run_checker(run.policy, event_schema=run.event_schema)
-    run.prop = repair.check_property(run.policy, run.module_path, event_schema=run.event_schema)
+    run.prop = repair.check_property(run.policy, run.module_path, event_schema=run.event_schema,
+                                     max_fields=run.max_fields)
 
     lines = [f"Policy: {run.policy.name}", f"Property: {run.module_name}", ""]
     if run.prop.get("_failed"):
@@ -409,9 +445,14 @@ def stage_check(run: Run, _: str) -> str:
               "states it ranges over its condition applies to:", "", run.explained.strip(), "",
               "This says nothing about requests the property does not name."]
 
-    findings = [f for f in (run.rules.get("rules") or []) if f.get("finding")]
-    lines += ["", f"Derived findings: {len(findings)}"]
-    lines += [f"  {f.get('rule')}: {f.get('finding')}" for f in findings]
+    if run.rules.get("_failed"):
+        lines += ["", "The derived questions were NOT attempted: this policy is outside the "
+                  "subset they can range over.", f"  {str(run.rules.get('_why'))[-300:]}",
+                  "That is a limit of those questions, not a verdict about the policy."]
+    else:
+        findings = [f for f in (run.rules.get("rules") or []) if f.get("finding")]
+        lines += ["", f"Derived findings: {len(findings)}"]
+        lines += [f"  {f.get('rule')}: {f.get('finding')}" for f in findings]
     run.checked = "\n".join(lines)
     return run.checked
 
@@ -443,7 +484,17 @@ def stage_report(run: Run, said: str) -> str:
     run.findings = run.out / "findings.md"
 
     lines = [f"# {run.policy.name}", "", f"**Stated intention.** {run.intent}", ""]
-    # BUDGET CAPS FIRST, because every verdict below is read differently if one fired. A capped
+    # A CRASHED STAGE FIRST OF ALL. It is caught rather than raised so that this file exists at
+    # all -- an exception would abort the run and write nothing -- but it is a defect in Anchor,
+    # not a finding about the policy, and must not be read as one.
+    if run.crashed:
+        lines += ["> **A stage of Anchor itself failed during this run.** This is a bug in Anchor,",
+                  "> not a finding about your policy, and whatever appears below is incomplete.",
+                  ">"]
+        lines += [f"> - {c}" for c in run.crashed]
+        lines += [""]
+
+    # BUDGET CAPS NEXT, because every verdict below is read differently if one fired. A capped
     # run is not a shorter run: it is one whose agent was interrupted mid-sentence.
     if run.capped:
         lines += ["> **A budget cap fired during this run.**", ">"]
@@ -465,9 +516,17 @@ def stage_report(run: Run, said: str) -> str:
         # `stage_answer` already set this from the agent's own reply. The fallback is defensive:
         # an empty report section would be worse than one with some scaffolding in it.
         run.answered = run.answered or unframe(said)
+        # WHY IT WAS KEPT, and there are two different reasons. Mutation scoring is skipped when
+        # the property already FAILS on the policy as written -- it has shown it discriminates by
+        # failing, so there is nothing to score. Printing `caught None` there read as a property
+        # kept for catching nothing, which is the opposite of what happened.
+        caught = run.score.get("caught")
+        why = (f"kept because it caught {caught} broken version(s) of this policy"
+               if caught is not None else
+               "kept because it does not hold on the policy as written -- it has already shown "
+               "it can tell one policy from another, so it was not scored against mutants")
         lines += ["## What was checked", "", f"`{run.module_name}.tla`, drafted from the "
-                  f"intention above and kept only because it caught "
-                  f"{run.score.get('caught')} broken version(s) of this policy.", "",
+                  f"intention above and {why}.", "",
                   "## Verdicts", "", "```", run.checked.strip(), "```", "",
                   "## Reported", "", run.answered]
 
@@ -530,7 +589,7 @@ def append_usage(run: Run, result) -> None:
 
 # ------------------------------------------------------------------------------------------------
 def computed(run: Run, fn, name: str) -> Agent:
-    return Agent(model=Computed(run, fn), callback_handler=None, name=name)
+    return Agent(model=Computed(run, fn, name), callback_handler=None, name=name)
 
 
 def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None, *,
@@ -550,6 +609,7 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
         answerer = answerer or Agent(model=build_model(), callback_handler=None,
                                      system_prompt=ANSWERER_PROMPT, name="answer")
 
+    describe_ok, describe_no = verdict("describe")
     preflight_ok, preflight_no = verdict("preflight")
     score_ok, score_no = verdict("score")
 
@@ -583,7 +643,8 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     b.add_node(computed(run, lambda r, t: stage_answer(r, t, answerer), "answer"), "answer")
     b.add_node(computed(run, stage_report, "report"), "report")
 
-    b.add_edge("describe", "draft")
+    b.add_edge("describe", "draft", condition=describe_ok)
+    b.add_edge("describe", "report", condition=describe_no)
     b.add_edge("draft", "preflight")
     b.add_edge("preflight", "score", condition=preflight_ok)
     b.add_edge("preflight", "report", condition=preflight_no)
@@ -595,14 +656,144 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     return b.build()
 
 
+# ------------------------------------------------------------------------------------------------
+# A directory of policies
+# ------------------------------------------------------------------------------------------------
+INTENT_HEADING = re.compile(r"^##\s+(\S+)\s*$")
+
+
+def module_name_for(label: str) -> str:
+    """A TLA+ module name from an intent's heading.
+
+    TLA+ requires the module name to match its file name, and this loop chooses the file name, so
+    the name has to be derived rather than asked for. Identifiers here may not carry `-` or `.` or
+    lead with a digit -- and every requirement label in `examples/` does at least one of those.
+    """
+    parts = re.split(r"[^A-Za-z0-9]+", label.removesuffix(".dw"))
+    name = "".join(p[:1].upper() + p[1:] for p in parts if p)
+    return name if name[:1].isalpha() else f"Intent{name}"
+
+
+def read_intents(path: Path) -> dict[str, str]:
+    """`## <policy>.dw` followed by the requirement, as blockquote or prose.
+
+    A FILE OF ITS OWN, and not a field in the policy. The intent has to come from somewhere the
+    policy did not write, or the property drafted from it restates the rules and passes whatever
+    they say. Keeping it in a separate file is the cheapest way to make that visible -- and it is
+    checkable, because each entry is also quoted in its policy's header comment.
+    """
+    out: dict[str, str] = {}
+    name, body = "", []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if (m := INTENT_HEADING.match(line)):
+            if name and body:
+                out[name] = " ".join(body).strip()
+            name, body = m.group(1), []
+        elif name and line.strip() and not line.startswith("#"):
+            body.append(line.lstrip("> ").strip())
+    if name and body:
+        out[name] = " ".join(body).strip()
+    return out
+
+
+def sweep(target: Path, intents: dict[str, str], *, out: Path | None = None,
+          build_graph=None, **kw) -> list[Run]:
+    """One pipeline per stated intent. Returns a Run each.
+
+    TWO SHAPES, because policies come both ways:
+
+      a DIRECTORY   one policy per file, each with its own requirement. Enumerated from the
+                    directory rather than from the intents file, so a policy with no stated
+                    requirement is REPORTED as unstated rather than skipped quietly -- a sweep
+                    that silently covers four of six files is a green that means nothing.
+
+      a FILE        one policy set, several requirements against it. This is how a policy is
+                    actually deployed, and it is the only shape in which a `forbid`-only rule
+                    can be checked at all: alone, under default-deny, it grants nothing, so any
+                    claim that something is ALLOWED fails whatever the rule says.
+    """
+    runs: list[Run] = []
+    base = out or (target if target.is_dir() else target.parent) / "anchor"
+
+    if target.is_dir():
+        for policy in sorted(target.glob("*.dw")):
+            if (intent := intents.get(policy.name)):
+                runs.append(_one(policy, intent, base / policy.stem, "Intent", build_graph, kw))
+        return runs
+
+    for label, intent in intents.items():
+        runs.append(_one(target, intent, base / label, module_name_for(label), build_graph, kw))
+    return runs
+
+
+def _one(policy: Path, intent: str, out: Path, module: str, build_graph, kw) -> Run:
+    run = Run(policy=policy, intent=intent, out=out, module_name=module, **kw)
+    graph = (build_graph or build)(run)
+    result = graph(f"State and check the intention for {policy.name}.")
+    append_usage(run, result)
+    return run
+
+
+def outcome(run: Run) -> str:
+    """One line on what happened, in the order a reader cares about."""
+    if run.crashed:
+        return "ANCHOR FAILED"
+    if run.rejected_at:
+        return f"no property (rejected at {run.rejected_at})"
+    if run.prop.get("_failed"):
+        return "no verdict"
+    return "property BROKEN" if not run.prop.get("held") else "property holds"
+
+
+def sweep_report(target: Path, intents: dict[str, str], runs: list[Run]) -> str:
+    root = target if target.is_dir() else target.parent
+    unstated = (sorted(p.name for p in target.glob("*.dw") if p.name not in intents)
+                if target.is_dir() else [])
+    what = "policy/policies" if target.is_dir() else f"requirement(s) against `{target.name}`"
+    lines = [f"# {root.name}: {len(runs)} {what}", "",
+             "| | outcome | rounds | tokens | findings |", "|---|---|---:|---:|---|"]
+    for r, label in zip(runs, intents if not target.is_dir() else [r.policy.name for r in runs]):
+        tokens = sum(c.total for c in r.calls)
+        # Relative when it can be, absolute when it cannot: `--out` may point anywhere, and
+        # `relative_to` RAISES rather than falling back, which would lose the whole summary over a
+        # cosmetic path.
+        where = "—"
+        if r.findings:
+            try:
+                where = f"`{r.findings.relative_to(root)}`"
+            except ValueError:
+                where = f"`{r.findings}`"
+        lines.append(f"| `{label}` | {outcome(r)} | {r.round} | {tokens:,} | {where} |")
+
+    lines += ["", f"**{sum(sum(c.total for c in r.calls) for r in runs):,} tokens** over "
+              f"{sum(len(r.calls) for r in runs)} model calls."]
+    if unstated:
+        # Named rather than omitted: the set that was checked is only meaningful beside the set
+        # that was not.
+        lines += ["", "**Not swept**, because `intents.md` states no requirement for them:", ""]
+        lines += [f"- `{n}`" for n in unstated]
+    lines += ["", "*Every property above was drafted by a model and gated by Anchor. Findings "
+              "against an agent-authored property are weaker evidence than findings against one a "
+              "person wrote.*", ""]
+    return "\n".join(lines)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("policy", type=Path)
-    p.add_argument("--intent", required=True,
+    p.add_argument("policy", type=Path, help="a .dw policy, or a DIRECTORY to sweep")
+    p.add_argument("--intent", default=None,
                    help="the requirement to state formally. Prose the POLICY did not write")
+    p.add_argument("--intents", type=Path, default=None,
+                   help="for a directory: a markdown file of `## <policy>.dw` headings and the "
+                        "requirement under each. Defaults to <directory>/intents.md")
     p.add_argument("--out", type=Path, default=None)
     p.add_argument("--event-schema", type=Path, default=None)
     p.add_argument("--mutants", type=int, default=8)
+    p.add_argument("--max-fields", type=int, default=None,
+                   help="raise the checker's bound on how many input/output fields a policy may "
+                        "read. Applies to the PROPERTY runs only -- the derived questions range "
+                        "over the product of every field domain and do not finish above the "
+                        "default, so they are left to refuse instead")
     p.add_argument("--name", default="Intent", help="the property module's name")
     p.add_argument("--rounds", type=int, default=3,
                    help="drafting attempts. A round costs one model call plus ~1s of SANY; "
@@ -637,13 +828,44 @@ def main() -> int:
         import logging                                                 # noqa: PLC0415
         logging.getLogger("google_genai.models").setLevel(logging.ERROR)
 
+    shared = dict(event_schema=args.event_schema, module_name=args.name, mutants=args.mutants,
+                  rounds=args.rounds, max_fields=args.max_fields,
+                  limits={k: v for k, v in (("turns", args.turns),
+                                            ("total_tokens", args.total_tokens),
+                                            ("output_tokens", args.output_tokens)) if v})
+
+    if args.policy.is_dir() or args.intents:
+        intents_file = args.intents or args.policy / "intents.md"
+        if not intents_file.exists():
+            print(f"no intents file at {intents_file}. A sweep needs a requirement per policy, "
+                  f"stated somewhere the policies did not write it.", file=sys.stderr)
+            return 2
+        intents = read_intents(intents_file)
+        root = args.policy if args.policy.is_dir() else args.policy.parent
+        out = args.out or root / "anchor"
+
+        # `module_name` is chosen per intent inside the sweep -- one module per requirement, named
+        # from its heading -- so the single-policy default must not be passed alongside it.
+        per_run = {k: v for k, v in shared.items() if k != "module_name"}
+
+        print(f"sweeping {len(intents)} intent(s) against {args.policy} (this makes live model "
+              f"calls)\n", file=sys.stderr)
+        runs = sweep(args.policy, intents, out=out, **per_run)
+
+        out.mkdir(parents=True, exist_ok=True)
+        summary = out / "summary.md"
+        summary.write_text(sweep_report(args.policy, intents, runs), encoding="utf-8")
+        for label, r in zip(intents, runs):
+            print(f"  {label:<32} {outcome(r)}", file=sys.stderr)
+        print(summary)
+        return 1 if any(r.crashed or r.rejected_at for r in runs) else 0
+
+    if not args.intent:
+        print("--intent is required for a single policy", file=sys.stderr)
+        return 2
+
     run = Run(policy=args.policy, intent=args.intent,
-              out=args.out or args.policy.parent / "anchor",
-              event_schema=args.event_schema, module_name=args.name, mutants=args.mutants,
-              rounds=args.rounds,
-              limits={k: v for k, v in (("turns", args.turns),
-                                        ("total_tokens", args.total_tokens),
-                                        ("output_tokens", args.output_tokens)) if v})
+              out=args.out or args.policy.parent / "anchor", **shared)
 
     graph = build(run, max_node_executions=args.max_node_executions,
                   node_timeout=args.node_timeout)

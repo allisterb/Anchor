@@ -74,7 +74,8 @@ class AuthorRun:
     accepted: Draft | None = None
 
 
-def describe(policy: Path, event_schema: Path | None = None) -> dict:
+def describe(policy: Path, event_schema: Path | None = None,
+             max_fields: int | None = None) -> dict:
     """The vocabulary a property module may name, from the checker itself.
 
     NOT GUESSED AND NOT ASKED OF THE MODEL. The actions, field names and value domains come from
@@ -84,6 +85,8 @@ def describe(policy: Path, event_schema: Path | None = None) -> dict:
     args = [sys.executable, str(CHECKER), str(policy), "--describe"]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
     proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=300)
     try:
         return json.loads(proc.stdout)
@@ -92,7 +95,7 @@ def describe(policy: Path, event_schema: Path | None = None) -> dict:
 
 
 def compiles(policy: Path, module: Path, *, event_schema: Path | None = None,
-             timeout: int = 300) -> tuple[bool, str]:
+             max_fields: int | None = None, timeout: int = 300) -> tuple[bool, str]:
     """Does this module parse and resolve? SANY, about a second, against minutes for `score`.
 
     NEEDS THE POLICY, and that is not incidental: a property module EXTENDS `PolicyUnderTest`,
@@ -105,12 +108,14 @@ def compiles(policy: Path, module: Path, *, event_schema: Path | None = None,
     args = [sys.executable, str(CHECKER), str(policy), "--property", str(module), "--parse"]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
     proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
 
 
 def score(policy: Path, module: Path, *, event_schema: Path | None = None,
-          mutants: int = 8, timeout: int = 3600) -> dict:
+          max_fields: int | None = None, mutants: int = 8, timeout: int = 3600) -> dict:
     """Check a property AND ask whether it would notice the policy breaking.
 
     One invocation, because the two answers belong together: "it holds" is only reassuring
@@ -120,6 +125,8 @@ def score(policy: Path, module: Path, *, event_schema: Path | None = None,
             "--mutation-score", "--mutants", str(mutants)]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
     proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     out = proc.stdout + proc.stderr
 

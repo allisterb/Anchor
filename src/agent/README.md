@@ -181,6 +181,30 @@ python src/agent/pipeline.py examples/aws1/07-trust-decay.dw \
     --intent "After 15 minutes without advisor interaction, the agent loses write access."
 ```
 
+**Nothing aborts it.** A node that raises ends the run with no findings.md at all — and that is the
+hole `AlwaysReports` cannot cover, since it is stated over `phase = "DONE"` and the property cannot
+be strengthened (the model lets *any* node fail). So the obligation is discharged in code: every
+stage catches, an unreadable policy is a `describe` gate rejection rather than an exception, and a
+stage that crashes anyway says in findings.md that **Anchor** failed — not the policy.
+
+## Sweeping a directory
+
+```bash
+python src/agent/pipeline.py examples/aws2 --intents examples/aws2/intents.md
+```
+
+One pipeline per policy with a **stated intent**, read from `intents.md` — `## <policy>.dw`
+headings with the requirement under each. Policies enumerated from the directory, not from the
+intents file, so one with no stated requirement is *named* in the summary rather than skipped
+quietly; a sweep that silently covers two thirds of a directory is a green that means nothing.
+
+The intent has to come from somewhere the policy did not write, which is why it is a separate file.
+For `examples/`, each entry is the article's own sentence and is repeated verbatim in the policy's
+header comment so the transcription can be checked. **The drafter sees neither** — `describe` hands
+it the generated vocabulary and nothing else.
+
+Writes `anchor/<policy>/findings.md` per policy and `anchor/summary.md` over the set.
+
 ## Drafting a property, and the two gates on it
 
 ```bash

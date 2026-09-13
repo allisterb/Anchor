@@ -1,23 +1,30 @@
 """`src/agent/pipeline.py` end to end, and the claim that makes it worth having.
 
-Six scenarios, and the first is the one the whole graph exercise was for:
+Eight scenarios, and the first is the one the whole graph exercise was for:
 
   1. THE SHAPE THAT RUNS IS THE SHAPE THAT WAS CHECKED. `to_tla` over the graph `pipeline.build`
-     actually returns must carry both gate decisions as exclusive pairs, and must satisfy
+     actually returns must carry all three gate decisions as exclusive pairs, and must satisfy
      `AlwaysReports` -- the same claim, over the same module, that tests/strands/anchor_workflow.py
      proves about the `gated` variant. Without this the design work checked a drawing.
   2. A DRAFT THAT WILL NOT COMPILE is retried, having been told the line and the token. This is
      the failure a live run hit, over one stray `*`. The retry lives inside the `draft` node, so
      the graph stays acyclic -- asserted, because a cycle would put it outside what either model
      can express.
-  3. RUNNING OUT OF ROUNDS is not a crash and not a silence: the last attempt is judged by the
+  3. NOTHING ABORTS THE RUN. A node that RAISES ends the run with no findings.md at all, which
+     is the hole `AlwaysReports` cannot cover -- it is stated over `phase = "DONE"`, and the
+     property cannot be strengthened because the model lets any node fail. So the obligation is
+     discharged in code: every stage catches, and an unreadable policy is a gate rejection.
+  4. RUNNING OUT OF ROUNDS is not a crash and not a silence: the last attempt is judged by the
      same gates, and findings.md says the allowance ran out.
-  4. A BUDGET CAP is neither a bad draft nor a finished report. A cut-off draft is a failed
+  5. A BUDGET CAP is neither a bad draft nor a finished report. A cut-off draft is a failed
      round; a cut-off report says so of itself, because a truncated report that does not reads
      as a complete one.
-  5. A REJECTED DRAFT still reports, without a TLC run or a second model call.
-  6. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
+  6. A REJECTED DRAFT still reports, without a TLC run or a second model call.
+  7. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
      rather than the drafter's module.
+  8. A SWEEP over a directory runs one pipeline per STATED intent, names the policies that have
+     none, and discriminates: the same drafted property holds on the sound policy and breaks on
+     the unsound one.
 
 No provider and no credentials: every agent is scripted, so the only cost is the TLC runs behind
 the `score` gate.
@@ -219,6 +226,57 @@ def retries() -> None:
               [c.total for c in drafts] == [15, 15], str([c.total for c in drafts]))
 
 
+def never_aborts() -> None:
+    """No stage may raise, because a raised stage means no findings.md at all.
+
+    This is the hole `AlwaysReports` cannot cover: it is stated over `phase = "DONE"`, and a node
+    that raises ends the run ABORTED. The property cannot be strengthened -- the model lets any
+    node fail, so no shape would satisfy it -- so the obligation is discharged in the code, and
+    this is where that is checked.
+    """
+    print("\nNothing aborts the run")
+    print("-" * 78)
+
+    # --- a policy that cannot be read ----------------------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        run = pipeline.Run(policy=POLICIES / "does_not_exist.dw", intent="x", out=Path(tmp))
+        graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"))
+        result = graph("go")
+        ran = [n.node_id for n in result.execution_order]
+
+        print(f"  ran {len(ran)}/{result.total_nodes}: {', '.join(ran)}")
+        check("an unreadable policy is a rejection, not an abort",
+              str(result.status) != "Status.FAILED" and run.rejected_at == "describe",
+              f"{result.status} / {run.rejected_at}")
+        check("nothing after describe ran", ran == ["describe", "report"], str(ran))
+        check("and it still reported",
+              run.findings is not None and run.findings.exists())
+
+    # --- a stage that throws outright ----------------------------------------------------------
+    # The generic case, and the one that guards against a stage nobody anticipated failing.
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        run = pipeline.Run(policy=POLICIES / "firewall.dw", intent="x", out=Path(tmp), mutants=2)
+        boom = pipeline.stage_check
+        try:
+            pipeline.stage_check = lambda r, t: 1 / 0          # type: ignore[assignment]
+            graph = pipeline.build(run, drafter=agent(GOOD, "draft"),
+                                   answerer=agent("ok", "answer"))
+            result = graph("go")
+        finally:
+            pipeline.stage_check = boom                        # type: ignore[assignment]
+
+        ran = [n.node_id for n in result.execution_order]
+        print(f"  ran {len(ran)}/{result.total_nodes}: {', '.join(ran)}")
+        check("a stage that throws does not abort the run",
+              str(result.status) != "Status.FAILED", str(result.status))
+        check("report still ran", "report" in ran, str(ran))
+        check("the crash is recorded", any("check" in c for c in run.crashed), str(run.crashed))
+
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("findings.md says it was ANCHOR that failed, not the policy",
+              "a bug in Anchor" in text and "not a finding about your policy" in text, text[:400])
+
+
 def capped() -> None:
     """A budget cap must not read as a bad draft, or as a finished report."""
     print("\nA budget cap fires")
@@ -364,7 +422,8 @@ def same_object() -> None:
         graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"))
 
         t = to_tla(graph)
-        check("both gates declared as exclusive decisions", len(t.exclusive) == 2, str(t.exclusive))
+        check("all three gates declared as exclusive decisions", len(t.exclusive) == 3,
+              str(t.exclusive))
         check("no half-decisions", t.unpaired == [], str(t.unpaired))
         check("no undeclared assumptions", t.assumptions == [], str(t.assumptions))
 
@@ -380,6 +439,44 @@ def same_object() -> None:
               graph.nodes["draft"].executor is not graph.nodes["answer"].executor)
 
 
+def sweeping() -> None:
+    """A directory of policies, and the set that was NOT swept named beside it."""
+    print("\nSweeping a directory")
+    print("-" * 78)
+    with tempfile.TemporaryDirectory(prefix="anchor-sweep-") as tmp:
+        work = Path(tmp)
+        for name in ("firewall.dw", "firewall_open.dw", "dead_forbid.dw"):
+            (work / name).write_text((POLICIES / name).read_text(encoding="utf-8"),
+                                     encoding="utf-8")
+        # Two of the three get an intent. The third must be REPORTED as unstated, not skipped:
+        # a sweep that quietly covers two thirds of a directory is a green that means nothing.
+        (work / "intents.md").write_text(
+            "# Intents\n\n## firewall.dw\n\n> Local SSH is permitted and every external source is "
+            "denied.\n\n## firewall_open.dw\n\n> Local SSH is permitted and every external source "
+            "is denied.\n", encoding="utf-8")
+
+        intents = pipeline.read_intents(work / "intents.md")
+        check("both stated intents were read", len(intents) == 2, str(sorted(intents)))
+
+        runs = pipeline.sweep(work, intents, out=work / "anchor", mutants=2,
+                              build_graph=lambda r: pipeline.build(
+                                  r, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer")))
+        check("one run per stated intent", len(runs) == 2, str([r.policy.name for r in runs]))
+
+        # The same property against a policy that HOLDS it and one that BREAKS it -- so the sweep
+        # is shown to discriminate rather than merely to complete.
+        by = {r.policy.name: pipeline.outcome(r) for r in runs}
+        print(f"  {by}")
+        check("the correct policy passes", by.get("firewall.dw") == "property holds", str(by))
+        check("and the broken one is caught",
+              by.get("firewall_open.dw") == "property BROKEN", str(by))
+
+        report = pipeline.sweep_report(work, intents, runs)
+        check("the summary names the policy with no stated intent",
+              "dead_forbid.dw" in report and "Not swept" in report, report[-400:])
+        check("...and totals the tokens", "tokens** over" in report, report[-400:])
+
+
 def main() -> int:
     print("=" * 78)
     print("Anchor's property-authoring pipeline, as the graph that runs it")
@@ -387,10 +484,12 @@ def main() -> int:
 
     same_object()
     retries()
+    never_aborts()
     capped()
     exhausted()
     rejected_path()
     accepted_path()
+    sweeping()
 
     print()
     print("=" * 78)

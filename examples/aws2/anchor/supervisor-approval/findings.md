@@ -1,0 +1,46 @@
+# agent-policy.dw
+
+**Stated intention.** A refund over $500 requires a supervisor approval for that charge within the previous 30 minutes.
+
+## No property was checked: the draft was rejected at `score`
+
+The gate below is a criterion in code, not a judgement a model was asked to make. Nothing downstream ran, and nothing here was verified.
+
+- the module did not compile, so nothing was checked:
+no --event-schema given, so every answer below assumes the UNPINNED reading
+  (global trace). The shipped DEFAULT partitions by principal, under which a rule
+  reported live here may never fire.
+
+agent-policy.dw against SupervisorApproval.tla: 7 rule(s)
+
+  SupervisorApproval.tla COMPILED BUT DID NOT EVALUATE. TLC says:
+
+      Error: The first argument of > should be an integer, but instead it is:
+      Error: The error occurred when TLC was evaluating the nested
+
+Nothing was checked. No claim was decided either way, so there is no verdict
+about the policy here -- the module needs fixing first.
+
+---
+
+*A property drafted by a model and gated by Anchor. Findings against an agent-authored property are weaker evidence than findings against one a person wrote.*
+
+## What this run cost
+
+| | tokens in | out | total | seconds |
+|---|---:|---:|---:|---:|
+| draft round 1 | 5,536 | 5,228 | 10,764 | 41.1 |
+| **1 model call(s)** | **5,536** | **5,228** | **10,764** | **41.1** |
+
+Time per stage, model calls and verification together:
+
+```
+  describe          0.1s
+  draft            41.8s
+  preflight         0.0s
+  score             2.6s
+  report            0.0s
+  total            44.5s
+```
+
+Of which 41.1s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

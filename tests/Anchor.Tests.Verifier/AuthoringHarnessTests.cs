@@ -234,9 +234,25 @@ public class AuthoringHarnessTests : TestsRuntime
         // cumulative across invocations of the same Agent, and the drafter is reused every round,
         // so reading it per call would bill round 1 again on round 2 — 15, then 30, for two calls
         // that each cost 15. Silent, and it grows with the round count.
+        // NOTHING ABORTS. A node that raises ends the run with no findings.md at all — the hole
+        // AlwaysReports cannot cover, since it is stated over phase = "DONE" and the property
+        // cannot be strengthened (the model lets any node fail). Discharged in code instead, and
+        // this is where that is held to.
+        Assert.Contains("ok    an unreadable policy is a rejection, not an abort", run.Output);
+        Assert.Contains("ok    a stage that throws does not abort the run", run.Output);
+        Assert.Contains("ok    findings.md says it was ANCHOR that failed, not the policy", run.Output);
+        Assert.Contains("ok    all three gates declared as exclusive decisions", run.Output);
+
         Assert.Contains("ok    findings.md reports the cost", run.Output);
         Assert.Contains("ok    ...each at ITS OWN cost, not the agent's running total", run.Output);
         Assert.Contains("ok    and a per-stage time for every stage that ran", run.Output);
+
+        // A directory sweep. The discrimination is the point — the SAME drafted property must hold
+        // on the sound policy and break on the unsound one, or the sweep is only proving it can
+        // finish. And a policy with no stated intent is named rather than quietly skipped.
+        Assert.Contains("ok    the correct policy passes", run.Output);
+        Assert.Contains("ok    and the broken one is caught", run.Output);
+        Assert.Contains("ok    the summary names the policy with no stated intent", run.Output);
     }
 
     #endregion

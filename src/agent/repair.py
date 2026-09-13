@@ -110,7 +110,7 @@ def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path
 
 
 def check_property(policy: Path, module: Path, *, event_schema: Path | None = None,
-                   timeout: int = 900) -> dict:
+                   max_fields: int | None = None, timeout: int = 900) -> dict:
     """Does the candidate still satisfy the stated property?
 
     A SECOND INVOCATION, and it has to be. `--property` REPLACES the derived questions rather than
@@ -123,6 +123,8 @@ def check_property(policy: Path, module: Path, *, event_schema: Path | None = No
     args = [sys.executable, str(CHECKER), str(policy), "--property", str(module)]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
 
     proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
     out = (proc.stdout + proc.stderr).strip()
