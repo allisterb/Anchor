@@ -55,6 +55,7 @@ class Round:
     candidate: str
     accepted: bool
     complaints: list[str] = field(default_factory=list)
+    prop: dict | None = None                # the stated property's verdict, when one was given
     rules: dict | None = None
     comparison: dict | None = None
     error: str | None = None
@@ -82,8 +83,7 @@ class RepairRun:
 
 
 def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path | None = None,
-                property_module: Path | None = None, attempts: int | None = None,
-                timeout: int = 900) -> dict:
+                attempts: int | None = None, timeout: int = 900) -> dict:
     """One checker invocation, as structured output. Never raises on a policy it dislikes.
 
     A REFUSAL IS DATA HERE, not an exception. The loop's whole job is to react to the checker
@@ -95,8 +95,6 @@ def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path
         args += ["--against", str(against)]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
-    if property_module is not None:
-        args += ["--property", str(property_module)]
     if attempts is not None:
         args += ["--attempts", str(attempts)]
 
@@ -111,7 +109,38 @@ def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path
                 "_why": why[-1200:] or "the checker produced no output"}
 
 
-def assess(rules: dict, comparison: dict | None, *, no_widening: bool) -> list[str]:
+def check_property(policy: Path, module: Path, *, event_schema: Path | None = None,
+                   timeout: int = 900) -> dict:
+    """Does the candidate still satisfy the stated property?
+
+    A SECOND INVOCATION, and it has to be. `--property` REPLACES the derived questions rather than
+    adding to them -- the checker returns the property verdict and never looks at whether a rule
+    went inert -- so asking for both in one call silently drops one of them. And a property run
+    prints prose, so `--json` on it produces nothing to parse: the loop read that as "the checker
+    could not produce a verdict" and rejected every candidate, including the ones that satisfied
+    the property. A gate that says no whatever happens is not a gate.
+    """
+    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module)]
+    if event_schema is not None:
+        args += ["--event-schema", str(event_schema)]
+
+    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    out = (proc.stdout + proc.stderr).strip()
+
+    # 0 holds, 1 broken. Anything else is the checker declining to answer, which is neither.
+    if proc.returncode not in (0, 1):
+        return {"_failed": True, "_exitCode": proc.returncode,
+                "_why": out[-1200:] or "the checker produced no output"}
+
+    from checker.witness import violations                       # noqa: PLC0415
+
+    return {"held": proc.returncode == 0, "output": out,
+            "violations": [{"invariant": v.invariant, "state": v.printed}
+                           for v in violations(out)]}
+
+
+def assess(rules: dict, comparison: dict | None, *, no_widening: bool,
+           prop: dict | None = None) -> list[str]:
     """What is wrong with this candidate, in the words the next round will be given.
 
     THE CRITERIA LIVE HERE, in code, and the model never sees them as an editable input. Each
@@ -139,6 +168,23 @@ def assess(rules: dict, comparison: dict | None, *, no_widening: bool) -> list[s
         complaints.append(
             f"no verdict was reached for rule(s) {rules['unknown']} within the search budget. "
             "That is not a finding about them; leave them alone unless something else is wrong.")
+
+    # THE STATED PROPERTY, which the model cannot reach and must not be able to weaken. This is the
+    # criterion the literature warns about most: asked to satisfy a property it cannot satisfy, a
+    # model's cheapest move is to edit the property. Here it is an argument, evaluated after the
+    # model has spoken, and a violation blocks acceptance outright.
+    if prop is not None:
+        if prop.get("_failed"):
+            complaints.append("the stated property could not be checked against this candidate. "
+                              f"The checker said:\n{prop['_why']}")
+        elif not prop.get("held"):
+            for v in prop.get("violations") or [{"invariant": "the property", "state": {}}]:
+                where = ", ".join(f"{k} = {x}" for k, x in (v.get("state") or {}).items())
+                complaints.append(
+                    f"the candidate does not satisfy {v['invariant']}"
+                    + (f", which is violated at {where}" if where else "")
+                    + ". That is a stated requirement, not a preference: an edit that breaks it "
+                      "is not acceptable however well it answers the request.")
 
     if comparison is not None and not comparison.get("_failed"):
         verdict = comparison.get("verdict")
@@ -180,16 +226,21 @@ def repair(policy: Path, request: str, propose, *, rounds: int = 3, no_widening:
             candidate = propose(current, request, feedback)
             candidate_path.write_text(candidate, encoding="utf-8")
 
-            rules = run_checker(candidate_path, event_schema=event_schema,
-                                property_module=property_module, attempts=attempts)
+            rules = run_checker(candidate_path, event_schema=event_schema, attempts=attempts)
             comparison = None
             if not rules.get("_failed"):
                 comparison = run_checker(candidate_path, against=baseline,
                                          event_schema=event_schema, attempts=attempts)
 
-            complaints = assess(rules, comparison, no_widening=no_widening)
+            # Only when the candidate is readable at all: a property run against a policy the
+            # checker already refused would add a second complaint about the same cause.
+            prop = None
+            if property_module is not None and not rules.get("_failed"):
+                prop = check_property(candidate_path, property_module, event_schema=event_schema)
+
+            complaints = assess(rules, comparison, no_widening=no_widening, prop=prop)
             this = Round(number=n, candidate=candidate, accepted=not complaints,
-                         complaints=complaints, rules=rules, comparison=comparison)
+                         complaints=complaints, rules=rules, comparison=comparison, prop=prop)
             run.rounds.append(this)
             if on_round:
                 on_round(this)

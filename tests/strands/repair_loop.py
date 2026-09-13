@@ -21,7 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.repair import Round, assess, repair  # noqa: E402
+from agent.repair import Round, assess, check_property, repair  # noqa: E402
 
 POLICIES = REPO / "tests" / "policies"
 
@@ -129,6 +129,27 @@ def main() -> int:
     check("`unknown` is not treated as a defect to fix",
           all("VACUOUS" not in c and "DEAD" not in c for c in unknown_only), str(unknown_only))
     check("but it is still mentioned", bool(unknown_only))
+
+    # --- THE STATED PROPERTY, as an acceptance criterion -----------------------------------------
+    # This path had no coverage, and was broken the whole time: the loop asked for `--json` and
+    # `--property` together, a property run prints PROSE, the parse failed, and every candidate was
+    # rejected with "the checker could not produce a verdict" -- including the ones that satisfied
+    # the property. A gate that says no whatever happens is not a gate, and nothing noticed because
+    # nothing asked.
+    held = check_property(POLICIES / "firewall.dw", POLICIES / "firewall.tla")
+    check("a candidate that satisfies the property draws no complaint",
+          held.get("held") is True
+          and assess({"rules": []}, None, no_widening=False, prop=held) == [],
+          str(held.get("_why") or held.get("held")))
+
+    broken = check_property(POLICIES / "firewall_open.dw", POLICIES / "firewall.tla")
+    said = assess({"rules": []}, None, no_widening=False, prop=broken)
+    check("a candidate that breaks it is rejected",
+          broken.get("held") is False and bool(said),
+          str(broken.get("_why") or broken.get("held")))
+    check("and the complaint NAMES the claim and the state that breaks it",
+          bool(said) and "OutsideIsRefused" in said[0] and "external" in said[0],
+          str(said[:1]))
 
     print()
     if failures:

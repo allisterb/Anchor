@@ -51,6 +51,10 @@ public class RepairHarnessTests : TestsRuntime
         Assert.Contains("round 2 was given the objection", run.Output);
         Assert.Contains("and runs out AT the bound, not past it", run.Output);
         Assert.Contains("a widening candidate is rejected when --no-widening is set", run.Output);
+        // The property gate, which had no coverage and was broken the whole time it had none.
+        Assert.Contains("a candidate that satisfies the property draws no complaint", run.Output);
+        Assert.Contains("a candidate that breaks it is rejected", run.Output);
+
         Assert.DoesNotContain("FAIL", run.Output);
     }
 
