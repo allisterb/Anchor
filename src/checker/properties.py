@@ -1134,6 +1134,13 @@ def main() -> int:
                          "condition even applies to. The one step in this pipeline nothing else "
                          "verifies is whether the property says what you meant, and this is the "
                          "sentence to disagree with while disagreeing is still cheap")
+    ap.add_argument("--syntax", action="store_true",
+                    help="before checking anything, put the policy to the reference implementation "
+                         "(`dogwood check-parse`) and stop if it will not parse. A syntax error is "
+                         "not a verification finding, but it is the reason a run produces none -- "
+                         "and this says so in the engine's words, pointing at the token, instead "
+                         "of arriving later as a refusal that reads like a limit of this tool. "
+                         "Costs about 35ms; skipped with a note when the binary is not built")
     ap.add_argument("--witness", action="store_true",
                     help="when a --property claim is BROKEN, carry the counterexample back into "
                          "Dogwood: the concrete session it stands for, as a .log trace, and the "
@@ -1150,6 +1157,28 @@ def main() -> int:
         if f is not None and not f.exists():
             print(f"no such policy file: {f}", file=sys.stderr)
             return 2
+
+    # BEFORE OUR OWN PARSER, when asked. The reference implementation is the authority on whether
+    # a file is Dogwood at all, and a syntax error found here is reported as one rather than
+    # arriving later dressed as a limit of the modelled subset.
+    if args.syntax:
+        from checker.engine import BUILD_IT, check_parse       # noqa: PLC0415
+
+        for f in (args.policy, args.against):
+            if f is None:
+                continue
+            result = check_parse(f)
+            if not result["ran"]:
+                print(f"syntax check skipped: {result['output']}", file=sys.stderr)
+                break
+            if not result["ok"]:
+                print(f"SYNTAX ERROR in {f.name} -- the reference implementation will not parse "
+                      f"it.\nNothing below was checked.\n", file=sys.stderr)
+                print(result["output"], file=sys.stderr)
+                # 2, the no-verdict code. A policy that does not parse has not been checked, and
+                # a 0 here would be a clean bill of health for a file nobody could read.
+                return 2
+            print(f"{f.name}: parses, per the reference implementation", file=sys.stderr)
 
     try:
         # Parsed twice over: once to read the schema's cap, then again under it. A policy
@@ -1180,6 +1209,15 @@ def main() -> int:
         # The house rule: refuse rather than approximate. A translator that quietly mishandles a
         # construct produces a verdict nobody can attribute.
         print(f"REFUSED: {args.policy.name} is outside the modelled subset\n  {e}", file=sys.stderr)
+
+        # AND, FREE ON THIS PATH ONLY, the question our own message cannot answer: is the thing we
+        # would not model a construct at all? Our parser reads a subset, so it has two ways to
+        # fail and one message for both -- "outside the subset" and "this file is broken" need
+        # opposite responses. 35ms, spent only once a run has already failed.
+        from checker.engine import explain_refusal              # noqa: PLC0415
+
+        if extra := explain_refusal(args.policy):
+            print(extra, file=sys.stderr)
         return 2
 
     # Say which reading produced the answers. Leaving it implicit is how a verdict computed for

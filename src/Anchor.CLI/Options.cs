@@ -164,6 +164,13 @@ public class CheckOptions : Options
     [Option("verbose", Required = false, HelpText = "Include the raw TLC output for each rule.")]
     public bool Verbose { get; set; }
 
+    [Option("syntax", Required = false,
+        HelpText = "Put the policy to the reference implementation (`dogwood check-parse`) before " +
+                   "checking anything, and stop if it will not parse — pointing at the token. A " +
+                   "syntax error is not a verification finding, but it is why a run produces none. " +
+                   "Exits 2 (no verdict). ~35ms; skipped with a note when the binary is not built.")]
+    public bool Syntax { get; set; }
+
     [Option("explain", Required = false,
         HelpText = "Before checking a --property, say in English what each claim FORBIDS and how " +
                    "many of the states it ranges over its condition applies to. Same reading as " +

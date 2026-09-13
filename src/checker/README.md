@@ -160,6 +160,48 @@ It has been got wrong twice, and both are pinned as fixtures rather than describ
 The rule that falls out: when this cannot decide, it refuses and names what is missing. A refusal
 is a correct answer; a false VACUOUS is not.
 
+## Is it even a Dogwood policy? — `--syntax`
+
+This checker reads a **subset** of Dogwood, so its refusals carry two meanings under one message:
+*the construct is outside the subset*, or *the policy is broken*. Those need opposite responses —
+one is a limitation to work around, the other is a bug to go and fix — and our parser cannot tell
+them apart, because it is the thing whose coverage is in question.
+
+```bash
+python src/checker/properties.py policy.dw --syntax
+```
+
+```
+SYNTAX ERROR in policy.dw -- the reference implementation will not parse it.
+Nothing below was checked.
+
+× unexpected token `{`, expected comparison operator
+   ╭─[4:9]
+ 5 │ │               AgentCore::Action::"execute_buy"{
+   · ╰──── unexpected token `{`, expected comparison operator
+```
+
+**A syntax error is not a verification finding.** It is the reason a run produces none, so it exits
+**2** — no verdict — never 0.
+
+`--syntax` asks *first*, which is what you want on a policy somebody has just edited. On the
+**refusal path the engine is consulted anyway**, without the flag: by then the run has already
+failed, 35ms is nothing against telling somebody the wrong thing about why, and the result is that
+a broken file never sits there looking like a limitation of this tool:
+
+```
+REFUSED: policy.dw is outside the modelled subset
+  expected '::', got '{'
+
+AND IT IS NOT VALID DOGWOOD EITHER. The reference implementation refuses to parse
+this file, so the refusal above is not a limit of the modelled subset -- there is a
+syntax error in the policy. `dogwood check-parse` says: ...
+```
+
+A policy that parses cleanly draws no such comment — a second opinion on a healthy file is noise,
+and would train a reader to ignore it on the file that needs it. Both need the `dogwood` binary,
+and both say so and carry on without it.
+
 ## The counterexample, in Dogwood — `--witness`
 
 A broken claim ends in a TLA+ state:

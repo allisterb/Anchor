@@ -317,5 +317,96 @@ public class VocabularyHarnessTests : TestsRuntime
         Assert.DoesNotContain("VACUOUS", run.Output);
     }
 
+    /// <summary>
+    /// The wall-clock <b>time of day</b> — <c>context.system.now.toTime()</c> — is modelled, and
+    /// modelled well enough that an impossible window is caught.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "Business hours only" is a whole class of published policy, and the clock is not determined
+    /// by the trace: it is a value the request carries and the policy reads. So it is modelled as a
+    /// request field, and gets a field's domain — the values the policy names plus ones either side
+    /// — which is what makes both "inside the window" and "outside" reachable. Cedar counts a
+    /// duration in milliseconds and so does the model.
+    /// </para>
+    /// <para>
+    /// <b>The second half is the one that matters.</b> A model that admitted the clock but did not
+    /// EVALUATE it would report both fixtures live and they would be indistinguishable. The
+    /// backwards window — after 17:00 and before 09:00 — must come back VACUOUS.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task TheWallClockTimeOfDayIsModelledAndEvaluated()
+    {
+        var real = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/business_hours.dw");
+
+        Assert.True(real.ExitCode == 0, real.Output);
+        Assert.Contains("live", real.Output);
+        Assert.DoesNotContain("VACUOUS", real.Output);
+
+        // Backwards window: no time of day satisfies it, and saying so is what proves the clock is
+        // a value the checker reasons about rather than one it merely accepts.
+        var impossible = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/business_hours_impossible.dw");
+
+        Assert.True(impossible.ExitCode == 0, impossible.Output);
+        Assert.Contains("VACUOUS", impossible.Output);
+    }
+
+    /// <summary>
+    /// A policy that is not valid Dogwood is reported as <b>broken</b>, not as unmodelled — and
+    /// never as a clean result.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This checker reads a SUBSET of Dogwood, so a refusal carries two possible meanings under one
+    /// message: the construct is outside the subset, or the file is broken. Those need opposite
+    /// responses — one is a limitation to work around, the other is a bug to go and fix — and our
+    /// own parser cannot tell them apart, because it is the thing whose coverage is in question.
+    /// </para>
+    /// <para>
+    /// The reference implementation settles it. <c>--syntax</c> asks first and stops; and on the
+    /// refusal path it is consulted anyway, because by then the run has already failed and 35ms is
+    /// nothing against telling somebody the wrong thing about why. <b>Exit 2 either way</b>: a
+    /// policy that does not parse has not been checked, and 0 would be a clean bill of health for a
+    /// file nobody could read.
+    /// </para>
+    /// <para>
+    /// The fixture is the mutual-exclusion policy from AWS's temporal-policies article, which is
+    /// printed with a predicate missing its <c>::kind</c> segment. Skipped when the binary is not
+    /// built — the checker does not need it, which is why the skip is not a failure.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py", RequiresExecutable = "ext/dogwood/target/release/dogwood")]
+    public async Task APolicyThatDoesNotParseIsReportedAsBrokenNotAsUnmodelled()
+    {
+        var asked = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/syntax_broken.dw", "--syntax");
+
+        Assert.Equal(2, asked.ExitCode);
+        Assert.Contains("SYNTAX ERROR", asked.Output);
+        Assert.Contains("Nothing below was checked", asked.Output);
+        // The engine's own diagnostic, pointing at the token rather than at a token index.
+        Assert.Contains("unexpected token", asked.Output);
+
+        // And without the flag: our refusal stands, with the engine's second opinion beneath it.
+        var unasked = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/syntax_broken.dw");
+
+        Assert.Equal(2, unasked.ExitCode);
+        Assert.Contains("outside the modelled subset", unasked.Output);
+        Assert.Contains("NOT VALID DOGWOOD EITHER", unasked.Output);
+
+        // A policy that DOES parse must draw no such comment — a second opinion on a healthy file
+        // is noise, and would train a reader to ignore it on the file that needs it.
+        var fine = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/business_hours.dw", "--syntax");
+
+        Assert.Equal(0, fine.ExitCode);
+        Assert.Contains("parses, per the reference implementation", fine.Output);
+        Assert.DoesNotContain("NOT VALID DOGWOOD", fine.Output);
+    }
+
     #endregion
 }

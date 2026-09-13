@@ -57,7 +57,9 @@ Measured against Dogwood's own grammar, with each construct confirmed legal by
 
 | construct | example | |
 |---|---|---|
-| **a temporal operator where an ATOM is expected** | `formerly within 1h A since within 1h B`, `!formerly within 15m A` | **not modelled.** A `since`'s left operand and a bare `!`'s operand are *atoms* — a predicate, or a parenthesised Cedar-level condition — and another temporal operator cannot nest there. This is the single largest gap: it is what a consumed-approval policy needs |
+| **a temporal operator where an ATOM is expected** | `formerly within 1h A since within 1h B`, `!formerly within 15m A`, `formerly within 2h (A && formerly within 30m B)` | **not modelled.** A `since`'s left operand, a bare `!`'s operand and a `formerly` body are *atoms* — a predicate, or a parenthesised Cedar-level condition — and another temporal operator cannot nest there. Measured cost of the gap: **2 of 620** policy files in Dogwood's own regression corpus, **0 of 94** docs examples, **0 of 7** in AWS's temporal-policies article |
+| **information providers** | `BedrockGuardrails::SensitiveInformation(…)`, `Strings::Matches(…)` | not modelled, and **refusing is the correct answer** rather than a gap: a provider is a sandboxed Rhai script, so the decision is not a function of the policy and the trace at all. Nothing a model checker could say about it would be true |
+| other `context.system` fields | `context.system.now` compared as a datetime | only `.toTime()` is modelled — the time of day. A datetime comparison needs calendar arithmetic |
 | an aggregate compared against an aggregate | `(count …) < (count …)` | not modelled — an aggregate's bound must be an integer literal |
 | entity attributes | `principal.dept` | deliberate: Anchor models actions, event kinds and input/output fields, not entity hierarchies |
 | array terms | `input.tags: [1, 2]` | not modelled |
@@ -67,6 +69,50 @@ Everything else in the temporal grammar is modelled, including the parts easiest
 not: **`since`** with full MFOTL semantics and a negated left operand (`!A since within W B`),
 **aggregates** (`count`, `sum`, `for` binders, `tp()`, the `exists` idiom), field injection,
 `previous`, dotted field paths, entity and decimal terms, wildcards, negative integers and macros.
+
+## The wall clock
+
+`context.system.now.toTime()` — the time of day at the moment of the decision, which is what a
+"business hours only" rule is written against — is modelled, together with Cedar's `duration(…)`
+literal:
+
+```
+when { context.system.now.toTime() >= duration("9h")
+    && context.system.now.toTime() <= duration("17h") }
+```
+
+It is **not determined by the trace**: it is a value the request carries and the policy reads. So
+it is modelled as a request field, and gets a field's domain — the values the policy names plus
+ones either side — which is what makes both "inside the window" and "outside" reachable. A window
+written backwards (`>= 17h && <= 9h`) is therefore reported **VACUOUS**, correctly: no time of day
+satisfies it.
+
+Cedar counts a duration in **milliseconds** and so does the model, so `duration("9h")` is
+32400000. Only `.toTime()` is modelled; `now` compared as a datetime would need calendar
+arithmetic and is refused.
+
+## Is it even a Dogwood policy?
+
+This subset is read by Anchor's own parser, which means a refusal has two possible meanings under
+one message: *the construct is outside the subset*, or *the policy is broken*. Those need opposite
+responses, and our parser cannot tell them apart — it is the thing whose coverage is in question.
+
+The reference implementation settles it, and `--syntax` (`syntax` on `CheckPolicy`) asks it first:
+
+```
+SYNTAX ERROR in policy.dw -- the reference implementation will not parse it.
+Nothing below was checked.
+
+× unexpected token `{`, expected comparison operator
+   ╭─[4:9]
+ 5 │ │               AgentCore::Action::"execute_buy"{
+   · ╰──── unexpected token `{`, expected comparison operator
+```
+
+**A syntax error is not a verification finding** and must never be reported as one — the policy has
+not been checked, and the exit code is 2 (no verdict), never 0. When a refusal happens the engine is
+consulted anyway, so a broken file is never left looking like a limitation of this tool; pass the
+flag when you want the check to come *first*, on a policy somebody has just edited.
 
 ## Three limits worth knowing separately
 

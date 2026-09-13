@@ -1,0 +1,21 @@
+// The wall-clock time of day, which is what a "business hours only" rule is written against.
+//
+// `context.system.now.toTime()` is not determined by the trace: it is a value the request carries
+// and the policy reads. So it is modelled as a request field, and its domain -- like every field's
+// -- is the values the policy names plus ones on either side, which is what makes both "inside the
+// window" and "outside" reachable.
+//
+// Cedar counts a duration in MILLISECONDS, and so does the model: `duration("9h")` is 32400000.
+//
+// The discriminating fixture is `business_hours_impossible.dw` beside this one. If the clock were
+// admitted but not EVALUATED, this file would be live and so would that one -- and the pair is
+// the only thing that tells the two apart.
+permit (
+    principal,
+    action == AgentCore::Action::"issue_refund",
+    resource
+)
+when {
+    context.system.now.toTime() >= duration("9h")
+    && context.system.now.toTime() <= duration("17h")
+};

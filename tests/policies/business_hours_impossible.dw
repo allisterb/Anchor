@@ -1,0 +1,16 @@
+// The same shape as `business_hours.dw` with the window written backwards, so no time of day can
+// satisfy it: after 17:00 AND before 09:00.
+//
+// THIS IS THE FIXTURE THAT PROVES THE CLOCK IS EVALUATED rather than merely admitted. A model that
+// parsed `context.system.now.toTime()` and then treated it as an unconstrained value would report
+// this permit live, exactly like the one beside it, and the two files would be indistinguishable.
+// It must come back VACUOUS.
+permit (
+    principal,
+    action == AgentCore::Action::"issue_refund",
+    resource
+)
+when {
+    context.system.now.toTime() >= duration("17h")
+    && context.system.now.toTime() <= duration("9h")
+};

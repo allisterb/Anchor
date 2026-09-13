@@ -1,0 +1,25 @@
+// A policy with a genuine SYNTAX error: the predicate is missing its `::<kind>` segment, and the
+// field is missing its `input.` group prefix.
+//
+// Both are what AWS's temporal-policies article prints for its mutual-exclusion policy, and the
+// reference implementation rejects it:
+//
+//     × unexpected token `{`, expected comparison operator
+//
+// It is here because our own parser reads a SUBSET, so it has two ways to fail and one message for
+// both. On this file it says `expected '::', got '{'` -- which reads like a limitation of Anchor,
+// and is not: the policy is broken. Telling those apart is what `--syntax` and the refusal path
+// exist for, and this fixture is the case that distinguishes them.
+permit (
+    principal,
+    action == AgentCore::Action::"execute_sell",
+    resource
+)
+unless {
+    context.input.profit < 0 && temporal {
+        formerly within 24h (
+            AgentCore::Action::"execute_buy"{
+                stock_symbol: context.input.stock_symbol}
+        )
+    }
+};

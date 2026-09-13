@@ -74,6 +74,18 @@ public partial class PolicyTools : Runtime
         [Description("Numeric domain for input fields, 1..N (default 2).")] int? amount = null,
         [Description("Refuse a policy reading more than N input/output fields (default 4). The request space is the product of their domains, so this bounds the state space rather than soundness.")] int? maxFields = null,
         [Description(
+            "Put the policy to the REFERENCE IMPLEMENTATION first (`dogwood check-parse`) and " +
+            "stop if it will not parse.\n\n" +
+            "WHAT THIS DISAMBIGUATES. This checker reads a SUBSET of Dogwood, so a refusal has " +
+            "two possible meanings and one message: the construct is outside the subset, or the " +
+            "policy is broken. Those need opposite responses -- one is a limitation to work " +
+            "around, the other is a bug in the file to go and fix. The engine settles it, and " +
+            "points at the token.\n\n" +
+            "A syntax error is NOT a verification finding and must not be reported as one: the " +
+            "policy has not been checked. The call exits 2, meaning no verdict. Costs about " +
+            "35ms. When a refusal happens this is consulted anyway, so pass it when you want the " +
+            "check FIRST -- on a policy a user has just edited, say.")] bool? syntax = null,
+        [Description(
             "Before checking a `property`, say in ENGLISH what each of its claims forbids, which " +
             "states it will be checked in, and how many of those its condition even applies to. " +
             "Whether the property says what its author MEANT is the one question nothing " +
@@ -130,6 +142,7 @@ public partial class PolicyTools : Runtime
         if (maxFields is int f) args.AddRange(["--max-fields", f.ToString()]);
         if (smoke is int s) args.AddRange(["--smoke", s.ToString()]);
         if (verbose is true) args.Add("--verbose");
+        if (syntax is true) args.Add("--syntax");
         if (explain is true) args.Add("--explain");
         if (witness is true) args.Add("--witness");
 

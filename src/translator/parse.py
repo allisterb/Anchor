@@ -120,6 +120,46 @@ def parse_decimal(text: str) -> Dec:
         raise Unsupported(f"decimal {text!r} has more than four fractional digits")
     return Dec(sign * (int(whole or 0) * DECIMAL_SCALE + int((frac or "0").ljust(4, "0"))))
 
+# `context.system.now.toTime()` -- the wall-clock TIME OF DAY at the moment of the decision,
+# which is how a "business hours only" policy is written. It is modelled as an ordinary request
+# field because that is what it is: a per-decision value the policy reads and cannot influence.
+# Nothing in the trace determines it, so the domain has to make both "inside the window" and
+# "outside" reachable, which is exactly what a field domain already does.
+#
+# The name has to be a valid TLA+ identifier, because field names become record field names in the
+# generated module -- so it cannot be `system.now`. A policy that happens to read an input field of
+# this name is refused rather than silently conflated; see `vocabulary`.
+SYSTEM_NOW = "systemNowTime"
+
+# Cedar counts a duration in MILLISECONDS, and so does this: `toTime()` returns milliseconds since
+# midnight, `duration("9h")` is 32400000, and comparing them is comparing like with like. Seconds
+# would have been tidier and would have silently truncated `500ms`.
+DURATION_UNITS = {"ms": 1, "s": 1000, "m": 60 * 1000, "h": 3600 * 1000, "d": 86400 * 1000}
+DURATION_PART = re.compile(r"(\d+)(ms|[smhd])")
+
+
+def parse_duration(text: str) -> int:
+    """`"1h30m"` -> 5400000. Cedar's duration literal, in milliseconds.
+
+    Refuses anything it cannot read rather than reading part of it: a duration parsed as half its
+    value is a policy checked at the wrong threshold, which no verdict would reveal.
+    """
+    body = text.lstrip("+-")
+    if not body or not DURATION_PART.fullmatch(body) and not DURATION_PART.match(body):
+        raise Unsupported(f"duration {text!r} is not a Cedar duration literal")
+
+    total, seen = 0, 0
+    for m in DURATION_PART.finditer(body):
+        if m.start() != seen:
+            raise Unsupported(f"duration {text!r} has an unreadable part at {body[seen:]!r}")
+        total += int(m.group(1)) * DURATION_UNITS[m.group(2)]
+        seen = m.end()
+    if seen != len(body):
+        raise Unsupported(f"duration {text!r} has an unreadable part at {body[seen:]!r}")
+
+    return bounded(-total if text.startswith("-") else total, "a duration the policy compares against")
+
+
 # A `like` pattern is a list whose items are single characters, or WILDCARD for `*`.
 WILDCARD = None
 
@@ -763,7 +803,10 @@ class Parser:
         `context . input . src . isInRange` is seven fixed tokens, so this is a peek rather than a
         scan -- `context_field` accepts exactly that shape and nothing longer.
         """
-        return self.peek(5) == "." and self.peek(6) in ("isInRange",) + IP_METHODS_UNARY
+        # `context.system.now.toTime()` is the same length and shape, so the `input` check keeps
+        # the system clock out of the ipaddr path -- where it would be reported as a bad CIDR.
+        return (self.peek(2) == "input" and self.peek(5) == "."
+                and self.peek(6) in ("isInRange",) + IP_METHODS_UNARY)
 
     def ip_test(self) -> dict:
         """`context.input.FIELD.isInRange(ip("CIDR"))`."""
@@ -796,9 +839,45 @@ class Parser:
     def context_field(self) -> str:
         self.expect("context")
         self.expect(".")
+
+        # `context.system.now.toTime()` -- the decision's wall-clock time of day. The only part of
+        # `context.system` modelled: `now` compared as a datetime would need calendar arithmetic,
+        # and a policy that reads one is told so rather than approximated.
+        if self.peek() == "system":
+            self.take()
+            self.expect(".")
+            if (what := self.take()) != "now":
+                raise Unsupported(f"policy reads context.system.{what}, which is not modelled -- "
+                                  f"only `now`")
+            self.expect(".")
+            if (method := self.take()) != "toTime":
+                raise Unsupported(
+                    f"policy calls context.system.now.{method}(), which is not modelled. Only "
+                    f"`.toTime()` is -- the time of day, which is what a business-hours rule "
+                    f"compares. A datetime comparison would need calendar arithmetic")
+            self.expect("(")
+            self.expect(")")
+            return SYSTEM_NOW
+
         self.expect("input")
         self.expect(".")
-        return self.take()
+        return self.own_field(self.take())
+
+    def own_field(self, name: str) -> str:
+        """A field the policy names itself, refused if it collides with the synthetic clock.
+
+        `context.system.now.toTime()` becomes a request field called `systemNowTime`, because a
+        field name has to be a TLA+ identifier and so cannot be `system.now`. That puts it in the
+        same namespace as the policy's own fields. A policy reading an input field of that name
+        alongside the clock would have the two conflated, and every verdict about one would
+        silently be a verdict about the other -- so it is refused instead.
+        """
+        if name == SYSTEM_NOW:
+            raise Unsupported(
+                f"policy reads an input field called {SYSTEM_NOW!r}, which is the name this model "
+                f"gives context.system.now.toTime(). Rename the field: keeping both would make "
+                f"one indistinguishable from the other")
+        return name
 
     def comparison_op(self) -> str:
         op = self.take()
@@ -830,6 +909,13 @@ class Parser:
             text = self.take()
             self.expect(")")
             return parse_decimal(text[1:-1])
+        if tok == "duration":
+            self.expect("(")
+            text = self.take()
+            self.expect(")")
+            if not text.startswith('"'):
+                raise Unsupported(f"duration() argument {tok!r} is not a string literal")
+            return parse_duration(text[1:-1])
         raise Unsupported(f"comparison operand {tok!r} is not a literal")
 
     def duration(self, tok: str) -> int:
