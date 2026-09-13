@@ -766,14 +766,16 @@ def main() -> int:
 
     tier = (f", SMOKE: {args.smoke} random sessions, not exhaustive"
             if args.smoke else "")
-    print(f"{args.policy.name}: {len(permits)} permit(s), {len(forbids)} forbid(s), "
-          f"bound {args.attempts} attempts{tier}\n")
+    if not args.json:
+        print(f"{args.policy.name}: {len(permits)} permit(s), {len(forbids)} forbid(s), "
+              f"bound {args.attempts} attempts{tier}\n")
 
     if not policies:
         print("nothing to check -- the file declares no rules")
         return 0
 
     findings = []
+    detail: list[dict] = []
     runs: list[tuple[str, str]] = []
     with workdir(args, "anchor-vacuity-") as work:
         (work / "PolicyUnderTest.tla").write_text(
@@ -820,22 +822,54 @@ def main() -> int:
                 verdict = "REDUNDANT" if rule["effect"] == "permit" else "DEAD"
                 note = "deleting it changes no verdict in any session"
 
+            story = narrate(witness_events(out)) if verdict == "live" else []
+            detail.append({
+                "index": i,
+                "effect": rule["effect"],
+                "actions": rule["actions"] or ["(any)"],
+                "verdict": verdict,
+                "note": note,
+                # Only a live rule has a witness: the other verdicts are claims of ABSENCE, and
+                # there is no session to show for "this never happens".
+                "witness": witness(out) if verdict == "live" else None,
+                "session": witness_events(out) if verdict == "live" else [],
+                "narrative": story,
+            })
             findings.append((i, rule["effect"], verdict))
+
+            if args.json:
+                continue
+
             print(f"  {label:34} {verdict:10}{note}")
 
             # Only for `live`, and only when the session says more than its one-line summary --
             # a policy reading no input fields narrates to the action names already on the line
             # above, and repeating them would be noise per rule rather than detail.
-            if verdict == "live":
-                story = narrate(witness_events(out))
-                if any("(" in line and "()" not in line for line in story):
-                    for line in story:
-                        print(f"      {line}")
+            if verdict == "live" and any("(" in line and "()" not in line for line in story):
+                for line in story:
+                    print(f"      {line}")
 
             if args.verbose:
                 print("\n".join(f"      {line}" for line in out.splitlines()))
 
         keep_readme(args, work, runs)
+
+    if args.json:
+        print(json.dumps({
+            "policy": args.policy.name,
+            "reading": " ".join(reading.split()),
+            "bound": {"attempts": args.attempts, "amount": args.amount,
+                      "exhaustive": not args.smoke,
+                      "randomSessions": args.smoke or None},
+            "rules": detail,
+            # Pre-computed because every consumer wants them and deriving them means knowing
+            # which verdicts are claims of absence -- the distinction this project exists to keep.
+            "defects": [r["index"] for r in detail
+                        if r["verdict"] in ("VACUOUS", "REDUNDANT", "DEAD")],
+            "unknown": [r["index"] for r in detail if r["verdict"] == "unknown"],
+            "artifacts": str(args.keep) if args.keep else None,
+        }, indent=2))
+        return 0
 
     if args.keep:
         print(f"\nartifacts: {args.keep}")

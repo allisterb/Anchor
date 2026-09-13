@@ -40,12 +40,58 @@ A review needs credentials, a network call and a bill. Everything underneath it 
 | | needs a model? | what it proves |
 |---|---|---|
 | [`tests/strands/agent_wiring.py`](../../tests/strands/agent_wiring.py) | no | the server launches, every tool is advertised, every article is reachable both as a tool and as a resource, a real check runs, containment holds, a refusal is still a refusal — and Bedrock builds a client without reading `~/.aws`, signing with the bearer token, which is what keeps a native dependency out of the lock |
+| [`tests/strands/repair_loop.py`](../../tests/strands/repair_loop.py) | no | the repair loop's mechanics: a defect is caught, the objection reaches the next round, the bound bounds, a refusal is data rather than a crash, and `no_widening` is enforced in code |
 | `policy_agent.py` | yes | whether a model given only a thin prompt reports honestly |
+| `repair.py` | yes | whether a model can act on a counterexample |
 
 That split earned itself immediately. Building the agent found a bug nothing else had: **`CheckPolicy`
 hung forever over stdio** — five seconds over HTTP, never over stdio — because `PythonProcess` did
 not redirect the child's stdin, so the checker inherited the MCP protocol pipe. Every test passed;
 the transport every host actually uses was broken. See `AToolThatSpawnsAChildProcessAnswersOverStdio`.
+
+## The repair loop
+
+```bash
+python src/agent/repair.py firewall.dw --ask "also open RDP" --rounds 3
+python src/agent/repair.py policy.dw --ask "tighten this" --no-widening --property claim.tla
+```
+
+`propose → check → feedback → repair`, with [`properties.py`](../checker) as the oracle. The
+division is the point:
+
+| | |
+|---|---|
+| the model | proposes policy **text**, and nothing else |
+| `repair.py` | decides what is checked, with what bounds, and whether the result is acceptable |
+
+**The acceptance criteria are arguments, evaluated after the model has spoken.** `--no-widening`,
+`--property` and the defect checks are never shown to it as something it may change. That is not
+caution for its own sake: the most-reported pathology in repair loops is a model weakening the
+property it cannot satisfy, and the only structural defence is that the property is not an input
+it can reach.
+
+`repair()` takes its proposer as an argument, which is what lets the loop be tested without
+credentials. A scripted proposer returns known-bad text then known-good text, and the harness pins
+what a green loop can silently lack — that the objection actually **reaches** the next round.
+
+**Watch it fail.** Asked to make approvals permitted again under `--no-widening`, which cannot both
+be done and not widen:
+
+```
+--- round 1: rejected ---
+  this is MORE PERMISSIVE than the policy it replaces, and it was required not to add
+  permissions. It newly allows:
+  1. ApproveSale(stock = 1)  allowed  (approved = false)
+
+--- round 2: rejected ---
+  the checker could not produce a verdict... policy body starts with 'where', not when/unless
+
+NO ACCEPTED CANDIDATE after 2 round(s).
+```
+
+Round 2 is the interesting one: pressed by an objection it could not satisfy, the model produced
+something invalid. The loop reported that and stopped, rather than accepting a plausible-looking
+answer — and the run exits 1. **A loop that cannot fail is a loop that will not stop.**
 
 ## Configuration
 

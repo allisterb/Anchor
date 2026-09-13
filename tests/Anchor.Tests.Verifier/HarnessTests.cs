@@ -643,6 +643,37 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// The bounded repair loop — propose, check, feed the objection back, revise — driven by a
+    /// scripted proposer so the mechanics are verified without a model.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The loop is code and the model only proposes.</b> That split is what stops the pathology
+    /// the literature reports most often in repair loops: when a property is hard to satisfy, a
+    /// model weakens the property. Here the acceptance criteria are arguments evaluated after the
+    /// model has spoken, and the harness proves it — the same candidate is rejected under
+    /// <c>no_widening</c> and accepted without it, which no amount of prompting could change.
+    /// </para>
+    /// <para>
+    /// It also pins the thing a green loop can silently lack: that the objection actually
+    /// <i>reaches</i> the next round. A loop that checks and then discards the complaint would
+    /// pass every other assertion, because the scripted second answer is right regardless.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("repair_loop.py", "strands")]
+    public async Task RepairLoopFeedsTheCheckersObjectionBackAndIsBounded()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/repair_loop.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("the complaint names the DEAD forbid", run.Output);
+        Assert.Contains("round 2 was given the objection", run.Output);
+        Assert.Contains("and runs out AT the bound, not past it", run.Output);
+        Assert.Contains("a widening candidate is rejected when --no-widening is set", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
     /// The witness is told as a SESSION — the calls made, the values passed, and which were
     /// allowed — rather than as a list of action names.
     /// </summary>
