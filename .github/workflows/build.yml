@@ -1,4 +1,34 @@
-name: build
+# The specifications, checked against Dogwood's own regression corpus on every push.
+#
+# The name says corpus because that is what makes this more than a compile. The suite builds the
+# solution and then runs the specs against 620 policy files and 900-odd recorded (trace, expected)
+# pairs from `ext/dogwood` -- the reference implementation's own tests, used as the oracle for
+# ours. A green run here is a statement that our reading of the language still agrees with theirs.
+#
+# EVERY ACTION IS PINNED TO A COMMIT SHA, for the same reason every other dependency here is:
+# NuGet by contentHash, pip by --require-hashes, cargo by checksum, ext/dogwood by a SHA verified
+# blob-for-blob. `@v7` is a MUTABLE tag -- whoever controls it decides what runs in CI, and CI runs
+# on every push to master. The version tag rides in the trailing comment so a reader still knows
+# what these are; the SHA is what actually resolves.
+#
+# TO UPDATE ONE, resolve the tag and take what GitHub returns rather than copying a SHA from a web
+# page (a tag may be annotated, in which case `^{}` is the commit and the bare ref is the tag
+# object):
+#
+#     git ls-remote https://github.com/actions/checkout refs/tags/v7.0.1 'refs/tags/v7.0.1^{}'
+#
+# then change BOTH the SHA and the comment. A stale comment beside a live SHA is worse than no
+# comment: it is a claim about what is running that nobody can check by reading.
+#
+# THE MAJORS are the latest of each, not the minimum that works. Node 20 was deprecated on the
+# runners (2025-09-19) and every v4-era action was being forced onto Node 24 with a warning; these
+# target it natively. Checked before bumping, because a breaking change here fails both legs at
+# once with nothing to bisect: checkout v5-v7 harden `pull_request_target` defaults, which this
+# workflow does not use; setup-java v6 removes the legacy `adopt` distributions, and this asks for
+# `temurin`; setup-python v7 removes a `pip-install` input this never set; setup-dotnet's wildcard
+# restriction applies only alongside `rollForward`, which is likewise unused. They require runner
+# 2.327.1 or newer, which GitHub-hosted runners satisfy.
+name: Build and corpus test
 
 on:
   push:
@@ -29,19 +59,19 @@ jobs:
       # `submodules` is false by default, so without this ext/dogwood is an empty directory and
       # BOTH Dogwood harnesses skip: the corpus is not there for dogwood_differential.py, and
       # neither is the source dogwood_replay.py's binary is built from.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
       # TLC runs out-of-process on a real JVM because it cannot run under IKVM, so the tests need a
       # JDK. The build scripts check for one and fail if it is absent; they never install it.
       - name: Set up the JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '11'
@@ -49,7 +79,7 @@ jobs:
       # lib/ is gitignored, so every run would otherwise re-download ~30 MB. Keyed on the scripts
       # because that is where the versions and hashes live: change a pin and the cache is bypassed.
       - name: Cache native dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: lib
           key: anchor-lib-${{ runner.os }}-${{ hashFiles('build.ps1', 'build.sh') }}
@@ -64,7 +94,7 @@ jobs:
       # rather than much later inside pip.
       - name: Set up Python
         id: python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
 
@@ -74,7 +104,7 @@ jobs:
       # instead of producing a broken environment that fails somewhere unrelated.
       - name: Cache the Python virtual environment
         id: venv-cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: python
           key: anchor-venv-${{ runner.os }}-${{ steps.python.outputs.python-version }}-${{ hashFiles('requirements/strands/requirements.txt') }}
@@ -107,7 +137,7 @@ jobs:
       - name: Cache the Dogwood build
         if: runner.os == 'Linux'
         id: dogwood-cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry

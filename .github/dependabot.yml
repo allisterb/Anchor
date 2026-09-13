@@ -1,0 +1,53 @@
+# Keeps the SHA-pinned actions in `workflows/build.yml` current.
+#
+# WHY THIS FILE EXISTS. Those actions are pinned to commit SHAs rather than to `@v7`, because a
+# major tag is mutable and whoever controls it decides what runs on every push to master. That is
+# the same posture as every other dependency here -- NuGet by contentHash, pip by --require-hashes,
+# cargo by checksum, ext/dogwood by a SHA verified blob-for-blob.
+#
+# The usual cost of pinning that way is being stranded on an old version, silently, until something
+# breaks or a deprecation notice arrives -- which is exactly what happened with Node 20. Dependabot
+# is the answer to that cost: it opens a PR when a pinned action moves, and it rewrites the trailing
+# `# v7.0.1` comment alongside the SHA, so the two cannot drift apart by hand. A stale comment
+# beside a live SHA is worse than no comment, because it is a claim about what runs in CI that
+# nobody can check by reading.
+#
+# ONLY GITHUB ACTIONS, deliberately. The other three ecosystems here are pinned by mechanisms
+# Dependabot would fight rather than help:
+#
+#   NuGet    central package management plus a committed packages.lock.json per project. A bump
+#            means regenerating every lock, and the review gate is the lock diff -- see the note in
+#            CLAUDE.md. Worth revisiting, but as a decision rather than a side effect of this file.
+#   pip      requirements/strands/requirements.txt is --require-hashes and --only-binary=:all:,
+#            installed by scripts that enforce both. A generated update has to keep those
+#            properties or the install fails closed, which is the right failure but a noisy one.
+#   cargo    requirements/dogwood/Cargo.lock is OUR lockfile for THEIR workspace -- the manifest
+#            lives in ext/dogwood, a pinned submodule. Dependabot has no way to read that layout,
+#            and bumping the submodule invalidates the scan and audit recorded in
+#            reference/README.md, which is a human decision every time.
+#
+# So: one ecosystem, monthly, grouped into a single PR. Five actions would otherwise be five PRs.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+
+    # `/` is required for this ecosystem -- Dependabot reads `.github/workflows/` from there, not
+    # the directory being named.
+    directory: /
+
+    schedule:
+      interval: monthly
+
+    # One PR for all of them. Each action is independent, but reviewing five SHA bumps together is
+    # one look at one diff instead of five, and the interesting question -- did any of these change
+    # behaviour -- is the same question each time.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+    open-pull-requests-limit: 5
+
+    commit-message:
+      prefix: ci
