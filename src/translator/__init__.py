@@ -30,7 +30,7 @@ from .parse import (DECIMAL_SCALE, DEFAULT_MAX_WINDOW, UNITS, WILDCARD, Dec, Par
                     expand_macros, like_matches, parse_cidr, parse_decimal, parse_like_pattern,
                     parse_policies, pattern_witnesses, tokenize)
 from .schema import SCOPE_PINS, apply_pins, key_for, parse_schema
-from .tlc import (TLAParseError, attempts_of, find_jar, narrate, parse_tla_value,
+from .tlc import (TLAParseError, attempts_of, find_jar, narrate, parse_tla_value, run_eval, run_sany,
                   render_fields, render_value, run_tlc, trace_states, untag, witness_events)
 from .trace import braced, parse_fields, parse_trace, pin_value, split_binds
 
@@ -52,7 +52,7 @@ __all__ = [
     "DUMMY_ATOM", "DUMMY_PRED", "DUMMY_TERM", "NO_CMP", "policy_seq", "stamp_keys", "tla_atom",
     "tla_cond", "tla_pattern", "tla_pred", "tla_record", "tla_scalar", "tla_value",
     # tlc
-    "find_jar", "run_tlc", "trace_states", "witness_events", "parse_tla_value", "untag",
+    "find_jar", "run_tlc", "run_sany", "run_eval", "trace_states", "witness_events", "parse_tla_value", "untag",
     "narrate", "attempts_of", "render_value", "render_fields",
     "TLAParseError",
 ]

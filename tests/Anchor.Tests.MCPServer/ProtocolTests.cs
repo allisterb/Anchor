@@ -80,6 +80,121 @@ public class ProtocolTests : TestsRuntime, IAsyncLifetime
         Assert.Contains("attempts", schema);
     }
 
+
+    /// <summary>
+    /// The two TLA+ tools an agent needs while WRITING a property module, rather than after.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Writing one is a three-step loop and each step had a tool except the middle two:
+    /// <c>DescribePolicyModule</c> says what may be named, <c>CheckPolicy</c> says whether the
+    /// claims hold — and between them sat "does this even compile" and "does it say what I meant",
+    /// both of which an agent could previously only answer by paying for a full model-checking run
+    /// and reading the reason out of TLC's preamble.
+    /// </para>
+    /// <para>
+    /// Both are advertised with the guidance that makes them usable, which is asserted here because
+    /// a description is not decoration: an agent that cannot see that a <c>vacuous</c> claim is a
+    /// FINDING will report a green run as assurance.
+    /// </para>
+    /// </remarks>
+    [PolicyCheck]
+    public async Task TheSpecToolsAreReachableAndAdvertised()
+    {
+        await using var client = await NewClientAsync();
+
+        var tools = await client.ListToolsAsync();
+
+        var compile = Assert.Single(tools, t => t.Name == "CheckPropertyModule");
+        Assert.Contains("SANY", compile.Description ?? "");
+        // It needs the POLICY too, and an agent that does not know why will call it with the
+        // module alone and read the failure as the module's fault.
+        Assert.Contains("EXTENDS `PolicyUnderTest`", compile.Description ?? "");
+
+        var explain = Assert.Single(tools, t => t.Name == "ExplainPropertyModule");
+        Assert.Contains("forbids", explain.Description ?? "");
+        Assert.Contains("vacuous", explain.Description ?? "");
+
+        // --- a module that compiles -------------------------------------------------------------
+        var ok = await client.CallToolAsync("CheckPropertyModule", new Dictionary<string, object?>
+        {
+            ["policy"] = "tests/policies/firewall.dw",
+            ["property"] = "tests/policies/firewall.tla",
+        });
+
+        Assert.True(ok.IsError != true, Text(ok));
+        Assert.Contains("compiles", Text(ok));
+
+        // --- and what it forbids, in English ----------------------------------------------------
+        var said = await client.CallToolAsync("ExplainPropertyModule", new Dictionary<string, object?>
+        {
+            ["property"] = "tests/policies/firewall.tla",
+        });
+
+        Assert.True(said.IsError != true, Text(said));
+
+        var text = Text(said);
+        Assert.Contains("LocalSshIsAllowed", text);
+        Assert.Contains("OutsideIsRefused", text);
+        // The sense of it, not merely its presence: a claim the policy must REFUSE forbids a GRANT.
+        Assert.Contains("forbids", text);
+        Assert.Contains("GRANTS", text);
+    }
+
+
+    /// <summary>
+    /// The REPL: a TLA+ expression evaluated in a policy's own semantics, returning the value.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The tool for a QUESTION rather than a claim. <c>CheckPolicy</c> answers "does this hold in
+    /// every state"; this answers "what IS this" — and most of what goes wrong while writing a
+    /// property module is a value being something other than the author assumed: the units of a
+    /// window, what a session actually contains, whether a set has the member they think.
+    /// </para>
+    /// <para>
+    /// <b>It evaluates a policy DECISION</b>, which is what makes it more than a calculator:
+    /// <c>TradeAllowed(960)</c> comes back TRUE or FALSE with no invariant written anywhere. A
+    /// tuple asks two questions in one call, so the boundary of a temporal window is one command
+    /// rather than a bisection — and the pair below is the 15-minute boundary of the article's
+    /// trust-decay policy, which the Dogwood engine independently puts in the same place.
+    /// </para>
+    /// <para>
+    /// Implemented out-of-process against TLC, and it has to be: in-process TLC is not viable under
+    /// IKVM (see <c>TLCProcess</c>), and SANY — which IS in-process — only parses and resolves. It
+    /// never evaluates.
+    /// </para>
+    /// </remarks>
+    [PolicyCheck]
+    public async Task AnExpressionCanBeEvaluatedInThePolicysSemantics()
+    {
+        await using var client = await NewClientAsync();
+
+        var tools = await client.ListToolsAsync();
+        var repl = Assert.Single(tools, t => t.Name == "EvaluateExpression");
+        // An agent that reads this as a verdict will over-claim from one session.
+        Assert.Contains("A VALUE IS NOT A VERDICT", repl.Description ?? "");
+
+        var r = await client.CallToolAsync("EvaluateExpression", new Dictionary<string, object?>
+        {
+            ["policy"] = "examples/aws1/07-trust-decay.dw",
+            ["property"] = "examples/aws1/TrustDecay10.tla",
+            ["expression"] = "<<TradeAllowed(900), TradeAllowed(901)>>",
+        });
+
+        Assert.True(r.IsError != true, Text(r));
+
+        // The reply is JSON, and the serializer escapes `<` and `>` as < / > — so a TLA+
+        // tuple never appears literally in it. Decoded here rather than asserted in escaped form,
+        // which would pin the serializer's encoding choice instead of the answer.
+        var text = Text(r).Replace("\\u003C", "<").Replace("\\u003E", ">");
+
+        // 900s: the advisor interacted within 15 minutes, so `unless` BLOCKS the permit and the
+        // trade is denied. 901s: the window has passed, the block lifts, and the trade is allowed —
+        // which is the inversion the article's own sentence forbids. One call, both sides.
+        Assert.Contains("<<FALSE, TRUE>>", text);
+    }
+
     /// <summary>A verdict, end to end, through the pipeline an agent host uses.</summary>
     [PolicyCheck]
     public async Task CheckPolicyReturnsAVerdictOverTheProtocol()

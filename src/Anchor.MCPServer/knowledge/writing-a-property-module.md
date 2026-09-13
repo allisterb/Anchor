@@ -18,6 +18,37 @@ kind: *SSH from the local range is permitted, and every external source is denie
 
 You state one as a TLA+ module passed to `CheckPolicy`'s `property` argument.
 
+## The loop, and the tool for each step
+
+Writing one is four steps, and each has a tool. The two in the middle cost about a second; only the
+last costs minutes, so reaching for it first is the expensive mistake.
+
+| | | |
+|---|---|---|
+| what may I name? | **`DescribePolicyModule`** | the vocabulary, from the policy's own text, plus a skeleton that runs |
+| does it compile? | **`CheckPropertyModule`** | SANY against that policy's generated vocabulary. ~1s. A misspelled operator gets you a line and a column instead of a failed model-checking run |
+| **what IS this value?** | **`EvaluateExpression`** | evaluates a TLA+ expression in the policy's own semantics. ~2s |
+| does it say what I meant? | **`ExplainPropertyModule`** | what each claim FORBIDS, in English, and how many of its states its condition applies to. Milliseconds |
+| do the claims hold? | **`CheckPolicy`** with `property` | the actual check. Minutes |
+
+**`EvaluateExpression` is the one to reach for when something is behaving oddly**, because most of
+what goes wrong here is a value being other than you assumed — the units of a window, what a
+session actually contains, whether a set has the member you think. With `property` set, that
+module's own definitions are in scope:
+
+```
+Session(960)                            the events, with their times
+TradeAllowed(960)                       TRUE   — the policy's decision, with no invariant anywhere
+<<TradeAllowed(900), TradeAllowed(901)>>  <<FALSE, TRUE>>   — a window's boundary, in one call
+```
+
+**A value is not a verdict.** That the policy grants one session says nothing about the others.
+Use it to understand, then check.
+
+`CheckPropertyModule` needs the **policy** as well as the module, and the reason is worth knowing:
+a property module `EXTENDS PolicyUnderTest`, which is generated *from the policy*, so "does it
+compile" is only answerable against a particular one.
+
 ## Start with `DescribePolicyModule`
 
 Do not write one from memory. The module you extend — `PolicyUnderTest` — is **generated from the
@@ -143,7 +174,7 @@ A property is checked against exactly what it says. If what it says is not what 
 is just as rigorous, passes just as convincingly, and establishes nothing — and no verdict
 downstream can tell you that happened, because every check below the property is faithful to it.
 
-So read the claim back before running anything:
+So read the claim back before running anything -- `ExplainPropertyModule` over MCP, or:
 
 ```bash
 anchor explain TrustDecay10.tla

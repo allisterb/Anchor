@@ -160,6 +160,33 @@ It has been got wrong twice, and both are pinned as fixtures rather than describ
 The rule that falls out: when this cannot decide, it refuses and names what is missing. A refusal
 is a correct answer; a false VACUOUS is not.
 
+## What is this value? — `--eval`
+
+```bash
+python src/checker/properties.py policy.dw --property Claim.tla --eval "TradeAllowed(960)"
+```
+
+Evaluates a TLA+ expression in the policy's own semantics and prints the value. About two seconds,
+and it checks nothing — it answers what a value IS, which is otherwise a question you have to write
+an invariant and run a check to find out.
+
+With `--property` that module's definitions are in scope, which is where it earns its keep:
+
+| | |
+|---|---|
+| `Session(960)` | the events, with their times — the commonest thing to have wrong is the units |
+| `TradeAllowed(960)` | `TRUE`. The policy's decision for that session, with no invariant anywhere |
+| `<<TradeAllowed(900), TradeAllowed(901)>>` | `<<FALSE, TRUE>>` — a temporal window's boundary located in one call |
+
+Without it, the generated vocabulary is the context: `Policies`, the field domains, the constructors.
+
+It works by generating a module whose `ASSUME PrintT(expr)` makes TLC evaluate the expression once
+during initialisation, with markers around the value so it can be lifted out of TLC's preamble —
+the technique used by will62794's `tlaplus_repl`, noted in the reference ledger. **SANY cannot do
+this**: it parses and resolves and never evaluates, and in-process TLC is not viable under IKVM.
+
+**A value is not a verdict.** That the policy grants one session says nothing about the others.
+
 ## Is it even a Dogwood policy? — `--syntax`
 
 This checker reads a **subset** of Dogwood, so its refusals carry two meanings under one message:

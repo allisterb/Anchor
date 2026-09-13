@@ -77,6 +77,93 @@ def run_tlc(module: str, cwd: Path, scratch: Path | None = None,
         return proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def run_sany(module: str, cwd: Path) -> tuple[bool, str]:
+    """Parse and semantically check `module` with SANY, without running TLC.
+
+    A second of work rather than minutes, which is the whole point: a property module is TLA+
+    somebody (or something) has just written, and the commonest thing wrong with it is that it does
+    not compile. Finding that out from a model-checking run means paying for the run first, and
+    reading the answer out of TLC's preamble.
+
+    **SANY REPORTS ITS ERRORS AND THEN EXITS 0.** An unknown operator prints `*** Errors: 1` with a
+    line and column, and the process still returns success -- so branching on the exit code alone
+    declares a module sound because it failed to compile quietly. The output is what carries the
+    verdict, and this reads it. Same rule as everywhere else here: never let a failure read as an
+    absence of data.
+    """
+    with tempfile.TemporaryDirectory(prefix="anchor-sany-") as tmp:
+        proc = subprocess.run(
+            ["java", *java_options(), f"-Djava.io.tmpdir={tmp}",
+             "-cp", str(find_jar()), "tla2sany.SANY", f"{module}.tla"],
+            cwd=cwd, capture_output=True, text=True)
+
+    out = proc.stdout + proc.stderr
+    broken = ("*** Errors" in out or "*** Abort" in out or "Could not parse" in out
+              or proc.returncode != 0)
+    return not broken, out.strip()
+
+
+# The value is bracketed so it can be lifted out of everything else TLC prints, which for a
+# multi-line record is several screens of preamble away from the answer. Taken from will62794's
+# `tlaplus_repl`, which does the same; see reference/README.md.
+EVAL_START = "ANCHOR_EVAL_START"
+EVAL_END = "ANCHOR_EVAL_END"
+
+EVAL_MODULE = """---------------------------- MODULE {name} ----------------------------
+EXTENDS Integers, Sequences, FiniteSets, TLC, {extends}
+
+ASSUME /\\ PrintT("{start}")
+       /\\ PrintT({expr})
+       /\\ PrintT("{end}")
+============================================================================
+"""
+
+
+def run_eval(expr: str, extends: str, cwd: Path, spec: str | None = "Spec") -> tuple[bool, str]:
+    """Evaluate `expr` in the context of module `extends`, and return what it is.
+
+    THIS IS NOT MODEL CHECKING and it is not meant to be. `ASSUME PrintT(e)` makes TLC evaluate `e`
+    once, during initialisation, and print the value -- so a question like "what is `Session(960)`"
+    or "what does this policy decide for it" is answered in a couple of seconds instead of by
+    writing an invariant and running a check to find out.
+
+    THE CONFIG HAS TO NAME A SPEC when the extended module declares variables. TLC validates the
+    config BEFORE it evaluates assumptions, so an empty one fails with "did not specify the initial
+    state predicate" and the expression is never reached -- the assumption prints nothing and the
+    absence looks like an empty answer. A property module always declares a variable, so `Spec` is
+    the default here rather than the exception.
+
+    The EXIT CODE IS IGNORED, deliberately. TLC may go on to complain about the model after the
+    value has been printed -- there is nothing to check and we did not ask it to -- and the value is
+    already in hand. What decides success is whether the markers came back.
+    """
+    name = "AnchorEval"
+    module = EVAL_MODULE.format(name=name, extends=extends, expr=expr,
+                                start=EVAL_START, end=EVAL_END)
+    (cwd / f"{name}.tla").write_text(module, encoding="utf-8")
+    (cwd / f"{name}.cfg").write_text(f"SPECIFICATION {spec}\n" if spec else "", encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="anchor-eval-") as tmp:
+        proc = subprocess.run(
+            ["java", *java_options(), f"-Djava.io.tmpdir={tmp}",
+             "-cp", str(find_jar()), "tlc2.TLC", "-deadlock", "-cleanup",
+             "-metadir", str(Path(tmp) / "states"),
+             "-config", f"{name}.cfg", f"{name}.tla"],
+            cwd=cwd, capture_output=True, text=True)
+
+    out = proc.stdout + proc.stderr
+    lines = out.splitlines()
+    try:
+        first = next(i for i, l in enumerate(lines) if EVAL_START in l)
+        last = next(i for i, l in enumerate(lines) if EVAL_END in l and i > first)
+    except StopIteration:
+        # No markers: the expression did not evaluate. The reason is in TLC's output and is
+        # returned whole -- an unreadable answer beats a confident empty one.
+        return False, out.strip()
+
+    return True, "\n".join(lines[first + 1:last]).strip()
+
+
 # The JVM flags to start TLC with, and there is deliberately no default.
 JAVA_OPTIONS = "ANCHOR_TLC_JAVA_OPTS"
 

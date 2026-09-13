@@ -43,8 +43,8 @@ SPECS = REPO / "specs" / "policy" / "TemporalPolicy"
 sys.path.insert(0, str(REPO / "src"))
 
 from translator import (DECISION_KIND, DEFAULT_MAX_WINDOW, Unsupported, apply_pins,  # noqa: E402
-                        find_jar, generate_policy_module, parse_policies, parse_schema, run_tlc,
-                        narrate, stamp_keys, vocabulary, witness_events)
+                        find_jar, generate_policy_module, parse_policies, parse_schema, run_eval,
+                        run_sany, run_tlc, narrate, stamp_keys, vocabulary, witness_events)
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
 # and the outcome is `response` when the action completed, `error` when it was denied.
@@ -459,6 +459,44 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
         (work / "PolicyUnderTest.tla").write_text(
             generate_policy_module(args.policy, policies, vocab, keys=keys), encoding="utf-8")
         shutil.copyfile(SPECS / "DogwoodSemantics.tla", work / "DogwoodSemantics.tla")
+
+        # WHAT IS THIS VALUE? Asked of the property module, so its own definitions are in scope.
+        if args.eval:
+            shutil.copyfile(args.property_module, work / args.property_module.name)
+            cfg = args.property_module.with_suffix(".cfg")
+            if cfg.exists():
+                shutil.copyfile(cfg, work / cfg.name)
+
+            ok, out = run_eval(args.eval, args.property_module.stem, work)
+            print(f"  {args.eval}\n")
+            print("\n".join(f"      {line}" for line in out.splitlines()[:60]))
+            if not ok:
+                print("\nThe expression did not evaluate. TLC's output is above; nothing was checked.")
+            return 0 if ok else 2
+
+        # DOES IT COMPILE? A second, against minutes for the check it would otherwise fail inside.
+        #
+        # The generated module has to exist first, which is why this lives here rather than in a
+        # verb of its own: a property module EXTENDS `PolicyUnderTest`, and that file is built from
+        # the policy. Parsing the module on its own would report the vocabulary missing, which is
+        # true and useless.
+        if args.parse:
+            shutil.copyfile(args.property_module, work / args.property_module.name)
+            ok, out = run_sany(args.property_module.stem, work)
+            keep_run(args, work, f"{args.property_module.stem}.sany", out)
+
+            if ok:
+                print(f"  {args.property_module.name} compiles against {args.policy.name}'s "
+                      f"vocabulary.\n")
+                print("That is not a check of the policy. It says the module parses, resolves every\n"
+                      "name it uses, and is ready to be run -- nothing about whether its claims hold.")
+                return 0
+
+            print(f"  {args.property_module.name} DOES NOT COMPILE. SANY says:\n")
+            print("\n".join(f"      {line}" for line in out.splitlines()[:30]))
+            print("\nNothing was checked. A module that does not compile has no verdict to give,\n"
+                  "and the claims in it have not been tested.")
+            return 2
 
         held, out = check_property(work, args.property_module)
 
@@ -1134,6 +1172,18 @@ def main() -> int:
                          "condition even applies to. The one step in this pipeline nothing else "
                          "verifies is whether the property says what you meant, and this is the "
                          "sentence to disagree with while disagreeing is still cheap")
+    ap.add_argument("--eval", type=str, default=None, metavar="EXPR",
+                    help="evaluate a TLA+ expression in this policy's own semantics and print the "
+                         "value. With --property, the module's definitions are in scope too, so "
+                         "`Session(960)` or `TradeAllowed(960)` can be asked directly. Seconds, and "
+                         "it checks nothing -- it answers what a value IS, which is the question "
+                         "you otherwise have to write an invariant and run a check to find out")
+    ap.add_argument("--parse", action="store_true",
+                    help="with --property: check that the module COMPILES against this policy's "
+                         "generated vocabulary, and stop. SANY only, no TLC -- about a second "
+                         "rather than minutes. The commonest thing wrong with a freshly written "
+                         "property module is that it does not compile, and finding that out from "
+                         "a model-checking run means paying for the run first")
     ap.add_argument("--syntax", action="store_true",
                     help="before checking anything, put the policy to the reference implementation "
                          "(`dogwood check-parse`) and stop if it will not parse. A syntax error is "
@@ -1242,6 +1292,23 @@ def main() -> int:
 
     if args.property_module is not None:
         return prove(args, policies, vocab, schema["keys"])
+
+    # `--eval` with no property module: the policy's own generated vocabulary is the context, which
+    # is what "what is this field's domain" and "what does `Policies` look like" are asked against.
+    # No variables there, so no spec is needed -- and TLC would refuse an empty config if there were.
+    if args.eval:
+        with workdir(args, "anchor-eval-") as work:
+            (work / "PolicyUnderTest.tla").write_text(
+                generate_policy_module(args.policy, policies, vocab, keys=schema["keys"]),
+                encoding="utf-8")
+            shutil.copyfile(SPECS / "DogwoodSemantics.tla", work / "DogwoodSemantics.tla")
+
+            ok, out = run_eval(args.eval, "PolicyUnderTest", work, spec=None)
+            print(f"  {args.eval}\n")
+            print("\n".join(f"      {line}" for line in out.splitlines()[:60]))
+            if not ok:
+                print("\nThe expression did not evaluate. TLC's output is above.")
+            return 0 if ok else 2
 
     if args.against is not None:
         return compare(args, policies, other, vocab, schema["keys"], reading)

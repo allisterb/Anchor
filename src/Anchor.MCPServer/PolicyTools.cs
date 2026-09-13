@@ -244,6 +244,250 @@ public partial class PolicyTools : Runtime
         }
     }
 
+    [McpServerTool(Name = "CheckPropertyModule")]
+    [Description(
+        "Checks that a TLA+ property module COMPILES against a policy's generated vocabulary, and " +
+        "stops there. SANY only, no model checking: about a second, against the minutes a full " +
+        "`CheckPolicy` run costs.\n\n" +
+        "USE THIS AFTER WRITING OR EDITING A MODULE, BEFORE CHECKING ANYTHING WITH IT. The " +
+        "commonest thing wrong with a freshly written property module is that it does not compile " +
+        "-- a misspelled operator, a name the policy's vocabulary does not have, an unbalanced " +
+        "bracket -- and finding that out from a model-checking run means paying for the run first " +
+        "and then reading the reason out of TLC's preamble. This gives you SANY's own message with " +
+        "the line and column.\n\n" +
+        "IT NEEDS THE POLICY, not just the module. A property module EXTENDS `PolicyUnderTest`, " +
+        "which Anchor generates from the policy text, so 'does it compile' is only answerable " +
+        "against a particular policy. A module that compiles here may still fail against a " +
+        "different one.\n\n" +
+        "A PASS SAYS NOTHING ABOUT THE POLICY. It says the module parses and resolves every name it " +
+        "uses. Whether its claims hold is `CheckPolicy`; whether they say what you meant is " +
+        "`ExplainPropertyModule`.")]
+    public async Task<SpecCheckResult> CheckPropertyModuleAsync(
+        [Description("Path to the .dw policy the module is written against, relative to the project directory.")] string policy,
+        [Description("Path to the .tla property module to compile. Its companion .cfg is not read here -- compiling and being checked are different questions.")] string property,
+        [Description("Path to the .dwschema event schema, if one exists. It changes the generated vocabulary, so a module can compile with it and not without.")] string? eventSchema = null,
+        CancellationToken cancellationToken = default)
+    {
+        var args = new List<string>
+        {
+            Resolve(policy, nameof(policy)),
+            "--property", Resolve(property, nameof(property)),
+            "--parse",
+        };
+        Add(args, "--event-schema", eventSchema, nameof(eventSchema));
+
+        // One JVM start and a parse. A minute is already generous, and a module that takes longer
+        // than that to PARSE is a bug rather than a big model.
+        var r = await PythonProcess.RunAsync(CheckerScript, [.. args], root: AnchorRoot,
+            timeout: TimeSpan.FromMinutes(1), ct: cancellationToken);
+
+        if (!r.IsSuccess)
+        {
+            return new SpecCheckResult(false, false, "", r.Message ?? "the checker could not be run");
+        }
+
+        var run = r.Value;
+        var output = (run.Output + run.ErrorOutput).Trim();
+
+        // 0 compiles, 2 does not. Anything else is the checker failing to answer -- a refused
+        // policy, say -- which is neither of those and must not be reported as "does not compile":
+        // the module might be perfect and the POLICY outside the modelled subset.
+        return run.ExitCode switch
+        {
+            0 => new SpecCheckResult(true, true, output, null),
+            2 when output.Contains("DOES NOT COMPILE")
+                => new SpecCheckResult(true, false, output, null, Diagnostics(output)),
+            _ => new SpecCheckResult(false, false, output,
+                    Refusal(run.ErrorOutput) ?? $"the checker exited {run.ExitCode} without a verdict "
+                                                + "about the module; the policy itself may be the problem"),
+        };
+    }
+
+    [McpServerTool(Name = "ExplainPropertyModule")]
+    [Description(
+        "Says in ENGLISH what each claim in a TLA+ property module FORBIDS, which states it will be " +
+        "checked in, and how many of those its condition even applies to. Reads the module; runs " +
+        "nothing. Returns in milliseconds.\n\n" +
+        "WHY THIS MATTERS MORE THAN IT SOUNDS. Everything downstream of a property is mechanical: " +
+        "the checker either finds a counterexample or does not. Everything upstream is a person " +
+        "saying what they meant. The step between -- whether the property says what they meant -- " +
+        "is the one thing nothing else here verifies, and a property that says something ELSE is " +
+        "checked just as rigorously and passes just as convincingly.\n\n" +
+        "SO SHOW THE `forbids` LINE TO THE PERSON BEFORE RUNNING THE CHECK, and especially before " +
+        "reporting that a claim holds. It is the only thing the claim can catch. If it does not " +
+        "describe something they would object to seeing happen, the run will pass without having " +
+        "tested their intention.\n\n" +
+        "`vacuous` IS A FINDING AND MUST BE REPORTED AS ONE. It means no state the claim ranges " +
+        "over can break it -- the condition is false everywhere, or the claim is true by the " +
+        "module's own arithmetic. Such a claim HOLDS, the checker says so, and it examined nothing. " +
+        "A green run containing one is worse than no run, because it reads as assurance.\n\n" +
+        "`definedButNotChecked` lists claims the .cfg does not name. Those are not checked at all: " +
+        "a property nobody listed is a property nobody checked.")]
+    public async Task<SpecExplanation> ExplainPropertyModuleAsync(
+        [Description("Path to the .tla property module, relative to the project directory.")] string property,
+        [Description("Path to its .cfg, if it is not the module's own name. The .cfg decides which claims are checked at all, so it is read alongside rather than assumed.")] string? config = null,
+        CancellationToken cancellationToken = default)
+    {
+        var args = new List<string> { Resolve(property, nameof(property)), "--json" };
+        Add(args, "--cfg", config, nameof(config));
+
+        var r = await PythonProcess.RunAsync(ExplainScript, [.. args], root: AnchorRoot,
+            timeout: TimeSpan.FromMinutes(1), ct: cancellationToken);
+
+        if (!r.IsSuccess)
+        {
+            return new SpecExplanation(false, null, r.Message ?? "the explainer could not be run");
+        }
+
+        var run = r.Value;
+
+        // 0 and 4 both carry a full explanation -- 4 additionally means a claim cannot fail, which
+        // is a finding about the module and is already in the document as `vacuous`. Treating it as
+        // an error would throw away the explanation that says why.
+        if (run.ExitCode is not (0 or 4))
+        {
+            return new SpecExplanation(false, null,
+                $"the explainer exited {run.ExitCode}: {run.ErrorOutput.Trim()}");
+        }
+
+        try
+        {
+            return new SpecExplanation(true, JsonSerializer.Deserialize<JsonElement>(run.Output), null);
+        }
+        catch (JsonException e)
+        {
+            return new SpecExplanation(false, null, $"the explainer's output was not valid JSON: {e.Message}");
+        }
+    }
+
+    [McpServerTool(Name = "EvaluateExpression")]
+    [Description(
+        "Evaluates a TLA+ expression in a policy's own semantics and returns the VALUE. Seconds. " +
+        "It checks nothing.\n\n" +
+        "THIS IS THE TOOL FOR A QUESTION RATHER THAN A CLAIM. `CheckPolicy` answers \"does this " +
+        "hold in every state\"; this answers \"what IS this\" -- and most of what goes wrong while " +
+        "writing a property module is a value being something other than you assumed. The units " +
+        "of a window, what a session actually contains, whether a set has the member you think. " +
+        "Asking directly costs seconds; finding out by writing an invariant and running a check " +
+        "costs minutes and tells you only that something was wrong.\n\n" +
+        "WITH `property`, THAT MODULE'S DEFINITIONS ARE IN SCOPE, which is where this earns its " +
+        "keep. `Session(960)` returns the events with their times. `TradeAllowed(960)` returns " +
+        "TRUE or FALSE -- the policy's decision for that session, without an invariant anywhere. " +
+        "A tuple evaluates in one call, so `<<TradeAllowed(900), TradeAllowed(901)>>` locates the " +
+        "boundary of a temporal window in a single question.\n\n" +
+        "WITHOUT IT, the policy's generated vocabulary is the context: `Policies`, the field " +
+        "domains, the tagged constructors.\n\n" +
+        "A VALUE IS NOT A VERDICT. That the policy grants one session says nothing about the " +
+        "others, and reporting an evaluation as if it were a check would be claiming far more " +
+        "than was established. Use it to understand, then check.")]
+    public async Task<ExpressionValue> EvaluateExpressionAsync(
+        [Description("Path to the .dw policy whose semantics the expression is evaluated in, relative to the project directory.")] string policy,
+        [Description("The TLA+ expression. Anything the context defines: `Session(960)`, `TradeAllowed(960)`, `Len(Policies)`, `<<A, B>>` to ask two things at once.")] string expression,
+        [Description("Optional .tla property module to evaluate inside, so ITS definitions are in scope too. Without it only the generated vocabulary is.")] string? property = null,
+        [Description("Path to the .dwschema event schema, if one exists. It changes the generated vocabulary and so can change the value.")] string? eventSchema = null,
+        CancellationToken cancellationToken = default)
+    {
+        var args = new List<string> { Resolve(policy, nameof(policy)), "--eval", expression };
+
+        Add(args, "--property", property, nameof(property));
+        Add(args, "--event-schema", eventSchema, nameof(eventSchema));
+
+        // One TLC start and one evaluation, not a model check. Generous against a cold JVM.
+        var r = await PythonProcess.RunAsync(CheckerScript, [.. args], root: AnchorRoot,
+            timeout: TimeSpan.FromMinutes(5), ct: cancellationToken);
+
+        if (!r.IsSuccess)
+        {
+            return new ExpressionValue(false, null, r.Message ?? "the checker could not be run");
+        }
+
+        var run = r.Value;
+        var output = (run.Output + run.ErrorOutput).Trim();
+
+        if (run.ExitCode != 0)
+        {
+            // The expression did not evaluate -- a name the context does not define, a cross-kind
+            // comparison, a value TLC will not print. The output carries TLC's reason and is
+            // returned whole: an unreadable answer beats a confident empty one.
+            return new ExpressionValue(false, null,
+                Refusal(run.ErrorOutput) ?? $"the expression did not evaluate:\n{output}");
+        }
+
+        return new ExpressionValue(true, Evaluated(output), null);
+    }
+
+    /// <summary>The value out of the checker's `--eval` report, without its echo of the question.</summary>
+    /// <remarks>
+    /// The report prints the expression, a blank line, and then the value indented. Everything from
+    /// the first indented line on is the value — kept as text rather than parsed into a structure,
+    /// because a TLA+ value is a record, a set, a sequence or a scalar and flattening those into one
+    /// shape would lose the distinction the reader is asking about.
+    /// </remarks>
+    public static string Evaluated(string output)
+    {
+        var lines = output.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        // Not `l[6..]` unguarded: a value ends with a trailing blank line more often than not, and
+        // slicing a shorter line than the indent throws — turning "here is the value" into an
+        // exception, which is the worst possible way to report a successful evaluation.
+        var value = lines.SkipWhile(l => !l.StartsWith("      "))
+                         .Select(l => l.Length >= 6 ? l[6..] : l.TrimStart());
+        return string.Join("\n", value).Trim();
+    }
+
+    /// <summary>Each error SANY reported, with where it is.</summary>
+    /// <remarks>
+    /// <para>
+    /// Parsed from the printed output rather than from a machine format, for the same reason
+    /// <see cref="Findings"/> is: the CLI is the contract we already have, and inventing a second
+    /// one would be a second thing to keep true. Anything unparsed is simply absent from the list
+    /// and <see cref="SpecCheckResult.Output"/> is returned whole alongside, so a changed format
+    /// degrades to "fewer structured diagnostics" rather than to a wrong answer.
+    /// </para>
+    /// <para>
+    /// SANY writes a location line and then the message after a blank line:
+    /// </para>
+    /// <code>
+    /// line 47, col 58 to line 47, col 62 of module typo
+    ///
+    /// Unknown operator: `Grant'.
+    /// </code>
+    /// <para>
+    /// An abort — an unparseable module — carries no location at all, only
+    /// <c>Could not parse module X from file X.tla</c>. Those are returned with line 0 rather than
+    /// dropped: a module that will not parse is the case an agent most needs told about.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<SpecDiagnostic> Diagnostics(string output)
+    {
+        var found = new List<SpecDiagnostic>();
+        var lines = output.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var at = SanyLocation().Match(lines[i]);
+            if (at.Success)
+            {
+                // The message is the next non-blank line. SANY separates them with one blank line,
+                // but reading "the next non-blank" survives a second one being added.
+                var message = lines.Skip(i + 1).FirstOrDefault(l => l.Trim().Length > 0)?.Trim() ?? "";
+                found.Add(new SpecDiagnostic(
+                    int.Parse(at.Groups["line"].Value),
+                    int.Parse(at.Groups["col"].Value),
+                    at.Groups["module"].Value,
+                    message));
+                continue;
+            }
+
+            var abort = SanyAbort().Match(lines[i]);
+            if (abort.Success)
+            {
+                found.Add(new SpecDiagnostic(0, 0, abort.Groups["module"].Value, lines[i].Trim()));
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>The rule-by-rule findings in the checker's output.</summary>
     /// <remarks>
     /// Parsed from the printed table rather than from a machine format, because the checker's CLI is
@@ -329,6 +573,12 @@ public partial class PolicyTools : Runtime
     [GeneratedRegex(@"^under .+$", RegexOptions.Multiline)]
     private static partial Regex ReadingLine();
 
+    [GeneratedRegex(@"^line (?<line>\d+), col (?<col>\d+) to line \d+, col \d+ of module (?<module>\S+)")]
+    private static partial Regex SanyLocation();
+
+    [GeneratedRegex(@"Could not parse module (?<module>\S+)")]
+    private static partial Regex SanyAbort();
+
     #endregion
 
     #region Fields
@@ -387,3 +637,35 @@ public record PolicyCheckResult(
 /// <c>--describe</c> document, passed through verbatim.
 /// </summary>
 public record PolicyModuleDescription(bool Answered, JsonElement? Module, string? Error);
+
+/// <summary>
+/// Whether a property module compiles. <paramref name="Answered"/> false means no verdict was
+/// reached at all — the checker could not run, or the POLICY was refused — which is neither
+/// "compiles" nor "does not".
+/// </summary>
+public record SpecCheckResult(
+    bool Answered,
+    bool Compiles,
+    string Output,
+    string? Error,
+    IReadOnlyList<SpecDiagnostic>? Diagnostics = null);
+
+/// <summary>
+/// One error SANY reported. <paramref name="Line"/> 0 means it gave no location — an unparseable
+/// module, where there is no well-formed position to point at.
+/// </summary>
+public record SpecDiagnostic(int Line, int Column, string Module, string Message);
+
+/// <summary>
+/// What a TLA+ expression evaluates to. <paramref name="Value"/> is TLA+ value syntax, kept as
+/// text: a record, a set, a sequence and a scalar are different shapes and flattening them would
+/// lose the distinction being asked about.
+/// </summary>
+public record ExpressionValue(bool Answered, string? Value, string? Error);
+
+/// <summary>
+/// What each claim in a property module forbids. <paramref name="Explanation"/> is the explainer's
+/// own document, passed through verbatim so a field added there reaches the agent without a second
+/// definition here to keep in step.
+/// </summary>
+public record SpecExplanation(bool Answered, JsonElement? Explanation, string? Error);

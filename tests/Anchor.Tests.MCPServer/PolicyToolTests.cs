@@ -205,6 +205,63 @@ public class PolicyToolTests : TestsRuntime
     static readonly string Repo = PythonProcess.FindRoot().IsSuccess
         ? PythonProcess.FindRoot().Value : Directory.GetCurrentDirectory();
 
+    /// <summary>
+    /// SANY's output becomes one diagnostic per error, with where it is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The shape is taken from the TLA+ VS Code extension's own MCP surface, which returns a
+    /// message per error rather than a wall of text — with more of the location kept, because SANY
+    /// gives a line, a column range and the module, and dropping them throws away the part an agent
+    /// can act on.
+    /// </para>
+    /// <para>
+    /// <b>Both shapes matter and they are different.</b> A semantic error carries a location; an
+    /// ABORT — a module that will not parse at all — carries none, and is returned with line 0
+    /// rather than dropped, because it is the case an agent most needs told about. A parser that
+    /// handled only the first would go silent on exactly the worst input.
+    /// </para>
+    /// <para>
+    /// Fixtures are SANY's real output, copied from a run, not invented.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void SanyOutputBecomesDiagnostics()
+    {
+        const string semantic = """
+            *** Errors: 1
+
+            line 47, col 58 to line 47, col 62 of module typo
+
+            Unknown operator: `Grant'.
+            """;
+
+        var one = Assert.Single(PolicyTools.Diagnostics(semantic));
+        Assert.Equal(47, one.Line);
+        Assert.Equal(58, one.Column);
+        Assert.Equal("typo", one.Module);
+        Assert.Contains("Unknown operator", one.Message);
+
+        const string abort = """
+            tla2sany.semantic.AbortException
+            *** Abort messages: 1
+
+            In module unbalanced
+
+            Could not parse module unbalanced from file unbalanced.tla
+            """;
+
+        var aborted = Assert.Single(PolicyTools.Diagnostics(abort));
+        Assert.Equal(0, aborted.Line);
+        Assert.Equal("unbalanced", aborted.Module);
+        Assert.Contains("Could not parse", aborted.Message);
+
+        // A clean run has nothing to report, and must not manufacture a diagnostic from the
+        // success banner.
+        Assert.Empty(PolicyTools.Diagnostics(
+            "****** SANY2 Version 2.1 created 24 February 2014\nSemantic processing of module firewall"));
+    }
+
     #endregion
 }
 
