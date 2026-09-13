@@ -59,7 +59,11 @@ class ConditionUse:
 
     Attributes:
         schema:  the combinator or schema name, for the assumption listing.
-        tla:     the predicate, already substituted. Its only free name is `st`.
+        tla:     the predicate, already substituted. Its only free name is `st`. EMPTY when
+                 `branch` is set: a gate's verdict is not a function of any node's status, so
+                 there is no predicate over `st` to write and the edge is oracle-backed instead.
+        branch:  set only by `verdict()`. Marks this edge as one arm of a single decision, so the
+                 translator can emit the two arms as ONE free choice rather than two.
         support: the tasks the predicate reads. graph_to_tla.py emits this as EdgeSupport, which
                  DependencyDAG.tla needs to tell a false condition that may yet become true from one
                  that cannot. Understating it lets the model cancel a live task; the differential
@@ -75,6 +79,20 @@ class ConditionUse:
     support: tuple[str, ...]
     origin: str
     assumed: bool
+    branch: "Branch | None" = None
+
+
+@dataclass(frozen=True)
+class Branch:
+    """One gate decision, and which of its two outcomes this edge carries.
+
+    Both arms of a `verdict()` pair share `name` and `node` and differ in `accepts`, which is how
+    the translator recognises them as halves of one choice.
+    """
+
+    name: str
+    node: str
+    accepts: bool
 
 
 def meaning(condition) -> ConditionUse | None:
@@ -191,6 +209,64 @@ def none_failed(*nodes):
         assumed=False,
     )
     return check
+
+
+# The token a gate node writes into its own result to say what it decided. A gate is Anchor's own
+# code, so this is a convention we SET rather than an assumption about somebody else's Python --
+# which is what keeps `verdict` at tier 0 rather than tier 1.
+VERDICT_PASS = "ANCHOR-VERDICT: PASS"
+
+
+def _text(state, node_id: str) -> str:
+    """The gate node's own account of what it decided."""
+    result = state.results.get(node_id)
+    return "" if result is None else str(result.result)
+
+
+def verdict(node: str, *, name: str | None = None):
+    """A gate's decision, as the two edges carrying its outcomes. Returns `(passed, rejected)`.
+
+        passed, rejected = verdict("preflight")
+        builder.add_edge("preflight", "score",  condition=passed)
+        builder.add_edge("preflight", "report", condition=rejected)
+
+    A GATE THAT REJECTS IS NOT A FAILED NODE. Strands' status vocabulary is PENDING / EXECUTING /
+    COMPLETED / FAILED / INTERRUPTED and has no REJECTED, so a verdict has nowhere to live but the
+    node's RESULT -- and `all_complete`, `any_complete` and `none_failed` all read status, so none
+    of them can see it. Reaching for FAILED instead is a category error twice over: a gate that
+    rejects has worked, not broken, and an AgentBase node can only reach FAILED by raising, which
+    fail-fasts the entire run.
+
+    WHY THE PAIR COMES BACK TOGETHER rather than from two calls. The arms are one decision, and
+    nothing downstream could know that if they arrived separately: each opaque edge otherwise gets
+    its own free oracle, so the models explore BOTH arms firing and NEITHER firing. Those are
+    exactly the behaviours that break RunsAtMostOnce and NoSilentSkip, and neither is reachable in
+    a workflow whose second condition is the negation of its first. Handing them over together is
+    what lets the translator say so.
+
+    `rejected` is literally `not passed`, and both require the gate to have COMPLETED -- otherwise
+    the rejection arm would already be true before the gate ran, and fire immediately.
+    """
+    if not isinstance(node, str):
+        raise TypeError(f"a gate node id must be a string; got {node!r}")
+    decision = name or node
+
+    def passed(state) -> bool:
+        return _completed(state, node) and VERDICT_PASS in _text(state, node)
+
+    def rejected(state) -> bool:
+        return _completed(state, node) and VERDICT_PASS not in _text(state, node)
+
+    for fn, accepts in ((passed, True), (rejected, False)):
+        fn.__anchor__ = ConditionUse(
+            schema="Verdict",
+            tla="",                      # oracle-backed, not an EdgeCond arm. See ConditionUse.tla
+            support=(node,),
+            origin=f"{__name__}.verdict",
+            assumed=False,
+            branch=Branch(name=decision, node=node, accepts=accepts),
+        )
+    return passed, rejected
 
 
 # ------------------------------------------------------------------------------------------------

@@ -16,13 +16,39 @@ builder.add_edge("review", "publish", condition=all_complete("review", "legal"))
 
 | tier | how the meaning is known | cost |
 |---|---|---|
-| **0** | a combinator from here — `all_complete`, `any_complete`, `none_failed`. A real Strands condition that *also* carries its TLA+ predicate. | nothing per workflow. One implementation, reviewed once, checked once by `tests/strands/condition_differential.py`. |
+| **0** | a combinator from here — `all_complete`, `any_complete`, `none_failed`, `verdict`. A real Strands condition that *also* carries its TLA+ meaning. | nothing per workflow. One implementation, reviewed once, checked once by `tests/strands/condition_differential.py` (and `anchor_workflow.py` for `verdict`). |
 | **1** | `@condition_schema` on the user's own factory. The Python is untouched; the decorator stamps each closure it produces with the predicate the user asserts it means. | **a hole in every proof below it.** `translator.strands_graph_to_tla` lists it in the generated module's header rather than absorbing it. |
 | **2** | no declaration | the edge is emitted as nondeterministic. Anything proved holds for every outcome of it — and a property that depends on one will not prove. |
 
 Tier 1 is an assertion about the user's own Python, and Anchor does not verify it. It is named in
 the output the way `DafnyProgram.AuditAsync` names an `{:extern}` assumption, for the same reason:
 an assumption nobody can see is worse than one nobody has discharged.
+
+## `verdict` — a gate, and why it is not a failing node
+
+```python
+passed, rejected = verdict("preflight")
+builder.add_edge("preflight", "score",  condition=passed)
+builder.add_edge("preflight", "report", condition=rejected)
+```
+
+Strands' status vocabulary is `PENDING | EXECUTING | COMPLETED | FAILED | INTERRUPTED` and has **no
+`REJECTED`**, so a gate's verdict has nowhere to live but the node's *result* — where the other
+three combinators, which all read status, cannot see it. Reaching for `FAILED` instead is wrong
+twice: a gate that rejects has worked rather than broken, and an `AgentBase` node can only reach
+`FAILED` by raising, which fail-fasts the whole run.
+
+**The pair comes back from one call**, and that is the entire declaration. What the gate will decide
+stays unknown; what is declared is that the two edges are the *same* decision. Without it the models
+give each edge its own free choice and explore both arms firing and neither — the two behaviours a
+real gate cannot produce, and exactly the ones that broke `RunsAtMostOnce` and `NoSilentSkip` in
+[`tests/strands/anchor_workflow.py`](../../tests/strands/anchor_workflow.py). The translator emits
+declared pairs as `ExclusivePairs`, and each model's `Init` constrains one oracle to be the negation
+of the other.
+
+Wire only one arm and there is no exclusivity to declare, so the edge stays an ordinary free choice
+and the generated header says so. That is not an error — a pipeline whose rejection goes nowhere is
+a thing people write, and `NoSilentSkip` is left free to find it.
 
 ## Why the annotation rides on the object
 

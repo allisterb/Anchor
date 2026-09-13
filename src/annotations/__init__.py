@@ -7,7 +7,9 @@ This is that something, and it is the only part of Anchor a user writes *into th
     tier 0  a combinator from here -- `all_complete("a", "b")` is a real Strands condition that
             also carries its TLA+ predicate. Meaning by CONSTRUCTION: one implementation, reviewed
             once, checked once by `tests/strands/condition_differential.py`. Nothing per-workflow
-            is taken on trust.
+            is taken on trust. `verdict()` is the odd one: a gate's outcome is not a function of
+            any node's STATUS, so what it declares is not a predicate but that its two edges are
+            one decision -- see its docstring, and the README.
     tier 1  `@condition_schema` on a user's own factory. The Python is untouched; the decorator
             stamps each closure with the predicate the user asserts it means. That assertion is a
             HOLE in every proof that follows, and the translator lists it as one.
@@ -28,10 +30,10 @@ told.
 
 from __future__ import annotations
 
-from .conditions import (STATES, ConditionUse, all_complete, any_complete, condition_schema,
-                         graph_tla_value, meaning, none_failed)
+from .conditions import (STATES, VERDICT_PASS, Branch, ConditionUse, all_complete, any_complete,
+                         condition_schema, graph_tla_value, meaning, none_failed, verdict)
 
 __all__ = [
-    "STATES", "ConditionUse", "all_complete", "any_complete", "condition_schema",
-    "graph_tla_value", "meaning", "none_failed",
+    "STATES", "VERDICT_PASS", "Branch", "ConditionUse", "all_complete", "any_complete",
+    "condition_schema", "graph_tla_value", "meaning", "none_failed", "verdict",
 ]

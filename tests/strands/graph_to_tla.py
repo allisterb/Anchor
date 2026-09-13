@@ -176,9 +176,16 @@ def one_invariant(cfg: str, invariant: str) -> str:
     is reported. Constants and CHECK_DEADLOCK are kept; every INVARIANT and PROPERTY line is
     dropped and the one under test appended.
     """
-    kept = [ln for ln in cfg.splitlines()
-            if not ln.strip().startswith(("INVARIANT", "PROPERTY"))]
-    return "\n".join(kept + [f"INVARIANT {invariant}", ""])
+    lines = cfg.splitlines()
+    listed = [ln.strip() for ln in lines if ln.strip().startswith(("INVARIANT", "PROPERTY"))]
+    kept = [ln for ln in lines if not ln.strip().startswith(("INVARIANT", "PROPERTY"))]
+
+    # WHICH KEYWORD this one was declared under, read back from the config rather than assumed.
+    # A liveness property filed under INVARIANT is not checked as one: TLC evaluates the temporal
+    # formula as a state predicate and reports a violation that means nothing about the workflow.
+    # StrandsGraph.cfg lists Terminates as a PROPERTY, so asking for it here must too.
+    keyword = next((ln.split()[0] for ln in listed if ln.split()[1:2] == [invariant]), "INVARIANT")
+    return "\n".join(kept + [f"{keyword} {invariant}", ""])
 
 
 def check(workflow_tla: str, spec: str, invariant: str | None = None) -> tuple[bool, str]:

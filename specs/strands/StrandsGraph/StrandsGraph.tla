@@ -80,6 +80,11 @@ TypeOK ==
     /\ phase \in {"RUNNING", "DONE", "ABORTED"}
     /\ oracle \in [NondetEdges -> BOOLEAN]
 
+\* ONE DECISION, TWO ARMS -- see the same definition in DependencyDAG.tla. A gate completes and
+\* its verdict routes the run: the arms are opaque individually and complementary together.
+\* Vacuous when ExclusivePairs is empty.
+Exclusive(o) == \A e \in ExclusivePairs : o[e[1]] = ~o[e[2]]
+
 Init ==
     /\ status = [t \in Tasks |-> "UNRUN"]
     /\ runs = [t \in Tasks |-> 0]
@@ -87,6 +92,7 @@ Init ==
     /\ batch = {}
     /\ phase = "RUNNING"
     /\ oracle \in [NondetEdges -> BOOLEAN]
+    /\ Exclusive(oracle)
 
 (***************************************************************************)
 (* EDGES                                                                   *)

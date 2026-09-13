@@ -22,7 +22,7 @@ wrote the condition, and this module only reports what it was told. It never dec
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from annotations import ConditionUse, meaning
 
@@ -35,6 +35,8 @@ class Translation:
     tla: str
     assumptions: list[tuple[tuple[str, str], ConditionUse]]  # tier-1 holes, edge -> declaration
     nondet: list[tuple[str, str]]                            # tier-2 edges, condition not modelled
+    exclusive: list[tuple[str, tuple[str, str], tuple[str, str]]] = field(default_factory=list)
+    unpaired: list[tuple[str, tuple[str, str]]] = field(default_factory=list)
 
 
 def to_tla(graph) -> Translation:
@@ -49,6 +51,7 @@ def to_tla(graph) -> Translation:
 
     declared: list[tuple[tuple[str, str], ConditionUse]] = []
     nondet: list[tuple[str, str]] = []
+    branches: dict[str, dict[bool, tuple[str, str]]] = {}
     for e in edges:
         pair = (e.from_node.node_id, e.to_node.node_id)
         if e.condition is None:
@@ -56,6 +59,19 @@ def to_tla(graph) -> Translation:
         use = meaning(e.condition)
         if use is None:
             nondet.append(pair)   # tier 2: modelled as an unknown-but-fixed choice
+        elif use.branch is not None:
+            # A GATE'S VERDICT. Still a free choice -- nothing here knows what the gate will
+            # decide -- but the two arms of one decision are not free of EACH OTHER, and that is
+            # the whole content of the declaration. Recorded now, emitted as ExclusivePairs below.
+            arms = branches.setdefault(use.branch.name, {})
+            if use.branch.accepts in arms:
+                raise UntranslatableCondition(
+                    f"decision {use.branch.name!r} has two edges carrying its "
+                    f"{'accepting' if use.branch.accepts else 'rejecting'} arm: "
+                    f"{arms[use.branch.accepts]} and {pair}. Pass `name=` to verdict() to "
+                    f"separate two decisions on one gate node")
+            arms[use.branch.accepts] = pair
+            nondet.append(pair)
         else:
             declared.append((pair, use))
 
@@ -67,6 +83,17 @@ def to_tla(graph) -> Translation:
             raise UntranslatableCondition(
                 f"condition on {f} -> {t} reads {stray!r}, which are not nodes in this graph"
             )
+        if not use.tla:
+            raise UntranslatableCondition(
+                f"condition on {f} -> {t} declares no predicate and is not a branch")
+
+    # A decision with only one arm wired is NOT an error -- it is the pipeline whose rejection goes
+    # nowhere, which is a thing people write. There is simply no exclusivity to declare about a
+    # single edge, so it stays an ordinary free choice, and NoSilentSkip is left free to find it.
+    exclusive = [(name, arms[True], arms[False])
+                 for name, arms in sorted(branches.items()) if len(arms) == 2]
+    unpaired = [(name, next(iter(arms.values())))
+                for name, arms in sorted(branches.items()) if len(arms) == 1]
 
     def case(arms: list[tuple[tuple[str, str], str]], otherwise: str, indent: str = "    ") -> str:
         if not arms:
@@ -100,14 +127,39 @@ def to_tla(graph) -> Translation:
             rf"\*   {use.schema:<14} <<{f!r}, {t!r}>>  from {use.origin}".replace("'", '"')
             for (f, t), use in assumed
         ]
-    if nondet:
+    # Branch edges are free choices too, but something IS declared about them, so listing them
+    # under "nothing is claimed" would be false.
+    branch_edges = {p for _, a, b in exclusive for p in (a, b)} | {p for _, p in unpaired}
+    opaque = [p for p in nondet if p not in branch_edges]
+
+    if opaque:
         header += [
             r"\*",
             r"\* NOT MODELLED. These conditions have no declared meaning, so nothing about what",
             r"\* they decide is claimed. Anything proved below holds for every combination of",
             r"\* their outcomes -- and a property that depends on one of them will not prove.",
         ] + [
-            rf"\*   <<{f!r}, {t!r}>>".replace("'", '"') for f, t in nondet
+            rf"\*   <<{f!r}, {t!r}>>".replace("'", '"') for f, t in opaque
+        ]
+    if exclusive:
+        header += [
+            r"\*",
+            r"\* ONE DECISION, TWO ARMS. What the gate decides is still unknown; what is declared",
+            r"\* is that these two edges are the SAME decision, so exactly one of them fires.",
+            r"\* Without it the models explore both firing and neither, and neither behaviour is",
+            r"\* reachable in a workflow whose second condition is the negation of its first.",
+        ] + [
+            rf"\*   {name:<14} accept <<{a[0]!r}, {a[1]!r}>>  reject <<{b[0]!r}, {b[1]!r}>>"
+            .replace("'", '"') for name, a, b in exclusive
+        ]
+    if unpaired:
+        header += [
+            r"\*",
+            r"\* HALF A DECISION. Only one arm of each of these is wired into the graph, so the",
+            r"\* other outcome leads nowhere and there is no exclusivity to declare. Left as an",
+            r"\* ordinary free choice.",
+        ] + [
+            rf"\*   {name:<14} <<{p[0]!r}, {p[1]!r}>>".replace("'", '"') for name, p in unpaired
         ]
 
     body = [
@@ -135,12 +187,20 @@ def to_tla(graph) -> Translation:
         ]
 
     nondet_set = ", ".join(f'<<"{f}", "{t}">>' for f, t in nondet)
+    # << accepting edge, rejecting edge >>, so the model can constrain one oracle to be the
+    # negation of the other. Empty for every graph without a gate, where the conjunct that reads
+    # it is vacuous and nothing about those checks changes.
+    pairs = ", ".join(f'<< <<"{a[0]}", "{a[1]}">>, <<"{b[0]}", "{b[1]}">> >>'
+                      for _, a, b in exclusive)
     body += [
         "",
         f"NondetEdges == {{{nondet_set}}}",
+        "",
+        f"ExclusivePairs == {{{pairs}}}",
         "",
         "=============================================================================",
         "",
     ]
 
-    return Translation(tla="\n".join(header + body), assumptions=assumed, nondet=nondet)
+    return Translation(tla="\n".join(header + body), assumptions=assumed, nondet=nondet,
+                       exclusive=exclusive, unpaired=unpaired)

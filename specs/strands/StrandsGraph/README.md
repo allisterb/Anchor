@@ -136,6 +136,30 @@ honestly.
 
 Which is the argument for keeping both, rather than picking one.
 
+## These four are DERIVABLE. A branching workflow needs one of its own
+
+`NoSilentSkip` and `HP10` are both universally quantified over tasks — every node must run, every
+parent must have completed. A workflow that **branches** violates both by design: on the arm not
+taken, nodes legitimately never run. Neither property is wrong; both are the wrong question for a
+graph that chooses.
+
+The right question is the author's, and nothing derivable from the graph can state it — *however the
+gates decide, the run reports*:
+
+```tla
+AlwaysReports == phase = "DONE" => status["report"] # "UNRUN"
+```
+
+Same division as on the policy side: these four are derivable from any graph, that one only the
+person who wired the workflow can state. It is checked in a module that `EXTENDS StrandsGraph`,
+exactly as a policy property module extends `PolicyUnderTest` — see
+[`tests/strands/anchor_workflow.py`](../../../tests/strands/anchor_workflow.py), where it fails on a
+gated pipeline whose branch arms are undeclared and holds once they are.
+
+`ExclusivePairs` is what makes it provable. A gate's two outgoing edges are opaque individually but
+complementary together, and `Init` constrains one oracle to be the negation of the other. Empty for
+every graph without a gate, where the conjunct is vacuous.
+
 ## What this model does not cover
 
 - **What a task does.** Agents appear only as completing or failing. Nothing here says their outputs

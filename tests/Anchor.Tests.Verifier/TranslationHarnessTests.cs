@@ -111,6 +111,53 @@ public class TranslationHarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Anchor's own property-authoring pipeline, wired as the <c>Graph</c> that would run it
+    /// multi-agent and checked by Anchor. Three honest wirings, each unsatisfactory in its own way,
+    /// and the point is that all three rows stay as they are: a gated pipeline reports success
+    /// having said nothing, routing the rejection breaks two more properties, and moving the gates
+    /// inside the nodes clears everything by removing what was being checked.
+    /// </summary>
+    [PythonHarness("anchor_workflow.py", "strands")]
+    public async Task AnchorsOwnPipelineIsCheckedByAnchor()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/anchor_workflow.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("all expectations matched", run.Output);
+
+        // The separation the whole graph exists to express, and it is the SDK that enforces it:
+        // one Agent instance cannot be both the drafter and the answerer.
+        Assert.Contains("Duplicate node instance detected", run.Output);
+
+        // Every row, both colours, over pipeline / always_report / gated / sequential.
+        Assert.Matches(@"NoSilentSkip\s+VIOLATED\s+VIOLATED\s+VIOLATED\s+ok", run.Output);
+        Assert.Matches(@"HP10\s+ok\s+VIOLATED\s+VIOLATED\s+ok", run.Output);
+        Assert.Matches(@"Terminates\s+ok\s+ok\s+ok\s+ok", run.Output);
+
+        // THE ONE THE verdict() COMBINATOR BOUGHT. `gated` is `always_report` with each gate's two
+        // arms declared as one decision — same shape, same Python, same ignorance of what either
+        // gate will decide. Declaring the pair is the only difference between these two cells.
+        Assert.Matches(@"RunsAtMostOnce\s+ok\s+VIOLATED\s+ok\s+ok", run.Output);
+
+        // And the author's own claim, which no property derivable from the graph can state:
+        // however the gates decide, the run reports. Both colours, on graphs that differ only in
+        // whether the arms were declared.
+        Assert.Matches(@"always_report\s+VIOLATED", run.Output);
+        Assert.Matches(@"gated\s+HOLD", run.Output);
+
+        // The gate conditions read a node's OUTPUT, which no status combinator can express, so
+        // they stay free choices. If this ever reads 0 the gates stopped being modelled as unknown
+        // and the checks above would be proving something easier than they claim.
+        Assert.Contains("not modelled: 2", run.Output);
+        Assert.Contains("not modelled: 4", run.Output);
+
+        // verdict()'s own semantics: a gate that CRASHED did not reject, and the rejection arm
+        // must not fire on its behalf.
+        Assert.Matches(@"failed\s+passed=False\s+rejected=False", run.Output);
+        Assert.Contains("both arms wired -> two exclusive pairs     ok", run.Output);
+    }
+
+    /// <summary>
     /// An edge condition's TLA+ predicate has to mean what its Python does, or the annotation is the
     /// same silent-disagreement trap as a hand-written translator. The mutation matters most: a
     /// harness that cannot catch a deliberate mistranslation is checking nothing.

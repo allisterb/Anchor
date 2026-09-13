@@ -65,4 +65,8 @@ EdgeSupport(from, to) ==
 \* are none; see the header of DependencyDAG.tla for what this does when there are.
 NondetEdges == {}
 
+\* Pairs of nondeterministic edges carrying the two arms of ONE gate decision, so that exactly
+\* one of each pair fires. Emitted by annotations.verdict(); there are none here.
+ExclusivePairs == {}
+
 =============================================================================

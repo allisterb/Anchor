@@ -83,8 +83,16 @@ vars == <<state, oracle>>
 TypeOK == /\ state \in [Tasks -> States]
           /\ oracle \in [NondetEdges -> BOOLEAN]
 
+\* ONE DECISION, TWO ARMS. A gate node completes and its verdict routes the run; the two edges
+\* carrying its outcomes are opaque individually -- nothing here knows what it will decide -- but
+\* they are not free of EACH OTHER. Without this the oracle admits both arms firing and neither
+\* firing, and those are exactly the behaviours a real gate cannot produce. Vacuous when
+\* ExclusivePairs is empty, which it is for every graph without a gate.
+Exclusive(o) == \A e \in ExclusivePairs : o[e[1]] = ~o[e[2]]
+
 Init == /\ state = [t \in Tasks |-> "BLOCKED"]
         /\ oracle \in [NondetEdges -> BOOLEAN]
+        /\ Exclusive(oracle)
 
 Done(t) == state[t] = "COMPLETED"
 

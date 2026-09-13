@@ -37,8 +37,13 @@ vars == <<state, oracle>>
 TypeOK == /\ state \in [Tasks -> States]
           /\ oracle \in [NondetEdges -> BOOLEAN]
 
+\* Kept in step with DependencyDAG.tla. The deliberate bug in this copy is the missing failure
+\* propagation, and nothing else should differ.
+Exclusive(o) == \A e \in ExclusivePairs : o[e[1]] = ~o[e[2]]
+
 Init == /\ state = [t \in Tasks |-> "BLOCKED"]
         /\ oracle \in [NondetEdges -> BOOLEAN]
+        /\ Exclusive(oracle)
 
 Done(t) == state[t] = "COMPLETED"
 
