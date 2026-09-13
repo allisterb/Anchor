@@ -643,6 +643,42 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// The witness is told as a SESSION — the calls made, the values passed, and which were
+    /// allowed — rather than as a list of action names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>witness: Connect</c> is true and nearly useless: it names the action and drops the
+    /// values, so it cannot say whether the connection that got through came from inside the
+    /// network or outside it. That distinction is the entire content of a firewall policy.
+    /// </para>
+    /// <para>
+    /// <b>Addresses are the case worth pinning.</b> TLC works in Java ints and stops at
+    /// 2147483647, so an IPv4 address cannot be held as a 32-bit number and is modelled as four
+    /// octets. Rendering that back as <c>[10, 0, 0, 0]</c> would be accurate and unreadable; the
+    /// narrative prints <c>10.0.0.0</c>.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task TheWitnessIsToldAsASessionWithItsValues()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/firewall_ip.dw");
+
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        // Dotted quad, not a list of octets and not a 32-bit integer.
+        Assert.Matches(@"Connect\(src = \d+\.\d+\.\d+\.\d+\)", run.Output);
+        Assert.DoesNotContain("src = [", run.Output);
+
+        // The outcome of each attempt, which is what makes it a story rather than a list. The
+        // forbid is live because it DENIES, the permit because it ALLOWS — so both words appear,
+        // and a rendering that hardcoded either would fail here.
+        Assert.Contains("denied", run.Output);
+        Assert.Contains("allowed", run.Output);
+    }
+
+    /// <summary>
     /// <c>--keep</c> preserves the model a verdict came from, for every question the checker
     /// answers — not just the comparison it was first written for.
     /// </summary>

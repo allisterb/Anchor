@@ -34,10 +34,27 @@ So when you report one of these, report the bound with it. "Vacuous within 3 att
 
 A `live` verdict has no such caveat: a witness exists, and it was exhibited.
 
-## The witness
+## The witness, and the session under it
 
 For a `live` rule the note carries the session that proves it, as the actions attempted in order —
 `Approve -> Trade`. That is the shortest thing to quote when explaining why a rule matters.
+
+**Quote the session, not just the action names, whenever the checker prints one.** Under the
+summary line the output tells the same session as numbered attempts with the values passed and
+what each one got:
+
+```
+1. Connect(src = 10.0.0.0)  denied
+2. Connect(src = 11.0.0.0)  allowed
+```
+
+`Connect` is true and nearly useless — it cannot say whether the connection that got through came
+from inside the network or outside it, and that distinction is the whole content of a firewall
+policy. The session can. When you explain a verdict to someone, this is the part that makes it
+concrete, and it needs no knowledge of TLA+ to read.
+
+For an edit comparison the last attempt is marked with what the *other* policy would have done at
+that point. That line is the finding; everything above it is the setup that made it reachable.
 
 ## Comparing an edit: report the DIRECTION, never just "they differ"
 

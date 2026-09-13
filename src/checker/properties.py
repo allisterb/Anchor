@@ -44,7 +44,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from translator import (DECISION_KIND, DEFAULT_MAX_WINDOW, Unsupported, apply_pins,  # noqa: E402
                         find_jar, generate_policy_module, parse_policies, parse_schema, run_tlc,
-                        stamp_keys, vocabulary, witness_events)
+                        narrate, stamp_keys, vocabulary, witness_events)
 
 # Event kinds AgentCore records. `request` is the decision event -- the point authorization runs --
 # and the outcome is `response` when the action completed, `error` when it was denied.
@@ -332,7 +332,15 @@ def direction(found, out: str) -> dict | None:
     """
     if not found:
         return None
-    return {"witness": witness(out), "session": witness_events(out)}
+    events = witness_events(out)
+    return {
+        "witness": witness(out),
+        "session": events,
+        # The same session as sentences. Carried rather than left for the caller to compose,
+        # so that an agent quoting Anchor and a person reading it see the SAME words -- two
+        # renderings of one verdict is one more than the number that can be checked.
+        "narrative": narrate(events),
+    }
 
 
 def compare(args, policies: list[dict], other: list[dict], vocab: dict,
@@ -417,13 +425,19 @@ def compare(args, policies: list[dict], other: list[dict], vocab: dict,
         return 0
 
     if wider:
-        print(f"  ADDED     newly allowed: {witness(wider_out)}")
-        print("            a session the new set permits and the old set denies. This is the\n"
-              "            direction worth reading twice -- it is what the edit grants that\n"
-              "            nobody asked it to grant.")
+        print("  ADDED     a session this policy permits and the old one denies:\n")
+        for line in narrate(witness_events(wider_out),
+                            f"{args.against.name} DENIES this") or [f"  {witness(wider_out)}"]:
+            print(f"              {line}")
+        print("\n            This is the direction worth reading twice -- it is what the edit\n"
+              "            grants that nobody asked it to grant.")
     if narrower:
-        print(f"  REMOVED   no longer allowed: {witness(narrower_out)}")
-        print("            a session the old set permitted and the new set denies.")
+        if wider:
+            print()
+        print("  REMOVED   a session the old policy permitted and this one denies:\n")
+        for line in narrate(witness_events(narrower_out),
+                            f"{args.policy.name} DENIES this") or [f"  {witness(narrower_out)}"]:
+            print(f"              {line}")
 
     if not wider and not narrower:
         print("Within the bound the two files are interchangeable: every session either set\n"
@@ -808,6 +822,15 @@ def main() -> int:
 
             findings.append((i, rule["effect"], verdict))
             print(f"  {label:34} {verdict:10}{note}")
+
+            # Only for `live`, and only when the session says more than its one-line summary --
+            # a policy reading no input fields narrates to the action names already on the line
+            # above, and repeating them would be noise per rule rather than detail.
+            if verdict == "live":
+                story = narrate(witness_events(out))
+                if any("(" in line and "()" not in line for line in story):
+                    for line in story:
+                        print(f"      {line}")
 
             if args.verbose:
                 print("\n".join(f"      {line}" for line in out.splitlines()))

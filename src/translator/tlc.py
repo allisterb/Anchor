@@ -19,6 +19,8 @@ from contextlib import nullcontext
 from functools import lru_cache
 from pathlib import Path
 
+from .policy_module import DECISION_KIND
+
 REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "lib"
 
@@ -264,3 +266,96 @@ def witness_events(out: str) -> list[dict]:
                 if event.get(field) == []:
                     event[field] = {}
     return events
+
+
+# ---------------------------------------------------------------------------- telling the story
+#
+# The one-line summary -- `ApproveSale -> SellShares` -- names the actions and drops everything
+# else: which values were passed, which attempts were refused, and which decision the verdict is
+# actually about. For someone who will never open a `.tla` file that is most of the answer missing.
+#
+# These render the same events as sentences. Presentation only: nothing here decides anything, and
+# a narrative that disagreed with the verdict would be a bug in the rendering rather than in the
+# check.
+
+
+def render_value(v) -> str:
+    """One field value, as a person would write it.
+
+    An ADDRESS is four octets rather than a 32-bit number -- TLC works in Java ints and stops at
+    2147483647, so 208.4.4.0 cannot be held as one. It arrives here as a list of four and is
+    printed dotted, because `[208, 4, 4, 0]` is not how anybody reads an IP address.
+    """
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, list):
+        if len(v) == 4 and all(isinstance(x, int) and not isinstance(x, bool) for x in v):
+            return ".".join(str(x) for x in v)
+        return "[" + ", ".join(render_value(x) for x in v) + "]"
+    if isinstance(v, dict):
+        return "{" + ", ".join(f"{k} = {render_value(x)}" for k, x in v.items()) + "}"
+    if isinstance(v, str):
+        return f'"{v}"'
+    return str(v)
+
+
+def render_fields(fields) -> str:
+    """`stock = 1, amount = 2`, or empty when the policy reads nothing."""
+    if not isinstance(fields, dict) or not fields:
+        return ""
+    return ", ".join(f"{k} = {render_value(v)}" for k, v in sorted(fields.items()))
+
+
+def attempts_of(events: list[dict]) -> list[dict]:
+    """The events paired into ATTEMPTS: one decision, and the outcome recorded for it.
+
+    The model appends two events per attempt -- the `request` the decision is made on, then the
+    outcome. AgentCore's convention is what makes the outcome readable: a permitted action that
+    completed is recorded as `response`, a DENIED one as `error`, and the request is recorded
+    either way. So the outcome kind is the verdict, and no separate decision field is needed.
+    """
+    out = []
+    for i, e in enumerate(events):
+        if not isinstance(e, dict) or e.get("kind") != DECISION_KIND:
+            continue
+        outcome = events[i + 1] if i + 1 < len(events) else None
+        if not isinstance(outcome, dict) or outcome.get("kind") == DECISION_KIND:
+            outcome = None
+        out.append({
+            "action": e.get("action", "?"),
+            "input": e.get("input") or {},
+            # None when the trace ends before the outcome -- said as "no outcome recorded"
+            # rather than guessed at, because guessing "allowed" here would invent a permission.
+            "allowed": None if outcome is None else outcome.get("kind") != "error",
+            "output": (outcome or {}).get("output") or {},
+            "who": e.get("principal"),
+        })
+    return out
+
+
+def narrate(events: list[dict], final_note: str = "") -> list[str]:
+    """The witness session as numbered lines, one per attempt.
+
+    `final_note` is appended to the LAST attempt, which is the one the verdict is about: every
+    attempt before it is setup that made the last one reachable. Marking it is the difference
+    between showing a trace and explaining a decision.
+    """
+    attempts = attempts_of(events)
+    if not attempts:
+        return []
+
+    lines = []
+    width = max(len(a["action"]) for a in attempts)
+    for n, a in enumerate(attempts, 1):
+        fields = render_fields(a["input"])
+        call = f"{a['action']:<{width}}({fields})" if fields else f"{a['action']:<{width}}()"
+        verdict = {True: "allowed", False: "denied", None: "no outcome recorded"}[a["allowed"]]
+
+        # Outputs only when the action completed AND produced some -- a denied attempt records
+        # no results, so printing an empty set beside it would imply one was returned.
+        out = render_fields(a["output"])
+        tail = f"  ({out})" if out and a["allowed"] else ""
+
+        note = f"   <- {final_note}" if final_note and n == len(attempts) else ""
+        lines.append(f"{n}. {call}  {verdict}{tail}{note}")
+    return lines
