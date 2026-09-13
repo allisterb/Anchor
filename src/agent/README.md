@@ -95,6 +95,46 @@ Round 2 is the interesting one: pressed by an objection it could not satisfy, th
 something invalid. The loop reported that and stopped, rather than accepting a plausible-looking
 answer — and the run exits 1. **A loop that cannot fail is a loop that will not stop.**
 
+## Drafting a property, and the two gates on it
+
+```bash
+python src/agent/author.py examples/aws1/07-trust-decay.dw --name TrustDecay10 \
+    --intent "After 10 minutes without advisor interaction, the agent loses write access."
+```
+
+The intent comes from **outside** the policy — a requirement, a comment, what somebody asked for.
+A property derived from the policy is a restatement of it, and checking a policy against its own
+restatement always passes.
+
+A draft is kept only if it could have failed, and there are two gates because there are two ways
+to be useless:
+
+| | refuses | how |
+|---|---|---|
+| **`preflight`** | a claim whose condition no state satisfies; one true by the module's own arithmetic; a `.cfg` naming an invariant that does not exist | [reads](../checker#and-that-failure-is-now-detected-rather-than-described--anchor-explain) the module. Milliseconds |
+| **mutation** | a claim that holds of the policy *and* of every small breakage of it — a tautology about the decision, which reading cannot see | one TLC run per mutant |
+
+The first exists because the second is slow: a draft refused by reading costs a second instead of
+minutes, and the round it saves is a round spent on a better draft. Neither replaces the other, and
+[the harness](../../tests/strands/property_authoring.py) carries a fixture for each that the other
+lets through — so a change that quietly collapsed them into one would fail.
+
+**What comes out is a draft**, and the run ends by saying what it forbids rather than by asserting
+it is right:
+
+```
+  LosesWriteAfter10m
+     forbids   gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it
+     applies   to 3 of the 6: gap = 840, gap = 960, gap = 1800
+
+THIS IS A DRAFT. ... whether it captures what you meant is the one question no tool here
+answers -- the `forbids` lines above are that question, asked in a form you can answer.
+```
+
+That is the human checkpoint the literature converges on, at the one boundary where it says
+autonomy fails: everything downstream of a property is mechanical, everything upstream is a person
+saying what they meant, and the step between is the one nothing verifies.
+
 ## Ambiguity, before a policy exists
 
 ```bash

@@ -137,6 +137,54 @@ INVARIANT OutsideIsRefused
 
 Naming them is deliberate: **a property nobody listed is a property nobody checked.**
 
+## Read what it forbids before you check it
+
+A property is checked against exactly what it says. If what it says is not what you meant, the run
+is just as rigorous, passes just as convincingly, and establishes nothing — and no verdict
+downstream can tell you that happened, because every check below the property is faithful to it.
+
+So read the claim back before running anything:
+
+```bash
+anchor explain TrustDecay10.tla
+```
+
+```
+  LosesWriteAfter10m
+     says      whenever gap is greater than 10 * Minute (= 600), then the policy REFUSES it
+     forbids   gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it
+     applies   to 3 of the 6: gap = 840, gap = 960, gap = 1800
+```
+
+**The `forbids` line is the one to disagree with.** It is the only thing the claim can catch. If it
+does not describe something you would object to seeing happen, the check will pass without testing
+your intention.
+
+**The `applies` line is the size of the experiment.** A claim shaped `A => B` tests nothing at all
+in any state where `A` is false, so a condition that matches two of six states is a claim about two
+states. `applies to NONE` is reported as a finding — the claim would hold, TLC would say so, and it
+would have examined nothing:
+
+```
+  applies   to NONE of the 2 states
+  !!        NOTHING THIS CLAIM RANGES OVER CAN BREAK IT ...
+```
+
+That is the same defect as a vacuous permit, in the property instead of the policy, and it is the
+commonest way a property module ends up worthless. It happens most often exactly where the trap
+above describes: a claim about a value the request set never presents.
+
+`--explain` on a check prints the same thing first, so the claim is read before its verdict is:
+
+```bash
+anchor check policy.dw --property TrustDecay10.tla --explain
+```
+
+What it will **not** catch is a tautology about the decision itself — `Grants(r) \/ ~Grants(r)`
+holds whatever the policy says, and the explainer does not evaluate `Decide`, deliberately. That
+one is caught by `--mutation-score`, which breaks the policy and checks that the property notices.
+The two are complementary; neither replaces the other.
+
 ## Reading the result
 
 A violation means the policy does **not** mean what your property says it means, and the state

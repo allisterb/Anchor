@@ -631,6 +631,42 @@
   "properties": {
     "TradeGate.tla": {
       "policy": "agent-policy.dw",
+      "claims": {
+        "module": "TradeGate.tla",
+        "states": [
+          "prereq = \"both\"",
+          "prereq = \"freshPriceOnly\"",
+          "prereq = \"neither\"",
+          "prereq = \"profileOnly\"",
+          "prereq = \"stalePriceOnly\""
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "FreshPriceAloneIsNotEnough",
+            "defined": true,
+            "says": "whenever prereq is \"freshPriceOnly\", then the policy REFUSES it (Allowed(prereq))",
+            "forbids": "prereq is \"freshPriceOnly\", and yet the policy GRANTS it (Allowed(prereq))",
+            "condition": "prereq = \"freshPriceOnly\"",
+            "appliesTo": [
+              "prereq = \"freshPriceOnly\""
+            ],
+            "states": 5,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 4,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [
+          "BothIsAllowed",
+          "NothingAllowsNoTrade",
+          "ProfileAloneIsNotEnough",
+          "RequiresBothChecks"
+        ],
+        "vacuous": []
+      },
       "kind": "property",
       "held": false,
       "exitCode": 1,
@@ -639,6 +675,76 @@
     },
     "TrustDecay.tla": {
       "policy": "07-trust-decay.dw",
+      "claims": {
+        "module": "TrustDecay.tla",
+        "states": [
+          "gap = 1",
+          "gap = 300",
+          "gap = 600",
+          "gap = 840",
+          "gap = 960",
+          "gap = 1800"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "LosesWriteAfter15m",
+            "defined": true,
+            "says": "whenever gap is greater than 15 * Minute (= 900), then the policy REFUSES it (TradeAllowed(gap))",
+            "forbids": "gap is greater than 15 * Minute (= 900), and yet the policy GRANTS it (TradeAllowed(gap))",
+            "condition": "gap > 15 * Minute",
+            "appliesTo": [
+              "gap = 960",
+              "gap = 1800"
+            ],
+            "states": 6,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 4,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "KeepsWriteWhileAdvisorEngaged",
+            "defined": true,
+            "says": "whenever gap is at most 15 * Minute (= 900), then the policy GRANTS it (TradeAllowed(gap))",
+            "forbids": "gap is at most 15 * Minute (= 900), and yet the policy REFUSES it (TradeAllowed(gap))",
+            "condition": "gap <= 15 * Minute",
+            "appliesTo": [
+              "gap = 1",
+              "gap = 300",
+              "gap = 600",
+              "gap = 840"
+            ],
+            "states": 6,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 2,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "LosesWriteAfter10m",
+            "defined": true,
+            "says": "whenever gap is greater than 10 * Minute (= 600), then the policy REFUSES it (TradeAllowed(gap))",
+            "forbids": "gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it (TradeAllowed(gap))",
+            "condition": "gap > 10 * Minute",
+            "appliesTo": [
+              "gap = 840",
+              "gap = 960",
+              "gap = 1800"
+            ],
+            "states": 6,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 3,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
       "kind": "property",
       "held": false,
       "exitCode": 1,
@@ -647,6 +753,40 @@
     },
     "TrustDecay10.tla": {
       "policy": "07-trust-decay.dw",
+      "claims": {
+        "module": "TrustDecay10.tla",
+        "states": [
+          "gap = 1",
+          "gap = 300",
+          "gap = 600",
+          "gap = 840",
+          "gap = 960",
+          "gap = 1800"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "LosesWriteAfter10m",
+            "defined": true,
+            "says": "whenever gap is greater than 10 * Minute (= 600), then the policy REFUSES it (TradeAllowed(gap))",
+            "forbids": "gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it (TradeAllowed(gap))",
+            "condition": "gap > 10 * Minute",
+            "appliesTo": [
+              "gap = 840",
+              "gap = 960",
+              "gap = 1800"
+            ],
+            "states": 6,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 3,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
       "kind": "property",
       "held": false,
       "exitCode": 1,

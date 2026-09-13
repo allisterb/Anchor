@@ -40,6 +40,8 @@ if str(REPO / "src") not in sys.path:
 
 CHECKER = REPO / "src" / "checker" / "properties.py"
 
+from checker.explain import as_dict, explain_file  # noqa: E402
+
 # The findings carry em dashes and policy text; a Windows console defaults to a codepage that
 # cannot hold them, and the report then LOOKS corrupted while the file beside it is fine. The
 # files are always UTF-8 -- this is only so the summary on the way past is readable too.
@@ -173,6 +175,10 @@ def check_all(plan: Plan, out: Path, attempts: int | None = None) -> dict:
         print(f"  {policy.name} against {module.name}", file=sys.stderr)
         results["properties"][module.name] = {
             "policy": policy.name,
+            # READ BEFORE RUN. What the module claims is worked out from its own text, costs
+            # nothing, and is the only part of this report a reader can disagree with on sight --
+            # "holds" is a fact about a claim nobody has read yet.
+            "claims": as_dict(explain_file(module)),
             **run_checker(policy, property_module=module,
                           keep=traces / f"{policy.stem}-{module.stem}", attempts=attempts),
         }
@@ -191,6 +197,16 @@ def findings_of(results: dict) -> list[str]:
     for name, r in results.get("properties", {}).items():
         if not r.get("held"):
             out.append(f"**{r['policy']} does not satisfy {name}** — a stated intention is not met")
+
+    # A CLAIM THAT CANNOT FAIL IS A FINDING, and it belongs beside the broken ones rather than in
+    # a footnote. It holds, this report counts it as a stated intention that was met, and it
+    # examined nothing -- which makes the directory look BETTER checked than a directory with no
+    # property module at all. That is the one way this report can actively mislead.
+    for name, r in results.get("properties", {}).items():
+        for claim in (r.get("claims") or {}).get("vacuous", []):
+            out.append(f"**{name}: `{claim}` cannot fail** — it is already true in every state it "
+                       f"ranges over, before the policy is consulted. It holds, and it tested "
+                       f"nothing")
 
     for name, r in results.get("derived", {}).items():
         if r.get("_failed"):
@@ -262,6 +278,38 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
             lines.append(f"| `{r['policy']}` | `{name}` | "
                          f"{'holds' if r.get('held') else '**BROKEN**'} |")
         lines.append("")
+
+        # WHAT "HOLDS" MEANT, spelled out. Above is a verdict about a claim; here is the claim,
+        # in words, with the number of states its condition actually applied to. A reader who
+        # disagrees with one of these lines has found something no amount of model checking
+        # would have told them, because every check below it was faithful to the wrong claim.
+        lines += ["### What each of them forbids", "",
+                  "Read these before the verdicts above. Each line is the only thing its claim",
+                  "can catch — a claim that forbids nothing you object to passes without having",
+                  "tested what you meant.", ""]
+        for name, r in results.get("properties", {}).items():
+            read = r.get("claims") or {}
+            claims, states = read.get("claims", []), read.get("states", [])
+            # How many states, or why that could not be said. A module whose state space could not
+            # be read still gets its claims listed -- the `forbids` line is the useful half, and
+            # silently omitting the count would read as "no states" rather than "not counted".
+            lines.append(f"**`{name}`** — " + (f"{len(states)} state(s), enumerated from `Init`"
+                                               if states else
+                                               f"states not enumerated: {read.get('scope', '')}"))
+            lines.append("")
+            for c in claims:
+                if not c.get("defined"):
+                    lines.append(f"- `{c['name']}` — **not defined in the module**, though the "
+                                 f".cfg names it")
+                    continue
+                applied = (f" _(its condition applies to {len(c['appliesTo'])} of "
+                           f"{c['states']} states)_" if c.get("condition") else "")
+                warn = " **— NOTHING IT RANGES OVER CAN BREAK IT**" if c.get("vacuous") else ""
+                lines.append(f"- `{c['name']}` forbids: {c['forbids']}{applied}{warn}")
+            if unchecked := (r.get("claims") or {}).get("definedButNotChecked", []):
+                lines.append(f"- _defined but not named in the `.cfg`, so never checked:_ "
+                             + ", ".join(f"`{u}`" for u in unchecked))
+            lines.append("")
 
     lines += ["---", "",
               "`traces/` holds the generated model, the configs and the raw TLC output for every",

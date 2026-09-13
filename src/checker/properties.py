@@ -448,6 +448,13 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
     print(f"{args.policy.name} against {args.property_module.name}: "
           f"{len(policies)} rule(s)\n")
 
+    # BEFORE the run, not after it, because after it the answer is already framing the question.
+    # A reviewer shown "every claim holds" and then asked what the claim was has been told the
+    # conclusion first; shown what the claim FORBIDS and then the verdict, they can still object.
+    if args.explain:
+        from checker.explain import explain_file, render  # noqa: PLC0415  -- one direction only
+        print(render(explain_file(args.property_module)) + "\n")
+
     with workdir(args, "anchor-prove-") as work:
         (work / "PolicyUnderTest.tla").write_text(
             generate_policy_module(args.policy, policies, vocab, keys=keys), encoding="utf-8")
@@ -1105,6 +1112,12 @@ def main() -> int:
                          "however it was found -- or `unknown`. It can never report VACUOUS, "
                          "REDUNDANT or DEAD: those are claims of absence, and a random walk cannot "
                          "establish absence. For models too big to exhaust")
+    ap.add_argument("--explain", action="store_true",
+                    help="before checking a --property, say in English what each of its claims "
+                         "FORBIDS, which states it will be checked in, and which of those its "
+                         "condition even applies to. The one step in this pipeline nothing else "
+                         "verifies is whether the property says what you meant, and this is the "
+                         "sentence to disagree with while disagreeing is still cheap")
     ap.add_argument("--describe", action="store_true",
                     help="print, as JSON, what a --property module extending PolicyUnderTest may "
                          "name for this policy -- actions, fields, domains, constructors -- plus a "

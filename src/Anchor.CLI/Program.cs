@@ -66,17 +66,18 @@ public static class Program
             return BadUsage;
         }
 
-        var isCheck = string.Equals(verb, "check", StringComparison.OrdinalIgnoreCase)
-                      || string.Equals(verb, "auto", StringComparison.OrdinalIgnoreCase);
+        // A verb whose product is a report on standard output, rather than MCP frames.
+        var isReporting = verb is not null && Reporting.Contains(verb);
         var isHelp = args.Any(a => a is "--help" or "-h" or "--version");
         var isHttp = args.Contains("--http", StringComparer.OrdinalIgnoreCase);
         var isDebug = args.Contains("--debug", StringComparer.OrdinalIgnoreCase);
 
-        // Everything but the stdio server may write to standard output. `check`'s report is its
-        // product, so it gets a console sink only when debugging was asked for.
-        var isStdioServer = !isCheck && !isHelp && !isHttp;
+        // Everything but the stdio server may write to standard output. A reporting verb's report
+        // IS its product, so it gets a console log sink only when debugging was asked for —
+        // otherwise the log interleaves with the thing the reader is reading.
+        var isStdioServer = !isReporting && !isHelp && !isHttp;
 
-        if (isStdioServer || (isCheck && !isDebug))
+        if (isStdioServer || (isReporting && !isDebug))
         {
             Runtime.WithFileLogging("Anchor", "CLI", isDebug);
         }
@@ -95,11 +96,13 @@ public static class Program
 
         try
         {
-            return await parser.ParseArguments<ServerOptions, CheckOptions, AutoOptions>(args)
+            return await parser
+                .ParseArguments<ServerOptions, CheckOptions, AutoOptions, ExplainOptions>(args)
                 .MapResult(
                     (ServerOptions opts) => ServerAsync(opts),
                     (CheckOptions opts) => CheckAsync(opts),
                     (AutoOptions opts) => AutoAsync(opts),
+                    (ExplainOptions opts) => ExplainAsync(opts),
                     errs => Task.FromResult(ParseFailure(errs)));
         }
         catch (Exception e)
@@ -234,6 +237,38 @@ public static class Program
     }
 
     /// <summary>
+    /// Say what a property module forbids, without checking anything.
+    /// </summary>
+    /// <remarks>
+    /// The exit code is the explainer's own: <b>4</b> means a claim cannot fail, which is a finding
+    /// and not an error — it is the same number <c>check --property --mutation-score</c> uses for
+    /// the same defect found the expensive way, so a pipeline can branch on one value however it
+    /// was reached.
+    /// </remarks>
+    static async Task<int> ExplainAsync(ExplainOptions opts)
+    {
+        var args = new List<string> { opts.Module };
+
+        if (!string.IsNullOrWhiteSpace(opts.Config)) args.AddRange(["--cfg", opts.Config]);
+        if (opts.Json) args.Add("--json");
+
+        // Seconds, not minutes: this reads a file. A generous cap still catches a hang without
+        // ever cutting short work that was progressing.
+        var r = await PythonProcess.RunAsync(PolicyTools.ExplainScript, [.. args],
+            root: Blank(opts.AnchorRoot), timeout: TimeSpan.FromMinutes(2));
+
+        if (!r.IsSuccess)
+        {
+            Console.Error.WriteLine(r.Message ?? "the property could not be read");
+            return CouldNotRun;
+        }
+
+        if (!string.IsNullOrWhiteSpace(r.Value.Output)) Console.Write(r.Value.Output);
+        if (!string.IsNullOrWhiteSpace(r.Value.ErrorOutput)) Console.Error.Write(r.Value.ErrorOutput);
+        return r.Value.ExitCode;
+    }
+
+    /// <summary>
     /// A parse failure, or a request for help. Help is a success; anything else is bad usage.
     /// </summary>
     /// <remarks>
@@ -262,7 +297,16 @@ public static class Program
     /// </summary>
     static readonly HashSet<string> Verbs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "server", "check", "auto", "help", "version"
+        "server", "check", "auto", "explain", "help", "version"
+    };
+
+    /// <summary>
+    /// The verbs whose product is a report on standard output. They get a file log sink unless
+    /// --debug asked otherwise, so that logging never interleaves with the thing being read.
+    /// </summary>
+    static readonly HashSet<string> Reporting = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "check", "auto", "explain"
     };
 
     const int Ok = 0;

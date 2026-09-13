@@ -309,6 +309,9 @@ public partial class PolicyTools : Runtime
     /// <summary>The unattended directory check. Relative to the Anchor root, like the checker.</summary>
     public const string AutoScript = "src/agent/auto.py";
 
+    /// <summary>The property explainer, which runs no model checker. Relative to the Anchor root.</summary>
+    public const string ExplainScript = "src/checker/explain.py";
+
     /// <summary>The one exit code that means no verdict was reached. See <c>Answered</c>.</summary>
     public const int DidNotAnswer = 2;
 

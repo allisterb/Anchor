@@ -108,6 +108,41 @@ lines fix it, and they belong to the claim:
 Requests == {[port |-> Num(p), origin |-> Str(o)] : p \in {22, 2222}, o \in {"local", "external"}}
 ```
 
+#### And that failure is now detected rather than described — `anchor explain`
+
+The paragraph above is a warning that was only ever enforced by whoever read it. `explain` reads
+the module instead, and says what each claim forbids and how many of the states it ranges over its
+condition even applies to:
+
+```bash
+python src/checker/explain.py examples/aws1/TrustDecay10.tla
+anchor check policy.dw --property TrustDecay10.tla --explain   # the same, before the verdict
+```
+
+```
+  LosesWriteAfter10m
+     says      whenever gap is greater than 10 * Minute (= 600), then the policy REFUSES it
+     forbids   gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it
+     applies   to 3 of the 6: gap = 840, gap = 960, gap = 1800
+```
+
+`applies to NONE` is the vacuous claim above, caught before TLC starts, and it exits **4** — the
+same code `--mutation-score` uses for the same defect found the expensive way.
+
+**It runs no model checker**, which is the point: the checkpoint the literature puts at the
+property-formulation boundary is only useful if it is instant. It is a small recursive-descent
+reader over the fragment these modules state claims in, and it computes the state space and the
+condition — ordinary arithmetic over values the module itself names. It does **not** evaluate
+`Decide`; that is the whole authorization semantics, TLC is about to do it properly, and a second
+implementation here would disagree silently.
+
+So the two gates catch different things and neither replaces the other:
+
+| | catches | costs |
+|---|---|---|
+| `explain` | a claim whose condition no state satisfies; one true by its own arithmetic; a `.cfg` naming an invariant that does not exist; claims defined but never listed | milliseconds, reading |
+| `--mutation-score` | a claim that holds of the policy *and of every broken version of it* — including a tautology about the decision, which reading cannot see | one TLC run per mutant |
+
 ## The answer this must never get wrong
 
 A false **VACUOUS** tells someone to delete a rule that works. Everything else the checker can get

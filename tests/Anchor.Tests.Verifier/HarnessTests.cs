@@ -656,9 +656,17 @@ public class HarnessTests : TestsRuntime
     /// </para>
     /// <para>
     /// The negative case is the one that matters, and it is asserted three ways — the draft is
-    /// rejected, it is rejected <i>for catching nothing</i>, and nothing is written to disk. A
-    /// rejected draft must also not clobber a module somebody wrote by hand, which is the
-    /// realistic way this feature would do damage.
+    /// rejected, it is rejected <i>for ranging over nothing that could break it</i>, and nothing is
+    /// written to disk. A rejected draft must also not clobber a module somebody wrote by hand,
+    /// which is the realistic way this feature would do damage.
+    /// </para>
+    /// <para>
+    /// <b>There are two gates, and the harness carries a fixture each one lets through.</b> Reading
+    /// the module catches a claim nothing it ranges over can break, in milliseconds. Mutation
+    /// catches a tautology about the <i>decision</i> — <c>Grants(r) \/ ~Grants(r)</c> — which
+    /// reading cannot see, because the explainer deliberately does not evaluate the authorization
+    /// semantics. A change that collapsed the two into one would pass one fixture and fail the
+    /// other, which is the point of keeping both.
     /// </para>
     /// </remarks>
     [PythonHarness("property_authoring.py", "strands")]
@@ -668,9 +676,48 @@ public class HarnessTests : TestsRuntime
         Assert.True(run.ExitCode == 0, run.Output);
 
         Assert.Contains("a true-but-empty property is rejected", run.Output);
-        Assert.Contains("it was rejected for catching nothing", run.Output);
+        Assert.Contains("it was rejected for ranging over nothing that could break it", run.Output);
         Assert.Contains("and NOTHING was written", run.Output);
+        Assert.Contains("a tautology about the decision is rejected by MUTATION", run.Output);
         Assert.Contains("and the existing module is restored, not clobbered", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
+    /// The plain-English explainer: what a property module <b>forbids</b>, said before anything is
+    /// checked.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the checkpoint at the one boundary where the literature says autonomy fails — the
+    /// formulation of the property itself. Everything downstream of a property is mechanical and
+    /// checkable; everything upstream is a person saying what they meant. A property that says
+    /// something <i>other</i> than what its author meant is checked just as rigorously, and passes
+    /// just as convincingly.
+    /// </para>
+    /// <para>
+    /// <b>Nothing here runs TLC</b>, which is the feature rather than a shortcut: a checkpoint that
+    /// costs minutes is a checkpoint people skip. What would rot silently is the <i>sense</i> of the
+    /// generated English — <c>~Grants(req)</c> glossed as "the policy GRANTS it" reads perfectly and
+    /// is exactly backwards — so the harness asserts the direction of the rendering per shape, in
+    /// both polarities, rather than the shape of the output.
+    /// </para>
+    /// <para>
+    /// The counting is the other half. <c>A =&gt; B</c> tests nothing in any state where <c>A</c> is
+    /// false, so "applies to 3 of the 6" is the size of the experiment, and <i>none of them</i> is a
+    /// claim that will pass having examined nothing.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("property_explainer.py", "strands")]
+    public async Task WhatAPropertyForbidsIsStatedBeforeItIsChecked()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/property_explainer.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("a claim that the policy must ALLOW forbids a refusal", run.Output);
+        Assert.Contains("a claim whose condition no state satisfies is reported as vacuous", run.Output);
+        Assert.Contains("a tautology about the DECISION is not caught by reading alone", run.Output);
+        Assert.Contains("the policy's decision is UNKNOWN, never guessed", run.Output);
         Assert.DoesNotContain("FAIL", run.Output);
     }
 

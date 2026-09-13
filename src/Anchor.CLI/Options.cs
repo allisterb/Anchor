@@ -77,6 +77,37 @@ public class AutoOptions : Options
     #endregion
 }
 
+/// <summary>Say in English what a property module forbids, before anything is checked.</summary>
+/// <remarks>
+/// Its own verb rather than a flag on <c>check</c> because it is used at a different moment and by
+/// a different person. <c>check</c> answers "is this policy what the property says"; this answers
+/// "is the property what I meant", which is the one question in the pipeline nothing downstream
+/// verifies — and the moment to ask it is before a run, when disagreeing is still free.
+/// </remarks>
+[Verb("explain", HelpText =
+    "Read a property module and say, per claim, what it FORBIDS, which states it will be checked " +
+    "in, and how many of those its condition even applies to. Runs no model checker. Exit 4 when " +
+    "a claim cannot fail — it would pass having tested nothing.")]
+public class ExplainOptions : Options
+{
+    #region Properties
+
+    [Value(0, MetaName = "module", Required = true, HelpText = "A property module (.tla).")]
+    public string Module { get; set; } = string.Empty;
+
+    [Option("cfg", Required = false, MetaValue = "FILE.cfg",
+        HelpText = "Its .cfg, if not the module's own name. The .cfg is what decides which claims " +
+                   "are checked at all, so it is read alongside rather than assumed.")]
+    public string Config { get; set; } = string.Empty;
+
+    [Option("json", Required = false,
+        HelpText = "Emit the explanation as JSON — the claims, what each forbids, and the states " +
+                   "its condition applies to. For an agent, or a report generator.")]
+    public bool Json { get; set; }
+
+    #endregion
+}
+
 /// <summary>Model-check a Dogwood policy.</summary>
 [Verb("check", HelpText =
     "Model-check a Dogwood policy, rule by rule: is each one load-bearing, or is it VACUOUS, " +

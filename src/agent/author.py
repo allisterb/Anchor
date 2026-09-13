@@ -121,6 +121,40 @@ def score(policy: Path, module: Path, *, event_schema: Path | None = None,
                                     "Parsing or semantic analysis failed"))}
 
 
+def preflight(module: str, config: str, name: str) -> list[str]:
+    """What is wrong with this draft that can be seen WITHOUT running anything.
+
+    The gate below costs one TLC run for the property plus one per mutant -- minutes, for a draft
+    that a reader can reject in a glance. Two of the ways a drafted property comes back useless are
+    decidable from its own text: a `.cfg` naming an invariant the module never defines, and a claim
+    whose truth in every state it ranges over is already settled by the module's own arithmetic.
+
+    Both are hard rejections rather than warnings, because both are unambiguous -- and because the
+    complaint they produce is more specific than the one mutation scoring would eventually give.
+    "Nothing you are ranging over can break this" names the defect; "it survived every mutant"
+    describes a symptom of it.
+    """
+    from checker.explain import Module, explain            # noqa: PLC0415
+
+    x = explain(Module(module, config, name))
+    complaints: list[str] = []
+
+    for claim in x.claims:
+        if not claim.defined:
+            complaints.append(f"the .cfg names INVARIANT {claim.name}, which the module does not "
+                              f"define. TLC stops with an error rather than checking anything")
+        elif claim.vacuous:
+            complaints.append(
+                f"{claim.name} cannot fail. It is already true in all "
+                f"{claim.total} state(s) it ranges over before the policy is consulted at all"
+                + (f", because `{claim.condition}` is false in every one of them" if claim.condition
+                   and not claim.applies else "")
+                + f". It would forbid: {claim.forbids} -- and no state it examines is one. Range "
+                  f"over values that can make the condition true, and state the claim in terms of "
+                  f"what the policy DECIDES")
+    return complaints
+
+
 def assess(result: dict, config: str) -> list[str]:
     """Why this draft is not acceptable yet. Empty means it is."""
     complaints: list[str] = []
@@ -178,8 +212,14 @@ def author(policy: Path, intent: str, propose, *, rounds: int = 3,
             module_path.write_text(module, encoding="utf-8")
             config_path.write_text(config, encoding="utf-8")
 
-            result = score(policy, module_path, event_schema=event_schema, mutants=mutants)
-            complaints = assess(result, config)
+            # Read before running. A draft rejected here costs a second instead of the minutes
+            # the mutation gate takes to reach the same conclusion, and the round it saves is a
+            # round spent on a better draft.
+            if complaints := preflight(module, config, module_path.name):
+                result = {}
+            else:
+                result = score(policy, module_path, event_schema=event_schema, mutants=mutants)
+                complaints = assess(result, config)
 
             draft = Draft(number=n, module=module, config=config, accepted=not complaints,
                           complaints=complaints, holds=result.get("holds"),
@@ -326,9 +366,20 @@ def main() -> int:
 
     out = (args.out_dir or args.policy.parent) / f"{args.name}.tla"
     print(f"\nwrote {out} and its .cfg", file=sys.stderr)
+
+    # THE CHECKPOINT. "Read it before trusting a finding that rests on it" is advice nobody acts
+    # on when acting on it means reading TLA+ somebody else wrote. This is the same instruction
+    # with the reading already done: what each claim forbids, and which of the states it ranges
+    # over its condition even applies to.
+    from checker.explain import Module, explain, render     # noqa: PLC0415
+
+    print("\n" + render(explain(Module(run.accepted.module, run.accepted.config, out.name))),
+          file=sys.stderr)
+
     print("\nTHIS IS A DRAFT. It is a formal statement of your prose, written by a model, and\n"
-          "whether it captures what you meant is the one question no tool here answers. Read it\n"
-          "before trusting a finding that rests on it.", file=sys.stderr)
+          "whether it captures what you meant is the one question no tool here answers -- the\n"
+          "`forbids` lines above are that question, asked in a form you can answer.",
+          file=sys.stderr)
     return 0
 
 

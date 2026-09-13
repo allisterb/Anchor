@@ -25,7 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.author import assess, author  # noqa: E402
+from agent.author import assess, author, preflight  # noqa: E402
 
 POLICIES = REPO / "tests" / "policies"
 
@@ -53,6 +53,37 @@ AlwaysTrue == x = 1
 
 TRIVIAL = trivial("Trivial")
 TRIVIAL_CFG = "SPECIFICATION Spec\nINVARIANT AlwaysTrue\n"
+
+
+# THE OTHER SHAPE OF EMPTY, and the reason there are two gates rather than one. This one is a
+# tautology about the POLICY'S OWN DECISION -- it holds whatever the policy says, and whatever any
+# broken version of it says. The static reader cannot see it, correctly: it does not evaluate
+# `Decide`, because that is the entire authorization semantics and TLC is about to do it properly.
+# So `preflight` lets it through and the MUTATION gate is what catches it.
+#
+# Keep both fixtures. A change that made either gate redundant would pass the other's test and
+# quietly halve what the loop refuses.
+def tautology(name: str) -> str:
+    return f"""---------------------------- MODULE {name} ----------------------------
+EXTENDS Integers, Sequences, FiniteSets, PolicyUnderTest
+
+D == INSTANCE DogwoodSemantics WITH Cases <- << >>
+Grants(input) == D!Decide(<<Request("Connect", input)>>, Policies, 1, AllValues)
+
+Requests == {{[port |-> Num(22), origin |-> Str("local")]}}
+
+VARIABLE req
+Init == req \\in Requests
+Next == UNCHANGED req
+Spec == Init /\\ [][Next]_req
+
+EitherWay == Grants(req) \\/ ~Grants(req)
+
+=============================================================================
+"""
+
+
+TAUTOLOGY_CFG = "SPECIFICATION Spec\nINVARIANT EitherWay\n"
 
 failures: list[str] = []
 
@@ -93,6 +124,27 @@ def main() -> int:
     check("a property that fails on the real policy is accepted",
           assess({"ran": True, "holds": False, "caught": None}, "INVARIANT X") == [])
 
+    # --- preflight(): the same refusal, reached by READING rather than by running ---------------
+    # Nothing here starts TLC. That is the point: a draft rejected in a second is a round spent on
+    # a better draft instead of on minutes of model checking that was never going to say anything.
+    early = preflight(TRIVIAL, TRIVIAL_CFG, "Trivial.tla")
+    check("a claim nothing can break is refused before TLC runs", bool(early), str(early))
+    check("and the refusal names the claim and what it would forbid",
+          bool(early) and "AlwaysTrue" in early[0] and "forbid" in early[0], str(early))
+    check("a .cfg naming an undefined invariant is refused before TLC runs",
+          any("does not define" in c
+              for c in preflight(TRIVIAL, "SPECIFICATION Spec\nINVARIANT Absent\n", "Trivial.tla")))
+    check("a real property passes preflight",
+          preflight((POLICIES / "firewall.tla").read_text(encoding="utf-8"),
+                    (POLICIES / "firewall.cfg").read_text(encoding="utf-8"), "firewall.tla") == [])
+    # AND THE LIMIT OF READING, asserted rather than assumed: a tautology about the decision is
+    # invisible here, because the decision is not evaluated. If this ever starts being caught by
+    # `preflight`, the reader has begun evaluating the policy -- which is a much bigger claim than
+    # this module makes, and should not happen silently.
+    check("a tautology about the DECISION is invisible to reading alone",
+          preflight(tautology("EitherWay"), TAUTOLOGY_CFG, "EitherWay.tla") == [],
+          str(preflight(tautology("EitherWay"), TAUTOLOGY_CFG, "EitherWay.tla")))
+
     with tempfile.TemporaryDirectory(prefix="anchor-author-test-") as tmp:
         work = Path(tmp)
         shutil.copy(POLICIES / "firewall.dw", work)
@@ -108,10 +160,22 @@ def main() -> int:
 
         check("a true-but-empty property is rejected", run.accepted is None,
               str(run.drafts[-1].complaints if run.drafts else "no drafts"))
-        check("it was rejected for catching nothing",
-              any("every broken version" in c for c in run.drafts[0].complaints),
+        check("it was rejected for ranging over nothing that could break it",
+              any("cannot fail" in c for c in run.drafts[0].complaints),
               str(run.drafts[0].complaints))
         check("and NOTHING was written", not (out / "Trivial.tla").exists())
+
+        # --- the mutation gate, on the draft only IT can refuse ---------------------------------
+        # This one runs TLC, on the policy and on each mutant, and is the slow half of the loop.
+        empty = author(policy, "anything", scripted((tautology("EitherWay"), TAUTOLOGY_CFG)),
+                       rounds=1, mutants=4, out_dir=out, module_name="EitherWay")
+
+        check("a tautology about the decision is rejected by MUTATION", empty.accepted is None,
+              str(empty.drafts[-1].complaints if empty.drafts else "no drafts"))
+        check("and it was rejected for surviving every broken policy",
+              any("every broken version" in c for c in empty.drafts[0].complaints),
+              str(empty.drafts[0].complaints))
+        check("nothing was written for it either", not (out / "EitherWay.tla").exists())
 
         # --- a real property is kept -------------------------------------------------------------
         # firewall.tla is named `firewall`, so it must be written as firewall.tla to parse.
@@ -142,7 +206,7 @@ def main() -> int:
                      out_dir=out, module_name="firewall")
         check("a second draft is accepted after the first is refused", two.accepted is not None)
         check("and round 2 was told why round 1 failed",
-              "every broken version" in proposer.seen[1],        # type: ignore[attr-defined]
+              "cannot fail" in proposer.seen[1],                 # type: ignore[attr-defined]
               repr(proposer.seen[1][:90]))                        # type: ignore[attr-defined]
 
     print()

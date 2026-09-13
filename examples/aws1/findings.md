@@ -36,6 +36,27 @@
 | `07-trust-decay.dw` | `TrustDecay.tla` | **BROKEN** |
 | `07-trust-decay.dw` | `TrustDecay10.tla` | **BROKEN** |
 
+### What each of them forbids
+
+Read these before the verdicts above. Each line is the only thing its claim
+can catch — a claim that forbids nothing you object to passes without having
+tested what you meant.
+
+**`TradeGate.tla`** — 5 state(s), enumerated from `Init`
+
+- `FreshPriceAloneIsNotEnough` forbids: prereq is "freshPriceOnly", and yet the policy GRANTS it (Allowed(prereq)) _(its condition applies to 1 of 5 states)_
+- _defined but not named in the `.cfg`, so never checked:_ `BothIsAllowed`, `NothingAllowsNoTrade`, `ProfileAloneIsNotEnough`, `RequiresBothChecks`
+
+**`TrustDecay.tla`** — 6 state(s), enumerated from `Init`
+
+- `LosesWriteAfter15m` forbids: gap is greater than 15 * Minute (= 900), and yet the policy GRANTS it (TradeAllowed(gap)) _(its condition applies to 2 of 6 states)_
+- `KeepsWriteWhileAdvisorEngaged` forbids: gap is at most 15 * Minute (= 900), and yet the policy REFUSES it (TradeAllowed(gap)) _(its condition applies to 4 of 6 states)_
+- `LosesWriteAfter10m` forbids: gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it (TradeAllowed(gap)) _(its condition applies to 3 of 6 states)_
+
+**`TrustDecay10.tla`** — 6 state(s), enumerated from `Init`
+
+- `LosesWriteAfter10m` forbids: gap is greater than 10 * Minute (= 600), and yet the policy GRANTS it (TradeAllowed(gap)) _(its condition applies to 3 of 6 states)_
+
 ---
 
 `traces/` holds the generated model, the configs and the raw TLC output for every
