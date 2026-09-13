@@ -50,6 +50,11 @@ from translator import (DECISION_KIND, DEFAULT_MAX_WINDOW, Unsupported, apply_pi
 # and the outcome is `response` when the action completed, `error` when it was denied.
 
 
+# Exit codes, which callers branch on. 0 answered, 1 a --property claim is BROKEN, 2 no verdict,
+# 3 could not run -- and this fourth one, which is neither a pass nor a failure of the POLICY.
+WeakProperty = 4
+
+
 # ---------------------------------------------------------------------------- checking
 CONFIG = """SPECIFICATION Spec
 
@@ -461,6 +466,8 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
         print("  every claim holds over every request the property names.\n")
         print("That is not a proof about requests it does not name. A property ranges over what it\n"
               "says it ranges over, and nothing warns you when that is less than you meant.")
+        if args.mutation_score:
+            return mutation_report(args, policies, vocab, keys, held=True)
         return 0
 
     source = args.property_module.read_text(encoding="utf-8", errors="replace")
@@ -479,6 +486,8 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
           "request that breaks the claim, and the claim is quoted beneath it -- read the two\n"
           "together, because a violated invariant says which direction failed only when you can\n"
           "see what it asserted.")
+    if args.mutation_score:
+        mutation_report(args, policies, vocab, keys, held=False)
     return 1
 
 
@@ -687,6 +696,134 @@ def definition_of(module: str, name: str) -> list[str]:
     return [l.rstrip() for l in lines[head:end]]
 
 
+# ---------------------------------------------------------------------------- mutation
+#
+# IS THE PROPERTY STRONG ENOUGH? A property that holds tells you the policy satisfies it. It does
+# not tell you the property was worth satisfying, and the two are easy to confuse -- `ensures TRUE`
+# holds of everything.
+#
+# The question has a mechanical answer: BREAK THE POLICY AND SEE IF THE PROPERTY NOTICES. Damage it
+# in small, meaningful ways -- delete a rule, invert a permit, drop a condition -- and re-check. A
+# property that survives every mutant is not constraining the policy; it is describing something
+# else, or nothing.
+#
+# This matters most for a property somebody did not write by hand. The literature's most-reported
+# pathology in agentic verification is exactly this: asked to produce both an artifact and its
+# specification, a model discovers that a trivial specification is the cheapest way to pass. A
+# mutation score is the only mechanical defence, because the failure mode is a property that is
+# perfectly true.
+#
+# NOT A COVERAGE METRIC. A surviving mutant is not automatically a gap: a property about trades
+# should be untouched by damage to an unrelated rule about approvals, and reporting that as a
+# failure would train people to write properties that range over everything. What is damning is
+# ALL mutants surviving -- see `mutation_report`.
+
+
+def mutants(policies: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Small, meaningful damage to a policy set: (what was done, the damaged set).
+
+    Three kinds, chosen because each is a mistake somebody actually makes rather than a random
+    perturbation -- a rule deleted in a refactor, an effect typed wrong, a condition dropped while
+    rewriting one. A property worth having notices at least one of them.
+    """
+    out: list[tuple[str, list[dict]]] = []
+
+    for i, rule in enumerate(policies):
+        # Deleted. The commonest edit there is, and the one a property most obviously should catch.
+        out.append((f"rule {i + 1} ({rule['effect']}) deleted",
+                    [p for j, p in enumerate(policies) if j != i]))
+
+        # Inverted. A permit typed as a forbid is a one-word mistake with the largest possible
+        # consequence, and it is what the AgentCore trust-decay policy turns out to be.
+        flipped = "forbid" if rule["effect"] == "permit" else "permit"
+        out.append((f"rule {i + 1} turned into a {flipped}",
+                    [{**p, "effect": flipped} if j == i else p for j, p in enumerate(policies)]))
+
+        # Each condition dropped in turn: the rule now applies more widely than it was written to.
+        terms = conjuncts(rule.get("cond"))
+        if len(terms) > 1:
+            for k in range(len(terms)):
+                kept = [t for m, t in enumerate(terms) if m != k]
+                out.append((
+                    f"rule {i + 1} lost a condition: {describe_term(terms[k])}",
+                    [{**p, "cond": rebuild(kept)} if j == i else p
+                     for j, p in enumerate(policies)]))
+        elif terms:
+            out.append((f"rule {i + 1} lost its only condition",
+                        [{**p, "cond": rebuild([])} if j == i else p
+                         for j, p in enumerate(policies)]))
+
+    return out
+
+
+def mutation_report(args, policies: list[dict], vocab: dict, keys, held: bool) -> int:
+    """Damage the policy repeatedly and report which mutants the property caught.
+
+    `held` is whether the property holds on the policy AS WRITTEN, and it changes what this means:
+
+        held=False   the property already discriminates -- it caught the real policy. Scoring it
+                     against damaged ones adds nothing, and is skipped.
+        held=True    the interesting case. The property is satisfied; the question is whether it
+                     would have been satisfied by anything.
+    """
+    if not held:
+        print("\nNot scored: the property does not hold on the policy as written, so it has\n"
+              "already shown it can tell one policy from another. Fix the finding first.")
+        return 0
+
+    all_mutants = mutants(policies)
+    cap = args.mutants or len(all_mutants)
+    tried = all_mutants[:cap]
+
+    print(f"\nMUTATION SCORE -- does this property notice when the policy breaks?\n"
+          f"  {len(tried)} mutant(s)"
+          f"{f' of {len(all_mutants)}, capped by --mutants' if cap < len(all_mutants) else ''}\n")
+
+    caught, survived = 0, []
+    with workdir(args, "anchor-mutate-") as work:
+        shutil.copyfile(SPECS / "DogwoodSemantics.tla", work / "DogwoodSemantics.tla")
+        for what, damaged in tried:
+            # A mutant that leaves no rules at all says nothing about the property: every policy
+            # question is trivial on an empty set, and counting it either way would be noise.
+            if not damaged:
+                continue
+            (work / "PolicyUnderTest.tla").write_text(
+                generate_policy_module(args.policy, damaged, vocab, keys=keys), encoding="utf-8")
+            try:
+                still, _ = check_property(work, args.property_module)
+            except Unsupported:
+                # The damage produced something outside the modelled subset. Not evidence about
+                # the property, so it is not counted against it.
+                continue
+
+            if still:
+                survived.append(what)
+            else:
+                caught += 1
+                print(f"  caught   {what}")
+
+    for what in survived:
+        print(f"  MISSED   {what}")
+
+    total = caught + len(survived)
+    print(f"\n  {caught} of {total} caught.")
+
+    if total and caught == 0:
+        print("\nTHE PROPERTY CAUGHT NOTHING. It holds of the policy, and it holds of every broken\n"
+              "version of the policy too -- so it is not constraining this policy at all. Either it\n"
+              "ranges over requests the policy never sees, or it asserts something trivially true.\n"
+              "A property nothing can violate is not a check.")
+        # ITS OWN EXIT CODE, not 1. "Your property is broken" and "your property is weak" are
+        # opposite findings -- the first says the policy is wrong, the second says the check is --
+        # and sharing a code makes a caller read a useless property as a discriminating one.
+        return WeakProperty
+
+    print("\nA surviving mutant is not automatically a gap: a claim about one action should be\n"
+          "untouched by damage to an unrelated rule. What would be damning is ALL of them\n"
+          "surviving, and that is what this is for.")
+    return 0
+
+
 def violated_by(out: str) -> list[str]:
     """The invariants that failed, with the state that broke each.
 
@@ -870,7 +1007,23 @@ def describe(args, policies: list[dict], vocab: dict, schema: dict, reading: str
         "rules": [{"index": i, "effect": p["effect"], "actions": p["actions"] or ["(any)"]}
                   for i, p in enumerate(policies, 1)],
         "operators": {
-            "Request(action, input)": "one request as the evaluator reads it",
+            "Request(action, input)": "one request as the evaluator reads it, at time 1",
+            "Ev(action, kind, input, output, time)": "ONE EVENT AT A CHOSEN TIME AND KIND -- what "
+                                                     "a claim about a SESSION is built from. "
+                                                     "`action` and `kind` are PLAIN strings and "
+                                                     "`time` a PLAIN integer -- Ev(\"trade\", "
+                                                     "\"request\", NoFields, NoFields, 900), never "
+                                                     "Str(\"trade\") or Num(900). Tagging is for "
+                                                     "field VALUES inside the input/output records "
+                                                     "and nowhere else. `time` is in SECONDS: a "
+                                                     "claim about a 15m window needs events 900 "
+                                                     "apart, not two",
+            "NoFields": "an empty input or output record",
+            "D!Decide(trace, Policies, i, AllValues)": "the verdict for event `i` of a trace you "
+                                                       "built -- a sequence of Ev(...), in time "
+                                                       "order. This is how a TEMPORAL claim is "
+                                                       "stated; `Grants` in the skeleton is the "
+                                                       "one-event shorthand",
             "Policies": "the rule set, as the sequence Decide evaluates",
             "AllValues": "every value any field may take -- Decide's last argument",
             "InputDomain": "[field |-> {values}] for the fields above",
@@ -931,6 +1084,13 @@ def main() -> int:
                     help="emit the result as JSON, including the witness SESSION as structured "
                          "events rather than a one-line summary. For an agent, or anything else "
                          "that has to act on the answer instead of read it")
+    ap.add_argument("--mutation-score", action="store_true",
+                    help="after a --property check that HOLDS, break the policy in small ways and "
+                         "report which breakages the property notices. A property that survives "
+                         "every one of them is not constraining this policy -- it holds, and it "
+                         "would hold of anything")
+    ap.add_argument("--mutants", type=int, default=None, metavar="N",
+                    help="cap the number of mutants tried (default: all of them)")
     ap.add_argument("--no-blame", action="store_true",
                     help="skip working out WHICH condition term makes an inert rule inert. That "
                          "search costs one extra TLC run per term of each inert rule, and it is "

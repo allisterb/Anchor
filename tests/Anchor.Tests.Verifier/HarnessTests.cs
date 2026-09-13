@@ -643,6 +643,69 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Drafting a property module, and the gate that makes it safe: a draft is kept only if it
+    /// <b>could have failed</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Drafting is a convenience; refusing to keep one that says nothing is the feature. The
+    /// most-reported pathology in agentic verification is a model asked to produce both an artifact
+    /// and its specification discovering that a trivial specification is the cheapest way to pass —
+    /// and the failure mode is a property that is perfectly, uselessly <i>true</i>. Mutation is the
+    /// only mechanical defence: break the policy and see whether the property notices.
+    /// </para>
+    /// <para>
+    /// The negative case is the one that matters, and it is asserted three ways — the draft is
+    /// rejected, it is rejected <i>for catching nothing</i>, and nothing is written to disk. A
+    /// rejected draft must also not clobber a module somebody wrote by hand, which is the
+    /// realistic way this feature would do damage.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("property_authoring.py", "strands")]
+    public async Task ADraftedPropertyIsKeptOnlyIfItCouldHaveFailed()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/property_authoring.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("a true-but-empty property is rejected", run.Output);
+        Assert.Contains("it was rejected for catching nothing", run.Output);
+        Assert.Contains("and NOTHING was written", run.Output);
+        Assert.Contains("and the existing module is restored, not clobbered", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
+    /// The unattended directory check: every policy found by globbing, every <c>.tla</c> paired
+    /// with the policy its header names, and a directory with <b>no</b> stated intentions told
+    /// plainly that its clean report means much less.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The orchestration is what is pinned here, not the checks — those have their own tests. What
+    /// would rot silently is the honesty: <c>auto</c> over policies with no <c>.tla</c> beside them
+    /// produces a report that looks exactly like a pass, and the only thing between that and a
+    /// false sense of security is a paragraph saying which questions were never asked.
+    /// </para>
+    /// <para>
+    /// Also pinned: the headline must not be a vacuous truth. With zero stated intentions, "every
+    /// stated intention holds" is true and says nothing — which is the precise failure this whole
+    /// project exists to catch, and would be an embarrassing one to ship in its own report.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("auto_directory.py", "strands")]
+    public async Task AutoFindsEveryPolicyAndSaysWhatItDidNotCheck()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/auto_directory.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("a module naming no policy is reported, not dropped", run.Output);
+        Assert.Contains("BUT the report says no intentions were stated", run.Output);
+        Assert.Contains("and does not claim every intention holds", run.Output);
+        Assert.Contains("a broken intention is listed first", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
     /// Transcript rendering: a saved exchange must show every tool call with its arguments and
     /// its reply — and must <b>say so</b> when an answer rested on no tool calls at all.
     /// </summary>

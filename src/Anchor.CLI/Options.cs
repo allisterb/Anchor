@@ -44,6 +44,39 @@ public class ServerOptions : Options
     #endregion
 }
 
+/// <summary>Check a whole directory of policies, unattended.</summary>
+[Verb("auto", HelpText =
+    "Run every check over a directory of .dw policies and write findings.md, results.json and " +
+    "traces/ beside them. Answers a questions.md if one is there. Exit 1 when there is something " +
+    "to look at, so it can gate a pipeline; 2 when the run could not happen at all.")]
+public class AutoOptions : Options
+{
+    #region Properties
+
+    [Value(0, MetaName = "directory", Required = true, HelpText = "A directory of .dw policy files.")]
+    public string Directory { get; set; } = string.Empty;
+
+    [Option("output-dir", Required = false, MetaValue = "DIR",
+        HelpText = "Where to write findings.md, results.json and traces/ (default: the directory itself).")]
+    public string OutputDir { get; set; } = string.Empty;
+
+    [Option("no-model", Required = false,
+        HelpText = "Run the checks and write the report without asking a model anything. Most of " +
+                   "the value, none of the cost, and the part that belongs in CI.")]
+    public bool NoModel { get; set; }
+
+    [Option("provider", Required = false, HelpText = "auto, bedrock or gemini.")]
+    public string Provider { get; set; } = string.Empty;
+
+    [Option("model", Required = false, HelpText = "Model id; defaults to the provider's own.")]
+    public string Model { get; set; } = string.Empty;
+
+    [Option("attempts", Required = false, HelpText = "Session length bound (default 3).")]
+    public int? Attempts { get; set; }
+
+    #endregion
+}
+
 /// <summary>Model-check a Dogwood policy.</summary>
 [Verb("check", HelpText =
     "Model-check a Dogwood policy, rule by rule: is each one load-bearing, or is it VACUOUS, " +

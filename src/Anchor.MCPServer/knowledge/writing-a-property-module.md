@@ -79,8 +79,51 @@ OutsideIsRefused  == (req.origin = Str("external")) => ~Grants(req)
 One request is chosen nondeterministically and held, so a violation's counterexample **names the
 request** that breaks the claim rather than merely reporting that one exists.
 
-There is no session here: "what does this policy decide for this request" is not a temporal
-question, so there is no state machine beyond holding one request still.
+There is no session in *that* example: "what does this policy decide for this request" is not a
+temporal question, so there is no state machine beyond holding one request still.
+
+## A claim about TIMING needs a session, and you build it yourself
+
+Most Dogwood policies are temporal, and a claim like *"after fifteen minutes without an approval,
+writes are refused"* cannot be stated about one request. Build the session by hand with
+`Ev(action, kind, input, output, time)` and ask the evaluator about one event of it:
+
+```
+Interaction(t) == Ev("interact_advisor", "response", NoFields, NoFields, t)
+Trade(t)       == Ev("execute_trade", DecisionKind, NoFields, NoFields, t)
+
+Session(gap)      == << Interaction(1), Trade(1 + gap) >>
+TradeAllowed(gap) == D!Decide(Session(gap), Policies, 2, AllValues)   \* 2 = the trade
+
+Minute == 60
+Gaps   == {1, 10 * Minute, 16 * Minute}
+
+VARIABLE gap
+Init == gap \in Gaps
+Next == UNCHANGED gap
+Spec == Init /\ [][Next]_gap
+
+LosesWriteAfter15m == (gap > 15 * Minute) => ~TradeAllowed(gap)
+```
+
+**`time` IS IN SECONDS.** The evaluator compares it against a window width directly, so a claim
+about a 15-minute window needs events 900 apart — not 2. This is the thing that catches people
+out, because the built-in questions explore sessions whose events are one second apart: a long
+window can never age out there, and only a hand-built trace can put a decision on the far side
+of one.
+
+**`Ev` takes PLAIN values for its action, kind and time**, as above — `Ev("execute_trade",
+"request", NoFields, NoFields, 900)`, never `Ev(Str("execute_trade"), …, Num(900))`. The tagged
+constructors (`Str`, `Num`, `Bool`, `Addr`) are for field **values inside** the input and output
+records, and nowhere else. Tagging the action or the time is the commonest way to get a module
+that will not compile.
+
+The index passed to `Decide` is which event of the trace is being decided, counting from 1. It is
+almost always the last.
+
+**State the gaps you mean**, as above. The same trap applies as with requests: a set derived from
+the policy's own windows would contain only the numbers it already mentions, and a claim about
+"ten minutes" would then range over nothing and pass having checked nothing.
 
 ## The `.cfg` is not optional
 

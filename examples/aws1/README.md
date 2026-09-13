@@ -30,7 +30,7 @@ check that does not know what it was meant to do.
 | `agent-policy.dw` | the same policies as a **set**, with the read actions permitted, which is how they would be deployed |
 | `TrustDecay.tla` / `.cfg` | what policy 7 is *supposed* to mean, stated as invariants |
 | `TradeGate.tla` / `.cfg` | what the trade protections are supposed to mean *together* |
-| `traces/` | the generated model, the configs and the raw TLC output for three runs. Each has its own README with the command to re-run it |
+| `traces/` | one directory per run: the generated model, the config it used, the raw TLC output, and a README with the command to re-run it. Named `<policy>` for a derived run and `<policy>-<module>` for a property one. Regenerated wholesale by `anchor auto` |
 | [`questions.md`](questions.md) | the five questions in plain language, as somebody would actually ask them |
 | [`transcript.md`](transcript.md) | the agent answering all five, with **every tool call and its full reply** |
 | `TrustDecay10.tla` / `.cfg` | the ten-minute claim on its own, because TLC stops at the first violated invariant |
@@ -183,6 +183,36 @@ says a knowledge base exists and must be consulted before reporting a verdict. T
 [`event-schemas-and-pins`](../../src/Anchor.MCPServer/knowledge/event-schemas-and-pins.md) and
 qualified its own answer. That is the experiment [`src/agent/README.md`](../../src/agent/README.md)
 describes, and this is it passing on a policy nobody wrote for it.
+
+## Everything above, from one command
+
+```bash
+anchor auto examples/aws1
+```
+
+Finds the policies by globbing, pairs each `.tla` with the policy its header names, runs every
+check, then puts the questions in [`questions.md`](questions.md) to the agent. Writes
+[`findings.md`](findings.md), `results.json`, [`transcript.md`](transcript.md) and `traces/`.
+Exits **1** when there is something to look at, so it can gate a pipeline; **2** when the run could
+not happen at all.
+
+`--no-model` does the checks and the report without asking a model anything — most of the value,
+none of the cost, and the part that belongs in CI. `--output-dir findings` writes elsewhere.
+
+**What is automated and what is not.** Running every check is automated. Deciding what a policy was
+supposed to mean is not, and a directory with no `.tla` modules gets a report that says so in those
+words rather than one that looks like a pass.
+
+### Why every trace directory carries its own copy of the evaluator
+
+Each one repeats `DogwoodSemantics.tla`, which looks wasteful and costs almost nothing: git is
+content-addressed, so eight identical files are **one blob**. Measured — every copy hashes to
+`612975b…`, and the repository stores 8 KB compressed where the working tree shows 224 KB.
+
+Symlinking them would save that 8 KB and cost the thing the directories exist for. Git symlinks
+need `core.symlinks` plus Developer Mode on Windows, and a clone without it materialises the link
+as a text file containing a path — leaving a directory that no longer re-runs, failing in a way
+that looks like a broken spec. **Self-contained is the feature.**
 
 ## Reproducing
 

@@ -1,0 +1,658 @@
+{
+  "directory": "examples\\aws1",
+  "derived": {
+    "01-workflow-sequencing.dw": {
+      "kind": "derived",
+      "policy": "01-workflow-sequencing.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "load_portfolio"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 5m get_client_profile::response"
+            ]
+          }
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "rebalance_portfolio"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 5m load_portfolio::response"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1,
+        2
+      ],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\01-workflow-sequencing"
+    },
+    "02-output-to-input.dw": {
+      "kind": "derived",
+      "policy": "02-output-to-input.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 24h get_client_profile::response{ input.profile_id: 'profile_id' }"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\02-output-to-input"
+    },
+    "03-data-freshness.dw": {
+      "kind": "derived",
+      "policy": "03-data-freshness.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 30s get_market_price::response"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\03-data-freshness"
+    },
+    "07-trust-decay.dw": {
+      "kind": "derived",
+      "policy": "07-trust-decay.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: execute_trade",
+          "witness": "execute_trade",
+          "session": [
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. execute_trade()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\07-trust-decay"
+    },
+    "agent-policy.dw": {
+      "kind": "derived",
+      "policy": "agent-policy.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "get_client_profile"
+          ],
+          "verdict": "live",
+          "note": "witness: get_client_profile",
+          "witness": "get_client_profile",
+          "session": [
+            {
+              "action": "get_client_profile",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_client_profile",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_client_profile(profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "get_market_price"
+          ],
+          "verdict": "live",
+          "note": "witness: get_market_price",
+          "witness": "get_market_price",
+          "session": [
+            {
+              "action": "get_market_price",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_market_price",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_market_price(profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 3,
+          "effect": "permit",
+          "actions": [
+            "interact_advisor"
+          ],
+          "verdict": "live",
+          "note": "witness: interact_advisor",
+          "witness": "interact_advisor",
+          "session": [
+            {
+              "action": "interact_advisor",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "interact_advisor",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. interact_advisor(profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 4,
+          "effect": "permit",
+          "actions": [
+            "load_portfolio"
+          ],
+          "verdict": "live",
+          "note": "witness: get_client_profile -> load_portfolio",
+          "witness": "get_client_profile -> load_portfolio",
+          "session": [
+            {
+              "action": "get_client_profile",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_client_profile",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "load_portfolio",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "load_portfolio",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_client_profile(profile_id = 1)  allowed",
+            "2. load_portfolio    (profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 5,
+          "effect": "permit",
+          "actions": [
+            "rebalance_portfolio"
+          ],
+          "verdict": "live",
+          "note": "witness: get_client_profile -> load_portfolio -> rebalance_portfolio",
+          "witness": "get_client_profile -> load_portfolio -> rebalance_portfolio",
+          "session": [
+            {
+              "action": "get_client_profile",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_client_profile",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "load_portfolio",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "load_portfolio",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "rebalance_portfolio",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 5,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "rebalance_portfolio",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 6,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_client_profile (profile_id = 1)  allowed",
+            "2. load_portfolio     (profile_id = 1)  allowed",
+            "3. rebalance_portfolio(profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 6,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: get_client_profile -> execute_trade",
+          "witness": "get_client_profile -> execute_trade",
+          "session": [
+            {
+              "action": "get_client_profile",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_client_profile",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_client_profile(profile_id = 1)  allowed",
+            "2. execute_trade     (profile_id = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 7,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: get_market_price -> execute_trade",
+          "witness": "get_market_price -> execute_trade",
+          "session": [
+            {
+              "action": "get_market_price",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "get_market_price",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {
+                "profile_id": 1
+              },
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. get_market_price(profile_id = 1)  allowed",
+            "2. execute_trade   (profile_id = 1)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\agent-policy"
+    }
+  },
+  "properties": {
+    "TradeGate.tla": {
+      "policy": "agent-policy.dw",
+      "kind": "property",
+      "held": false,
+      "exitCode": 1,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\nagent-policy.dw against TradeGate.tla: 7 rule(s)\n\n  BROKEN  Invariant FreshPriceAloneIsNotEnough is violated by the initial state:\n      prereq = \"freshPriceOnly\"\n        FreshPriceAloneIsNotEnough ==\n            (prereq = \"freshPriceOnly\") => ~Allowed(prereq)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "error": ""
+    },
+    "TrustDecay.tla": {
+      "policy": "07-trust-decay.dw",
+      "kind": "property",
+      "held": false,
+      "exitCode": 1,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\n07-trust-decay.dw against TrustDecay.tla: 1 rule(s)\n\n  BROKEN  Invariant KeepsWriteWhileAdvisorEngaged is violated by the initial state:\n      gap = 1\n        \\* The other half, which the sentence implies and which is the part that makes the policy useful:\n        \\* while the advisor IS engaged, the agent can still work.\n        KeepsWriteWhileAdvisorEngaged ==\n            (gap <= 15 * Minute) => TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "error": ""
+    },
+    "TrustDecay10.tla": {
+      "policy": "07-trust-decay.dw",
+      "kind": "property",
+      "held": false,
+      "exitCode": 1,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\n07-trust-decay.dw against TrustDecay10.tla: 1 rule(s)\n\n  BROKEN  Invariant LosesWriteAfter10m is violated by the initial state:\n      gap = 960\n        LosesWriteAfter10m ==\n            (gap > 10 * Minute) => ~TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "error": ""
+    }
+  },
+  "unpaired": []
+}

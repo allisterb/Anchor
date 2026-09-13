@@ -306,6 +306,9 @@ public partial class PolicyTools : Runtime
     /// <summary>Relative to the Anchor root, which is where <see cref="PythonProcess"/> runs it.</summary>
     public const string CheckerScript = "src/checker/properties.py";
 
+    /// <summary>The unattended directory check. Relative to the Anchor root, like the checker.</summary>
+    public const string AutoScript = "src/agent/auto.py";
+
     /// <summary>The one exit code that means no verdict was reached. See <c>Answered</c>.</summary>
     public const int DidNotAnswer = 2;
 

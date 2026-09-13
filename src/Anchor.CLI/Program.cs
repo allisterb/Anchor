@@ -66,7 +66,8 @@ public static class Program
             return BadUsage;
         }
 
-        var isCheck = string.Equals(verb, "check", StringComparison.OrdinalIgnoreCase);
+        var isCheck = string.Equals(verb, "check", StringComparison.OrdinalIgnoreCase)
+                      || string.Equals(verb, "auto", StringComparison.OrdinalIgnoreCase);
         var isHelp = args.Any(a => a is "--help" or "-h" or "--version");
         var isHttp = args.Contains("--http", StringComparer.OrdinalIgnoreCase);
         var isDebug = args.Contains("--debug", StringComparer.OrdinalIgnoreCase);
@@ -94,10 +95,11 @@ public static class Program
 
         try
         {
-            return await parser.ParseArguments<ServerOptions, CheckOptions>(args)
+            return await parser.ParseArguments<ServerOptions, CheckOptions, AutoOptions>(args)
                 .MapResult(
                     (ServerOptions opts) => ServerAsync(opts),
                     (CheckOptions opts) => CheckAsync(opts),
+                    (AutoOptions opts) => AutoAsync(opts),
                     errs => Task.FromResult(ParseFailure(errs)));
         }
         catch (Exception e)
@@ -197,6 +199,41 @@ public static class Program
     }
 
     /// <summary>
+    /// Check a directory of policies unattended, and write the findings into it.
+    /// </summary>
+    /// <remarks>
+    /// Shells out to <c>src/agent/auto.py</c> for the same reason <c>check</c> shells out to the
+    /// checker: the orchestration is Python because everything it orchestrates is. The exit code
+    /// is passed through unchanged — 1 means findings, 2 means the run could not happen, and
+    /// collapsing those would make this useless in a pipeline.
+    /// </remarks>
+    static async Task<int> AutoAsync(AutoOptions opts)
+    {
+        var args = new List<string> { opts.Directory };
+
+        if (!string.IsNullOrWhiteSpace(opts.OutputDir)) args.AddRange(["--output-dir", opts.OutputDir]);
+        if (!string.IsNullOrWhiteSpace(opts.Provider)) args.AddRange(["--provider", opts.Provider]);
+        if (!string.IsNullOrWhiteSpace(opts.Model)) args.AddRange(["--model", opts.Model]);
+        if (opts.Attempts is int a) args.AddRange(["--attempts", a.ToString()]);
+        if (opts.NoModel) args.Add("--no-model");
+
+        // No timeout of our own: a directory of policies is minutes of TLC per policy, and a cap
+        // here would kill a run that was working. The script bounds each check itself.
+        var r = await PythonProcess.RunAsync(PolicyTools.AutoScript, [.. args],
+            root: Blank(opts.AnchorRoot), timeout: TimeSpan.FromHours(6));
+
+        if (!r.IsSuccess)
+        {
+            Console.Error.WriteLine(r.Message ?? "the directory check could not be run");
+            return CouldNotRun;
+        }
+
+        if (!string.IsNullOrWhiteSpace(r.Value.Output)) Console.Write(r.Value.Output);
+        if (!string.IsNullOrWhiteSpace(r.Value.ErrorOutput)) Console.Error.Write(r.Value.ErrorOutput);
+        return r.Value.ExitCode;
+    }
+
+    /// <summary>
     /// A parse failure, or a request for help. Help is a success; anything else is bad usage.
     /// </summary>
     /// <remarks>
@@ -225,7 +262,7 @@ public static class Program
     /// </summary>
     static readonly HashSet<string> Verbs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "server", "check", "help", "version"
+        "server", "check", "auto", "help", "version"
     };
 
     const int Ok = 0;
