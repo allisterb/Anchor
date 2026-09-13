@@ -423,8 +423,15 @@ def build_model(provider: str = "auto", model_id: str | None = None,
 
 
 def review(request: str, project_dir: Path | None = None, model: str | None = None,
-           provider: str = "auto", streaming: bool | None = None) -> str:
-    """Run one review. Returns what the agent said."""
+           provider: str = "auto", streaming: bool | None = None,
+           transcript: Path | None = None, heading: str = "") -> str:
+    """Run one review. Returns what the agent said.
+
+    `transcript` writes the whole exchange -- every tool call, with its arguments and its full
+    reply -- as markdown, APPENDING when the file already exists so several questions build one
+    log. The prose an agent produces is a claim about what the tools returned; saving both is what
+    lets somebody check the one against the other instead of taking it.
+    """
     from strands import Agent
 
     client = anchor_server(project_dir)
@@ -435,7 +442,21 @@ def review(request: str, project_dir: Path | None = None, model: str | None = No
         # twice — which reads as a bug in the checker rather than in the plumbing.
         agent = Agent(model=build_model(provider, model, streaming), tools=tools,
                       system_prompt=SYSTEM_PROMPT, callback_handler=None)
-        return str(agent(request))
+        answer = str(agent(request))
+
+        if transcript is not None:
+            from agent import transcript as tr
+
+            existing = transcript.read_text(encoding="utf-8") if transcript.exists() else ""
+            if not existing:
+                existing = tr.header("Agent transcript")
+            transcript.write_text(
+                existing.rstrip() + "\n\n"
+                + tr.render(agent.messages, question=request, heading=heading,
+                            meta={"provider": provider, "model": model or "(provider default)"}),
+                encoding="utf-8")
+
+        return answer
 
 
 # What the far side says when it will not answer, and what that means for the person running this.
@@ -505,6 +526,13 @@ def main() -> int:
                     help="disable streaming. Some Bedrock models accept tools only outside "
                          "streaming mode -- ai21.jamba answers 'This model doesn't support tool "
                          "use in streaming mode', and this agent is nothing but tool use")
+    ap.add_argument("--transcript", type=Path, default=None, metavar="FILE.md",
+                    help="append the whole exchange -- every tool call, its arguments and its "
+                         "full reply -- to this markdown file. The prose is a claim; the tool "
+                         "output is the evidence for it, and a transcript is what lets somebody "
+                         "check the one against the other")
+    ap.add_argument("--heading", type=str, default="",
+                    help="a title for this exchange in the transcript")
     ap.add_argument("--ask", type=str, default=None,
                     help="ask something else about the policy instead of the standard review")
     args = ap.parse_args()
@@ -514,10 +542,15 @@ def main() -> int:
     else:
         request = (f"Review the policy at {args.policy}. Tell me whether every rule in it is doing "
                    f"something, and what I should be aware of about the answer.")
-        if args.against:
-            request += f" Compare it against {args.against}."
-        if args.event_schema:
-            request += f" It is deployed under the event schema {args.event_schema}."
+
+    # THE FILES GO IN EITHER WAY. These used to be appended only to the standard review, so
+    # `--ask "... the second version ..." --against other.dw` asked a question about a file whose
+    # path was never mentioned -- and the agent, reasonably, asked for it. A flag that silently
+    # does nothing on one code path is worse than one that is not offered there.
+    if args.against:
+        request += f"\n\nThe second policy file, to compare against, is {args.against}."
+    if args.event_schema:
+        request += f"\n\nIt is deployed under the event schema {args.event_schema}."
 
     # A live model call, which costs money and reaches the network. Said plainly rather than
     # discovered on the bill.
@@ -526,7 +559,8 @@ def main() -> int:
 
     try:
         print(review(request, args.project_dir, args.model, args.provider,
-                     streaming=False if args.no_stream else None))
+                     streaming=False if args.no_stream else None,
+                     transcript=args.transcript, heading=args.heading))
     except Exception as e:  # noqa: BLE001 -- the far side refusing is an outcome, not a crash
         return refused(e)
     return 0

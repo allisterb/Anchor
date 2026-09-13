@@ -643,6 +643,86 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Transcript rendering: a saved exchange must show every tool call with its arguments and
+    /// its reply — and must <b>say so</b> when an answer rested on no tool calls at all.
+    /// </summary>
+    /// <remarks>
+    /// A transcript exists so somebody can check the agent's prose against what the tools actually
+    /// returned, which only works if the rendering is faithful. The load-bearing case is the last:
+    /// a model can produce a confident paragraph about a policy it never looked at, and in a saved
+    /// log that is indistinguishable from a checked verdict unless the absence is stated.
+    /// </remarks>
+    [PythonHarness("transcript_render.py", "strands")]
+    public async Task TranscriptsShowTheToolCallsOrSayThereWereNone()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/transcript_render.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("its ARGUMENTS are shown", run.Output);
+        Assert.Contains("an answer with no tool calls is flagged as such", run.Output);
+        Assert.Contains("an unmodelled result block is named rather than dropped", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
+    /// The worked example under <c>examples/aws1</c>: AWS's published AgentCore temporal policies,
+    /// and the two findings that only an <b>intentional</b> property can reach.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Pinned as a test because it is the project's headline claim and the most expensive thing to
+    /// discover twice. Both halves matter: the derived questions must keep <b>passing</b> the
+    /// policy set — that is what makes the intentional failures meaningful — and the intentional
+    /// claims must keep failing for the reasons stated in that directory's README.
+    /// </para>
+    /// <para>
+    /// The positive claims are asserted too. A property module that broke everything would more
+    /// likely be wrong about the policy than the policy about itself, so <c>BothIsAllowed</c>
+    /// holding is what licenses reading the rest as findings rather than as noise.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task TheAwsExampleFindsWhatOnlyIntentCanFind()
+    {
+        // The derived questions PASS the set as deployed. This is the control.
+        var derived = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "examples/aws1/agent-policy.dw", "--attempts", "4");
+
+        Assert.True(derived.ExitCode == 0, derived.Output);
+        Assert.Contains("every rule is load-bearing", derived.Output);
+        Assert.DoesNotContain("VACUOUS", derived.Output);
+
+        // Policy 7, against the sentence the article prints beside it. `unless` blocks the rule
+        // when its body holds, so this permits writes only while the advisor is ABSENT.
+        var decay = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "examples/aws1/07-trust-decay.dw",
+            "--property", "examples/aws1/TrustDecay.tla");
+
+        Assert.True(decay.ExitCode == 1, decay.Output);
+        Assert.Contains("BROKEN", decay.Output);
+        // The counterexample must be visible: a violation nobody can see is not evidence.
+        Assert.Matches(@"gap = \d+", decay.Output);
+
+        // The two trade protections are alternatives, not requirements.
+        var gate = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "examples/aws1/agent-policy.dw",
+            "--property", "examples/aws1/TradeGate.tla");
+
+        Assert.True(gate.ExitCode == 1, gate.Output);
+        Assert.Contains("BROKEN", gate.Output);
+        Assert.Contains("prereq = ", gate.Output);
+
+        // A fragment alone is VACUOUS, and the blame names the gate that never opens rather than
+        // leaving the reader to work it out.
+        var alone = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "examples/aws1/03-data-freshness.dw");
+
+        Assert.True(alone.ExitCode == 0, alone.Output);
+        Assert.Contains("VACUOUS", alone.Output);
+        Assert.Contains("because: formerly within 30s get_market_price::response", alone.Output);
+    }
+
+    /// <summary>
     /// Ambiguity reporting: a request that admits more than one policy is raised <b>only when the
     /// readings actually decide something differently</b>.
     /// </summary>

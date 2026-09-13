@@ -84,8 +84,19 @@ def workdir(args, prefix: str):
     raw TLC output per run. That is enough to re-run the check by hand and to disagree with it.
     """
     if args.keep:
-        args.keep.mkdir(parents=True, exist_ok=True)
-        yield args.keep
+        # RESOLVED, because TLC runs with this directory as its cwd and is given `-metadir
+        # <dir>/states`. A relative path there resolves against the cwd -- which is this same
+        # directory -- so `--keep examples/aws1/traces/derived` produced
+        # `derived/examples/aws1/traces/derived/states/...`, the whole path repeated inside itself.
+        keep = args.keep.resolve()
+        keep.mkdir(parents=True, exist_ok=True)
+        try:
+            yield keep
+        finally:
+            # TLC's own scratch: fingerprint sets and state queues, megabytes of them, and not
+            # evidence of anything. The verdict, the model and the raw output are what a reader
+            # came for.
+            shutil.rmtree(keep / "states", ignore_errors=True)
         return
     with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
         yield Path(tmp)
@@ -300,6 +311,21 @@ def rebuild(terms: list[dict]) -> dict:
     return terms[0] if len(terms) == 1 else {"op": "and", "args": terms}
 
 
+def duration(seconds: int) -> str:
+    """A window as the policy author wrote it: 86400 -> 24h, 900 -> 15m, 30 -> 30s.
+
+    The parse holds seconds, which is right for the evaluator and wrong for a reader -- nobody
+    recognises their own 24-hour window as `86400s`, and a blame report they cannot match to their
+    own text is a blame report they will not act on.
+    """
+    # Hours, never days: a 24-hour window is written `24h` in every policy in either corpus, and
+    # echoing it back as `1d` is a unit the author has to translate before recognising their own.
+    for size, unit in ((3600, "h"), (60, "m")):
+        if seconds and seconds % size == 0:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
+
+
 def describe_term(term) -> str:
     """One conjunct, close to how it was written. Falls back rather than guessing.
 
@@ -310,17 +336,29 @@ def describe_term(term) -> str:
     if not isinstance(term, dict):
         return str(term)
 
-    # `term` wraps a temporal position; unwrap it, keeping the window if there is one.
+    # `term` wraps a temporal position; unwrap it, keeping the operator and window.
     if term.get("op") == "term":
         inner = term.get("term", {})
-        window = inner.get("window", 0)
+        op, window = inner.get("op", ""), inner.get("window", 0)
         atom = describe_term(inner.get("atom", inner))
-        if inner.get("op") == "since":
-            return f"{atom} since ..."
-        return atom if not window else f"formerly within {window}s {atom}"
+        if op == "since":
+            return f"... since within {duration(window)} {atom}"
+        if op in ("formerly", "previous") and window:
+            return f"{op} within {duration(window)} {atom}"
+        return atom
 
     op = term.get("op")
     field = term.get("field", "")
+    if op == "pred":
+        # An event match: the action, the kind, and any first-order joins. This is the commonest
+        # term in a temporal policy, and it used to render as `<pred>` -- which named the shape of
+        # the parse tree and nothing a reader could act on.
+        pred = term.get("pred", {})
+        binds = ", ".join(
+            f"{b.get('side', '?')}.{b.get('field', '?')}: {b.get('name') or b.get('value')!r}"
+            for b in pred.get("binds", []))
+        return (f"{pred.get('action', '?')}::{pred.get('kind', '?')}"
+                + (f"{{ {binds} }}" if binds else ""))
     if op == "cmp":
         return f"input.{field} {term.get('cmp', '?')} {term.get('value')}"
     if op == "cmpvar":
@@ -425,10 +463,22 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
               "says it ranges over, and nothing warns you when that is less than you meant.")
         return 0
 
+    source = args.property_module.read_text(encoding="utf-8", errors="replace")
     for v in violated_by(out) or ["TLC could not answer:\n" + out[-1200:]]:
         print(f"  BROKEN  {v}")
+
+        # THE CLAIM ITSELF, quoted from the module. A violation reports a NAME and a state, and
+        # neither says which way the failure goes: `KeepsWriteWhileAdvisorEngaged` being violated
+        # at `gap = 1` means the policy DENIED where the claim expected allow, and a reader who
+        # cannot see the invariant will guess -- an agent asked this question guessed the opposite.
+        # The definition is three lines away in a file the caller may not be able to open.
+        for line in definition_of(source, v.split(" is violated")[0].split()[-1]):
+            print(f"        {line}")
+
     print("\nThe policy does not mean what the property says it means. The state above is the\n"
-          "request that breaks the claim.")
+          "request that breaks the claim, and the claim is quoted beneath it -- read the two\n"
+          "together, because a violated invariant says which direction failed only when you can\n"
+          "see what it asserted.")
     return 1
 
 
@@ -607,14 +657,64 @@ def check_property(work: Path, module: Path) -> tuple[bool, str]:
     return run_tlc(module.stem, work, work)
 
 
+# A state conjunct as TLC prints it: a variable name, then =, then its value.
+VARIABLE_LINE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]* = ")
+
+
+def definition_of(module: str, name: str) -> list[str]:
+    """The lines of `name == ...` in a TLA+ module, with the comment above it.
+
+    Returns [] when the name is not defined there -- which is the right answer for an invariant
+    TLC names but the module does not define, and never a guess.
+    """
+    lines = module.splitlines()
+    start = next((i for i, l in enumerate(lines)
+                  if re.match(rf"^{re.escape(name)}\s*==", l.strip())), None)
+    if start is None:
+        return []
+
+    # The body runs to the first blank line: TLA+ definitions here are one expression, and a
+    # blank line is how this codebase separates them.
+    end = start + 1
+    while end < len(lines) and lines[end].strip():
+        end += 1
+
+    # And the comment immediately above, if there is one, because that is where the author said
+    # what they meant in words.
+    head = start
+    while head > 0 and lines[head - 1].strip().startswith("\\*"):
+        head -= 1
+    return [l.rstrip() for l in lines[head:end]]
+
+
 def violated_by(out: str) -> list[str]:
-    """The invariants that failed, with the state that broke each."""
+    """The invariants that failed, with the state that broke each.
+
+    ANY state conjunct, not a particular variable name. This read `startswith("req")` -- which is
+    what `firewall.tla` happens to call its variable -- so a property module that named its own
+    variable anything else reported a violation with NO counterexample beside it, and the one
+    value that explains the failure was silently dropped. A counterexample nobody can see is the
+    same as not having one.
+    """
+    lines = out.splitlines()
     found = []
-    for i, line in enumerate(out.splitlines()):
-        if "is violated" in line:
-            state = [l.strip() for l in out.splitlines()[i + 1:i + 6] if l.strip().startswith("req")]
-            found.append(f"{line.split('Error: ')[-1].strip()}"
-                         + (f"{chr(10)}      {state[0]}" if state else ""))
+    for i, line in enumerate(lines):
+        if "is violated" not in line:
+            continue
+        # Read to the blank line that ends the state. TWO SHAPES, because TLC prints a
+        # multi-variable state as `/\ name = value` conjuncts and a single-variable one as a bare
+        # `name = value` -- and a reader that handled only the first showed nothing at all for the
+        # commonest property module, which holds one variable still.
+        state = []
+        for raw in lines[i + 1:i + 12]:
+            s = raw.strip()
+            if not s:
+                break
+            s = s.removeprefix("/\\").strip()
+            if VARIABLE_LINE.match(s):
+                state.append(s)
+        found.append(line.split("Error: ")[-1].strip()
+                     + "".join(f"\n      {s}" for s in state))
     return found
 
 
@@ -645,7 +745,22 @@ def constructor(kind: str, value) -> str:
     return f'Str("{escaped}")'
 
 
-def skeleton(name: str, policies: list[dict], vocab: dict) -> str:
+def module_name(stem: str) -> str:
+    """A policy's file name as a legal TLA+ module name.
+
+    TLA+ identifiers are letters, digits and underscores, and cannot START with a digit -- while a
+    policy file is very often named `07-trust-decay.dw`. The skeleton used the stem unchanged, so
+    following the workflow on such a file produced a module TLC refuses to parse, with an
+    `AbortException` that names neither the cause nor the fix.
+
+    THE MODULE NAME MUST MATCH ITS FILE NAME, so this is also what the property file has to be
+    called -- said in the skeleton's header rather than left to be discovered.
+    """
+    cleaned = "".join(c if c.isalnum() or c == "_" else "_" for c in stem).strip("_")
+    return f"P_{cleaned}" if not cleaned or cleaned[0].isdigit() else cleaned
+
+
+def skeleton(name: str, policy: str, policies: list[dict], vocab: dict) -> str:
     """A property module that compiles and checks something, for the author to edit.
 
     Deliberately not a stub with holes. A skeleton that does not run teaches nothing about whether
@@ -675,11 +790,15 @@ def skeleton(name: str, policies: list[dict], vocab: dict) -> str:
         claim = "EverythingIsGranted == Grants(req)"
 
     return f"""---------------------------- MODULE {name} ----------------------------
-\\* What {name}.dw is SUPPOSED to mean, stated by its author. The three built-in findings
+\\* What {policy}.dw is SUPPOSED to mean, stated by its author. The three built-in findings
 \\* (VACUOUS, REDUNDANT/DEAD, diff) are the claims statable WITHOUT knowing intent; this is the
 \\* other kind, and only the author can write it.
 \\*
-\\* Check it with:  python src/checker/properties.py {name}.dw --property {name}.tla
+\\* SAVE THIS AS {name}.tla -- TLA+ requires the file name to match the module name, and a
+\\* module name may not contain `-` or `.` or begin with a digit, so it is not always the policy's
+\\* own name.
+\\*
+\\* Check it with:  python src/checker/properties.py {policy}.dw --property {name}.tla
 EXTENDS Integers, Sequences, FiniteSets, PolicyUnderTest
 
 D == INSTANCE DogwoodSemantics WITH Cases <- << >>
@@ -720,7 +839,7 @@ Spec == Init /\\ [][Next]_req
 
 def describe(args, policies: list[dict], vocab: dict, schema: dict, reading: str) -> int:
     """Everything a property module may name, as JSON, plus a skeleton that already runs."""
-    name = args.policy.stem
+    name = module_name(args.policy.stem)
 
     def side(which):
         out = []
@@ -775,7 +894,7 @@ def describe(args, policies: list[dict], vocab: dict, schema: dict, reading: str
             "The .cfg must name SPECIFICATION Spec and every INVARIANT. A property nobody listed "
             "is a property nobody checked.",
         ],
-        "skeleton": skeleton(name, policies, vocab),
+        "skeleton": skeleton(name, args.policy.stem, policies, vocab),
         "config": ("SPECIFICATION Spec\n\n"
                    "\\* Naming the claims is deliberate. A property nobody listed is a property\n"
                    "\\* nobody checked.\n"

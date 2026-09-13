@@ -1,0 +1,15 @@
+// Policy 2 of 7 -- "Output-to-input integrity". Intent: the profile traded against must be the
+// one this trajectory actually loaded, so a prompt injection cannot redirect the trade.
+//
+// This is the FIRST-ORDER join -- not "some profile was loaded" but "THIS profile was".
+
+permit (
+    principal,
+    action == AgentCore::Action::"execute_trade",
+    resource
+)
+when temporal {
+    formerly within 24h AgentCore::Action::"get_client_profile"::response{
+        input.profile_id: context.input.profile_id
+    }
+};

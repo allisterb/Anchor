@@ -300,19 +300,29 @@ Num(x)  == [k |-> "n", v |-> x]
 Bool(x) == [k |-> "b", v |-> x]
 Anon    == Str("caller")
 
-\\* One request as the evaluator reads it, and the verdict for it. Between them that is the whole
-\\* of what a per-request property needs -- no session, because "what does this policy decide for
-\\* this request" is not a temporal question.
-Request(action, input) ==
-    [time      |-> 1,
+NoFields == [f \\in {{}} |-> Str("")]
+
+\\* ONE EVENT AT A CHOSEN TIME AND KIND, which is what a claim about a SESSION is built from.
+\\*
+\\* `time` IS IN SECONDS. The evaluator compares it against a window width directly --
+\\* `t - trace[i].time <= window` -- so a claim about a 15-minute window needs events 900 apart,
+\\* not two. This is the one thing that catches people out, because the built-in questions
+\\* explore sessions whose events are one second apart: a long window can never age out there,
+\\* and only a hand-built trace can put a decision on the far side of one.
+Ev(action, kind, input, output, time) ==
+    [time      |-> time,
      action    |-> action,
-     kind      |-> DecisionKind,
+     kind      |-> kind,
      input     |-> input,
-     output    |-> [f \\in {{}} |-> Str("")],
+     output    |-> output,
      principal |-> Anon,
      resource  |-> Anon,
      session   |-> Anon,
      pins      |-> [k \\in PinKeys |-> Anon]]
+
+\\* One request, at time 1, with no outputs -- the shorthand for a per-request claim, where
+\\* "what does this policy decide for this request" needs no session at all.
+Request(action, input) == Ev(action, DecisionKind, input, NoFields, 1)
 
 \\* NOTE WHAT IS ABSENT: there is no `Inputs`. The request space derivable here comes from the
 \\* literals THIS POLICY names, so a claim about a value it never mentions would range over no

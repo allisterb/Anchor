@@ -1,0 +1,20 @@
+// Policy 1 of 7 -- "Workflow sequencing", from the AWS AgentCore temporal-policies article.
+// Intent: rebalance requires load_portfolio, which requires get_client_profile, in order.
+
+permit (
+    principal,
+    action == AgentCore::Action::"load_portfolio",
+    resource
+)
+when temporal {
+    formerly within 5m AgentCore::Action::"get_client_profile"::response{ }
+};
+
+permit (
+    principal,
+    action == AgentCore::Action::"rebalance_portfolio",
+    resource
+)
+when temporal {
+    formerly within 5m AgentCore::Action::"load_portfolio"::response{ }
+};

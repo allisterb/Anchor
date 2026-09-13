@@ -1,0 +1,214 @@
+# The AgentCore temporal policies, checked
+
+The policies from AWS's article [*Securing AI agents with temporal policies in Amazon Bedrock
+AgentCore*](https://aws.amazon.com/blogs/machine-learning/securing-ai-agents-with-temporal-policies-in-amazon-bedrock-agentcore/),
+transcribed here and run through Anchor.
+
+They are a good test because they are real, published, written by people who know the language, and
+because every one of them is **temporal** — the thing no other policy verifier in this field can
+reason about. And because a policy set nobody has checked is the ordinary case.
+
+**Scope note before anything else.** These are code snippets from a blog post explaining ideas one
+at a time, not a deployed policy set. Nothing below is a vulnerability in a product. What it is:
+evidence about what can be true of a policy that looks right, passes validation, and passes every
+check that does not know what it was meant to do.
+
+## What was found
+
+| | |
+|---|---|
+| **Policy 7 is inverted relative to its own description** | it permits writes *only while the advisor is absent*, which is the reverse of the sentence beside it. Machine-checked, with counterexamples |
+| **The two trade protections are alternatives, not requirements** | a trade goes through on a fresh price with **no profile check at all** — precisely the prompt-injection case one of them exists to prevent |
+| Every fragment is vacuous alone | expected, and worth seeing: a permit gated on `X::response` cannot fire where nothing permits `X` |
+| The derived checks pass all of it | which is the point of the intentional ones |
+
+## The files
+
+| | |
+|---|---|
+| `01-workflow-sequencing.dw`, `02-output-to-input.dw`, `03-data-freshness.dw`, `07-trust-decay.dw` | the article's policies, one per file, as published |
+| `agent-policy.dw` | the same policies as a **set**, with the read actions permitted, which is how they would be deployed |
+| `TrustDecay.tla` / `.cfg` | what policy 7 is *supposed* to mean, stated as invariants |
+| `TradeGate.tla` / `.cfg` | what the trade protections are supposed to mean *together* |
+| `traces/` | the generated model, the configs and the raw TLC output for three runs. Each has its own README with the command to re-run it |
+| [`questions.md`](questions.md) | the five questions in plain language, as somebody would actually ask them |
+| [`transcript.md`](transcript.md) | the agent answering all five, with **every tool call and its full reply** |
+| `TrustDecay10.tla` / `.cfg` | the ten-minute claim on its own, because TLC stops at the first violated invariant |
+
+**Not transcribed**: the cumulative budget cap (policy 4), single-use approval (5) and mutual
+exclusion (6). Anchor's modelled subset does not cover their aggregate and `since` forms, so it
+would refuse them — and a refusal is the honest answer rather than a silent partial check. See
+[`the-modelled-subset`](../../src/Anchor.MCPServer/knowledge/the-modelled-subset.md).
+
+**Also dropped**: `resource == AgentCore::Gateway::<ARN>` scopes and the `eventResource: resource`
+joins that go with them. Anchor models actions, event kinds and input/output fields, not entity
+hierarchies. Recorded here so the difference from the published text is not mistaken for a finding.
+
+## 1. The derived questions, and what they cannot say
+
+```bash
+python src/checker/properties.py examples/aws1/agent-policy.dw --attempts 4
+```
+
+```
+  permit #5  action == rebalance_portfolio live   witness: get_client_profile -> load_portfolio -> rebalance_portfolio
+      1. get_client_profile (profile_id = 1)  allowed
+      2. load_portfolio     (profile_id = 1)  allowed
+      3. rebalance_portfolio(profile_id = 1)  allowed
+  permit #6  action == execute_trade       live   witness: get_client_profile -> execute_trade
+  permit #7  action == execute_trade       live   witness: get_market_price -> execute_trade
+
+every rule is load-bearing within 4 attempts.
+```
+
+The three-hop chain is found without anyone describing it. And **that is the whole of what the
+derived questions can say**: every rule fires, none is redundant, nothing is dead. True, and true
+of a policy set whose rules each independently open the door — which, as the next section
+establishes, is what this one is.
+
+Run any single fragment and it is VACUOUS instead, with the reason named:
+
+```
+  permit #1  action == execute_trade  VACUOUS  no session of up to 3 attempts makes it grant
+      because: formerly within 30s get_market_price::response
+```
+
+A permit gated on `get_market_price::response` cannot fire in a file where nothing permits
+`get_market_price`: the call is denied, AgentCore records an `::error` rather than a `::response`,
+and the gate never opens. That is a composition effect, not a defect in the article.
+
+## 2. Policy 7 says the opposite of what it does
+
+The article's text:
+
+> "After 15 minutes without advisor interaction, the agent loses access to write operations."
+> … "If the advisor walks away, the agent naturally converges toward read-only behavior."
+
+The policy beside it:
+
+```
+permit (principal, action == ...execute_trade..., resource)
+unless temporal {
+    formerly within 15m AgentCore::Action::"interact_advisor"::response{...}
+};
+```
+
+`unless { B }` blocks the rule when `B` holds — [Dogwood's own
+guide](../../ext/dogwood/dogwood-docs/guide/02-policy-language.md): *"An `unless` clause blocks the
+rule when its body holds."* So this permits the trade when the advisor has **not** interacted
+within 15 minutes. Trust decays into *more* access, not less.
+
+`TrustDecay.tla` states the sentence as three invariants. All three break:
+
+| claim | | counterexample |
+|---|---|---|
+| `LosesWriteAfter15m` | **BROKEN** | `gap = 960` — 16 minutes after the advisor left, the trade is **allowed** |
+| `KeepsWriteWhileAdvisorEngaged` | **BROKEN** | `gap = 1` — one second after the advisor interacted, the trade is **denied** |
+| `LosesWriteAfter10m` | **BROKEN** | `gap = 960` — the tighter deadline fails the same way |
+
+```bash
+python src/checker/properties.py examples/aws1/07-trust-decay.dw --property examples/aws1/TrustDecay.tla
+```
+
+**Nothing else in the pipeline catches this.** It parses. It type-checks. `dogwood validate` accepts
+it. The derived run reports *"every rule is load-bearing"*. The rule fires — a permit that fires is
+a permit that fires, whichever way round its condition reads. Only a statement of intent, checked,
+separates the two.
+
+### Why this one needs a hand-built session
+
+`gap` is in **seconds**, because the evaluator compares an event's timestamp against the window
+width directly. The derived exploration walks sessions whose events are one second apart, so a
+15-minute window can **never age out** there: within any three-attempt session every prior event is
+inside it. Only a trace with chosen timestamps can put a decision on the far side of a window, which
+is what `Ev(action, kind, input, output, time)` in the generated module is for.
+
+That is a real limit on the derived questions and it is stated rather than worked around: they
+bound the number of events, not elapsed time.
+
+## 3. The two trade protections are alternatives
+
+The article introduces these as distinct protections:
+
+> **output-to-input integrity** — "prevents an attacker from using prompt injection to steer the
+> agent to trade against a different client's portfolio"
+> **data freshness** — "the agent cannot act on stale quotes"
+
+Read as a list of requirements, that is a conjunction. Written as two `permit` rules on the same
+action, they are alternatives: Cedar permits by positive match, so **either one firing is enough**.
+
+`TradeGate.tla` states it both ways and asks:
+
+| claim | |
+|---|---|
+| `BothIsAllowed` | holds — the intended path is not shut |
+| `NothingAllowsNoTrade` | holds — with neither prerequisite, no trade |
+| `RequiresBothChecks` | **BROKEN** at `prereq = "profileOnly"` |
+| `ProfileAloneIsNotEnough` | **BROKEN** — a trade on a profile load alone, against a 24-hour-stale price |
+| `FreshPriceAloneIsNotEnough` | **BROKEN** — a trade on a fresh price alone, **with no profile check at all** |
+
+The last one is the one that matters: it is exactly the scenario the integrity policy was written to
+prevent, reachable because the freshness policy grants independently.
+
+**The two positive claims holding is what makes the three failures worth reading.** A property
+module that broke everything would more likely be wrong about the policy than the policy about
+itself.
+
+```bash
+python src/checker/properties.py examples/aws1/agent-policy.dw --property examples/aws1/TradeGate.tla
+```
+
+## 4. Asking the agent instead
+
+The same question, put to the agent rather than the CLI:
+
+```bash
+python src/agent/policy_agent.py examples/aws1/07-trust-decay.dw \
+  --ask "This policy is supposed to mean: 'After 15 minutes without advisor interaction, the
+         agent loses access to write operations.' I have written that claim as a TLA+ property
+         module at examples/aws1/TrustDecay.tla. Does the policy actually mean that?"
+```
+
+> The policy `examples/aws1/07-trust-decay.dw` does not mean what your TLA+ property module claims
+> it should. … the model check found that this invariant is violated. Specifically, the
+> `KeepsWriteWhileAdvisorEngaged` invariant is broken in an initial state where `gap = 1`. …
+>
+> Please note that this check was performed assuming an **UNPINNED reading** (a global trace),
+> because no event schema was provided. If your policy is deployed with a schema that partitions
+> history by principal (which is the shipped default), a rule that might appear to be live here
+> could behave differently in deployment.
+
+**The second paragraph was not asked for.** The system prompt does not restate the caveats — it
+says a knowledge base exists and must be consulted before reporting a verdict. The agent read
+[`event-schemas-and-pins`](../../src/Anchor.MCPServer/knowledge/event-schemas-and-pins.md) and
+qualified its own answer. That is the experiment [`src/agent/README.md`](../../src/agent/README.md)
+describes, and this is it passing on a policy nobody wrote for it.
+
+## Reproducing
+
+Each directory under `traces/` holds the generated `PolicyUnderTest.tla`, the evaluator, the config
+each run used and the raw TLC output, plus a README with the exact `java -cp … tlc2.TLC` command.
+Nothing here has to be taken on trust.
+
+```bash
+python src/checker/properties.py examples/aws1/agent-policy.dw --attempts 4 --keep /tmp/out
+```
+
+**TLC stops at the first violated invariant**, so the `.cfg` files list every claim but a run
+reports one. Check them individually to see them all — comment out the others, or use a one-line
+config per claim.
+
+## What this example is evidence for
+
+Three kinds of question, and only the third caught anything:
+
+1. **Does it parse and type-check?** `dogwood validate`. Passes.
+2. **Is any rule inert?** The derived questions. Everything live, in the set as deployed.
+3. **Does it mean what its author said?** Only an author can state this, and it is the only one that
+   found anything.
+
+The survey literature calls the gap between (2) and (3) the *user-intent formalization gap* and
+reports it as unsolved. It is not solved here either — nothing can check prose against a policy.
+What is demonstrated is narrower and still useful: **once the intent is written down formally, the
+mismatch is found mechanically, in seconds, with a counterexample.** The writing-down is the part
+that needs a person.

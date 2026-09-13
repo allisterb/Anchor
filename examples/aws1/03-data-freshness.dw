@@ -1,0 +1,10 @@
+// Policy 3 of 7 -- "Data freshness". Intent: the agent cannot act on a stale quote.
+
+permit (
+    principal,
+    action == AgentCore::Action::"execute_trade",
+    resource
+)
+when temporal {
+    formerly within 30s AgentCore::Action::"get_market_price"::response{ }
+};
