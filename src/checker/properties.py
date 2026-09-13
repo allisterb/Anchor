@@ -480,23 +480,32 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
         # verb of its own: a property module EXTENDS `PolicyUnderTest`, and that file is built from
         # the policy. Parsing the module on its own would report the vocabulary missing, which is
         # true and useless.
-        if args.parse:
-            shutil.copyfile(args.property_module, work / args.property_module.name)
-            ok, out = run_sany(args.property_module.stem, work)
-            keep_run(args, work, f"{args.property_module.stem}.sany", out)
+        # ALWAYS, not only under --parse. A module that does not compile is not a property that
+        # failed, and TLC cannot tell you the difference: it exits non-zero either way, and the
+        # violation path below then prints a counterexample it does not have and concludes that
+        # "the policy does not mean what the property says it means". That sentence is a verdict
+        # about the POLICY, drawn from a run in which the policy was never consulted -- the exact
+        # conflation of "we could not ask" with "it is broken" that this module exists to prevent.
+        # It cost a real drafted module a BROKEN verdict over one stray `*` in a comment.
+        #
+        # A second, against minutes for the run it would otherwise fail inside.
+        shutil.copyfile(args.property_module, work / args.property_module.name)
+        compiles, sany = run_sany(args.property_module.stem, work)
+        keep_run(args, work, f"{args.property_module.stem}.sany", sany)
 
-            if ok:
-                print(f"  {args.property_module.name} compiles against {args.policy.name}'s "
-                      f"vocabulary.\n")
-                print("That is not a check of the policy. It says the module parses, resolves every\n"
-                      "name it uses, and is ready to be run -- nothing about whether its claims hold.")
-                return 0
-
+        if not compiles:
             print(f"  {args.property_module.name} DOES NOT COMPILE. SANY says:\n")
-            print("\n".join(f"      {line}" for line in out.splitlines()[:30]))
+            print("\n".join(f"      {line}" for line in sany.splitlines()[:30]))
             print("\nNothing was checked. A module that does not compile has no verdict to give,\n"
                   "and the claims in it have not been tested.")
             return 2
+
+        if args.parse:
+            print(f"  {args.property_module.name} compiles against {args.policy.name}'s "
+                  f"vocabulary.\n")
+            print("That is not a check of the policy. It says the module parses, resolves every\n"
+                  "name it uses, and is ready to be run -- nothing about whether its claims hold.")
+            return 0
 
         held, out = check_property(work, args.property_module)
 

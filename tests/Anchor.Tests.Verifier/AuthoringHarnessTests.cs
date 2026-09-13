@@ -166,5 +166,43 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.DoesNotContain("FAIL", run.Output);
     }
 
+    /// <summary>
+    /// The authoring pipeline as the Strands <c>Graph</c> that runs it: one agent drafts, a
+    /// different one reports, and the two gates between them are criteria in code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The load-bearing assertion is the last one. <c>tests/strands/anchor_workflow.py</c> chose
+    /// this shape by checking four properties against four wirings — but it chose it over graphs
+    /// built from scripted stand-ins. This runs the same translation over the graph
+    /// <c>pipeline.build</c> actually returns and re-proves <c>AlwaysReports</c> on it, so the
+    /// shape that was checked and the object that runs cannot drift apart.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("pipeline_run.py", "strands")]
+    public async Task TheAuthoringPipelineRunsAsTheGraphThatWasChecked()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/pipeline_run.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("all checks passed", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+
+        // A rejected draft costs nothing downstream — no TLC, no second model call — and still
+        // reports. Both halves, because either alone would be the wrong behaviour.
+        Assert.Contains("ran 4/7: describe, draft, preflight, report", run.Output);
+        Assert.Contains("ok    the answerer was not invoked", run.Output);
+        Assert.Contains("ok    report ran anyway", run.Output);
+        Assert.Contains("ok    findings.md says nothing was verified", run.Output);
+
+        // An accepted draft goes the whole way, and the answerer sees the verdicts rather than the
+        // drafter's module — the separation as it actually lands, not as it was intended.
+        Assert.Contains("ran 7/7: describe, draft, preflight, score, check, answer, report", run.Output);
+        Assert.Contains("ok    the answerer did NOT see the draft", run.Output);
+
+        // And the claim the whole graph exercise was for.
+        Assert.Contains("ok    AlwaysReports HOLDS on the graph that actually runs", run.Output);
+    }
+
     #endregion
 }

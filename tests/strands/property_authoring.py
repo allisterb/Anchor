@@ -17,6 +17,7 @@ The checker underneath is REAL. These run TLC.
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -25,7 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.author import assess, author, preflight  # noqa: E402
+from agent.author import assess, author, preflight, score  # noqa: E402
 
 POLICIES = REPO / "tests" / "policies"
 
@@ -208,6 +209,33 @@ def main() -> int:
         check("and round 2 was told why round 1 failed",
               "cannot fail" in proposer.seen[1],                 # type: ignore[attr-defined]
               repr(proposer.seen[1][:90]))                        # type: ignore[attr-defined]
+
+    # --- A MODULE THAT WILL NOT COMPILE IS NOT A PROPERTY THAT FAILED ---------------------------
+    # This had no coverage and the gap was load-bearing. TLC exits non-zero whether a claim was
+    # violated or the file never parsed, so the checker read a parse error as a violation: exit 1,
+    # a BROKEN line, and the sentence "the policy does not mean what the property says it means"
+    # -- a verdict about a policy that was never consulted. A real drafted module earned it over
+    # one stray `*` in a comment. The checker now runs SANY first and answers "no verdict".
+    broken = score(POLICIES / "firewall.dw", POLICIES / "firewall_unparseable.tla", mutants=1)
+    check("a module that does not compile is not scored", broken["ran"] is False,
+          str(broken.get("exitCode")))
+    check("...and the checker says NO VERDICT rather than BROKEN", broken["exitCode"] == 2,
+          str(broken.get("exitCode")))
+    check("...and claims nothing about the policy",
+          "does not mean what the property says" not in broken["output"],
+          broken["output"][-300:])
+
+    said = assess(broken, (POLICIES / "firewall_unparseable.cfg").read_text(encoding="utf-8"))
+    check("the complaint says nothing was checked",
+          bool(said) and "nothing was checked" in said[0], str(said[:1]))
+    # The drafter's next round can only fix this if it is told WHERE, and SANY is the only thing
+    # that knows. A complaint without the location is one the loop cannot act on.
+    # Not pinned to a line NUMBER: SANY reports where the parse gave up, which is the definition
+    # after the stray character rather than the character itself, and adding a comment to the
+    # fixture would move it. What must survive is that a location reaches the drafter at all.
+    check("...and names where SANY choked, so a next round could fix it",
+          bool(said) and "Parse Error" in said[0]
+          and re.search(r"at line \d+, column \d+", said[0]) is not None, str(said[:1]))
 
     print()
     if failures:

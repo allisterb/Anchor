@@ -117,8 +117,14 @@ def score(policy: Path, module: Path, *, event_schema: Path | None = None,
             "caught": caught, "output": out.strip(),
             # A TLA+ module that will not parse is not a verdict about the policy. Distinguished
             # from a property that ran and failed, because the two need opposite responses.
-            "ran": not any(n in out for n in ("Could not parse module", "AbortException",
-                                    "Parsing or semantic analysis failed"))}
+            #
+            # Exit 2 is the checker saying so itself -- it runs SANY before TLC and returns "no
+            # verdict" rather than a violation. The string scan stays as well: it predates that
+            # and it costs nothing, and a gate that relies on exactly one signal for "this was
+            # never checked" is a gate one refactor away from waving a draft through.
+            "ran": proc.returncode != 2 and not any(
+                n in out for n in ("Could not parse module", "AbortException",
+                                   "Parsing or semantic analysis failed"))}
 
 
 def preflight(module: str, config: str, name: str) -> list[str]:
@@ -160,9 +166,14 @@ def assess(result: dict, config: str) -> list[str]:
     complaints: list[str] = []
 
     if not result.get("ran"):
-        complaints.append(
-            "the module did not parse or did not run. TLC said:\n"
-            + "\n".join(result.get("output", "").splitlines()[-12:]))
+        # The tail, because the diagnostic is at the TOP -- SANY names the line and the token, and
+        # what follows is a residual stack and the checker's own explanation. Both halves are kept
+        # so a drafter gets the location it needs to fix and the reason it was not scored.
+        out = result.get("output", "").splitlines()
+        start = next((i for i, line in enumerate(out) if "DOES NOT COMPILE" in line), None)
+        said = out[start:start + 14] if start is not None else out[-14:]
+        complaints.append("the module did not compile, so nothing was checked:\n"
+                          + "\n".join(said))
         return complaints
 
     if not INVARIANT_LINE.search(config):
@@ -247,13 +258,56 @@ def author(policy: Path, intent: str, propose, *, rounds: int = 3,
     return run
 
 
-def model_author(model=None):
-    """A drafter backed by a language model. The only part that costs money."""
-    from strands import Agent
+def manual() -> str:
+    """The article the MCP server serves to any agent asking how to write one of these.
 
-    from agent.policy_agent import build_model
+    Handed to the drafter directly rather than left to be fetched: the loop is not conversational,
+    so there is no turn in which to go and look it up. It carries the two things a drafter gets
+    wrong on its own -- that a temporal claim needs a hand-built session, and that `time` is in
+    seconds.
+    """
+    return (REPO / "src" / "Anchor.MCPServer" / "knowledge"
+            / "writing-a-property-module.md").read_text(encoding="utf-8")
 
-    agent = Agent(model=model or build_model(), callback_handler=None, system_prompt=(
+
+def draft_prompt(vocab: dict, intent: str, feedback: str = "") -> str:
+    """What to ask for one draft. Shared with agent.pipeline, which runs the drafter as a node."""
+    # THE MODULE NAME, said plainly and first. TLA+ requires the module name to match its file
+    # name, this loop chooses the file name, and the skeleton in the vocabulary carries a
+    # DIFFERENT name derived from the policy -- so a draft that copies the skeleton's header is
+    # written to a file it does not match and fails to parse, with an error that mentions neither.
+    required = vocab.get("requiredModuleName", "Intent")
+    prompt = (f"The module MUST be named exactly `{required}`, so its first line is:\n"
+              f"    ---------------------------- MODULE {required} "
+              f"----------------------------\n"
+              f"Do not copy the module name from the skeleton below; it is a different name.\n\n"
+              f"How to write one:\n\n{manual()}\n\n"
+              f"---\n\nThe vocabulary for THIS policy:\n\n"
+              f"```json\n{json.dumps(vocab, indent=2)[:8000]}\n```\n\n"
+              f"The intention to state formally:\n\n{intent}")
+    if feedback:
+        prompt += f"\n\nYour previous attempt was rejected:\n{feedback}\n\nTry again."
+    return prompt
+
+
+def parse_draft(text: str) -> tuple[str, str]:
+    """The two files out of one reply. A missing marker is a failed draft, not a crash."""
+    module, _, config = text.partition("===CONFIG===")
+    module = module.partition("===MODULE===")[2] or module
+
+    # Fences survive instructions not to use them, and stripping one here beats one more line of
+    # prompt nobody can enforce.
+    def unfence(s: str) -> str:
+        s = s.strip()
+        if s.startswith("```"):
+            lines = s.splitlines()
+            s = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        return s.strip() + "\n"
+
+    return unfence(module), unfence(config) if config.strip() else ""
+
+
+DRAFTER_PROMPT = (
         "You write TLA+ property modules that state what a Dogwood authorization policy is "
         "SUPPOSED to mean, so that a model checker can test the policy against the claim.\n\n"
         "You are given the module's VOCABULARY as JSON -- the actions, event kinds, input and "
@@ -270,51 +324,22 @@ def model_author(model=None):
         "The module must be named as instructed, EXTEND PolicyUnderTest, and state the claim as "
         "one or more named invariants. State the claim about concrete actions and values the "
         "policy actually names: a claim that ranges over nothing passes without checking "
-        "anything, which is worse than failing."))
+        "anything, which is worse than failing.")
 
-    # THE MANUAL WE ALREADY HAVE. `writing-a-property-module` is the article the MCP server serves
-    # to any agent asking this question, and it carries the two things a drafter gets wrong on its
-    # own: that a temporal claim needs a hand-built session, and that `time` is in seconds. Handed
-    # over directly rather than left to be fetched -- this loop is not conversational, so there is
-    # no turn in which to go and look it up.
-    manual = (REPO / "src" / "Anchor.MCPServer" / "knowledge"
-              / "writing-a-property-module.md").read_text(encoding="utf-8")
+
+def model_author(model=None):
+    """A drafter backed by a language model. The only part that costs money."""
+    from strands import Agent
+
+    from agent.policy_agent import build_model
+
+    agent = Agent(model=model or build_model(), callback_handler=None,
+                  system_prompt=DRAFTER_PROMPT)
 
     def propose(vocab: dict, intent: str, feedback: str) -> tuple[str, str]:
-        # THE MODULE NAME, said plainly and first. TLA+ requires the module name to match its file
-        # name, this loop chooses the file name, and the skeleton in the vocabulary carries a
-        # DIFFERENT name derived from the policy -- so a draft that copies the skeleton's header
-        # is written to a file it does not match and fails to parse, with an error that mentions
-        # neither. The system prompt said "named as instructed" and nothing did the instructing.
-        required = vocab.get("requiredModuleName", "Intent")
-        prompt = (f"The module MUST be named exactly `{required}`, so its first line is:\n"
-                  f"    ---------------------------- MODULE {required} "
-                  f"----------------------------\n"
-                  f"Do not copy the module name from the skeleton below; it is a different name.\n\n"
-                  f"How to write one:\n\n{manual}\n\n"
-                  f"---\n\nThe vocabulary for THIS policy:\n\n"
-                  f"```json\n{json.dumps(vocab, indent=2)[:8000]}\n```\n\n"
-                  f"The intention to state formally:\n\n{intent}")
-        if feedback:
-            prompt += f"\n\nYour previous attempt was rejected:\n{feedback}\n\nTry again."
-
-        text = str(agent(prompt)).strip()
-
-        module, _, config = text.partition("===CONFIG===")
-        module = module.partition("===MODULE===")[2] or module
-
-        # Fences survive instructions not to use them, and stripping one here beats one more line
-        # of prompt nobody can enforce.
-        def unfence(s: str) -> str:
-            s = s.strip()
-            if s.startswith("```"):
-                lines = s.splitlines()
-                s = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-            return s.strip() + "\n"
-
         # A reply missing the markers is a failed draft, not a crash: the loop says so and asks
         # again, which is what it is for. The empty config is what `assess` will complain about.
-        return unfence(module), unfence(config) if config.strip() else ""
+        return parse_draft(str(agent(draft_prompt(vocab, intent, feedback))).strip())
 
     return propose
 

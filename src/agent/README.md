@@ -95,6 +95,37 @@ Round 2 is the interesting one: pressed by an objection it could not satisfy, th
 something invalid. The loop reported that and stopped, rather than accepting a plausible-looking
 answer — and the run exits 1. **A loop that cannot fail is a loop that will not stop.**
 
+## The pipeline, as the graph that runs it
+
+[`pipeline.py`](pipeline.py) is the whole of the above wired as a Strands `Graph`:
+
+```
+describe ──> draft ──> preflight ──┬──> score ──┬──> check ──> answer ──> report
+                                   └────────────┴──────────────────────────^
+```
+
+**The agent that drafts the property is not the agent that answers with it.** Asked for both an
+artifact and its specification, a model finds a trivial specification the cheapest way to pass —
+so these are two agents, and `GraphBuilder` enforces it: one `Agent` instance cannot be two nodes,
+and neither sees the other's context. Only `draft` and `answer` are models. The other five are
+`Computed` — ordinary Python behind the `Model` interface, so the graph is uniform while the
+criteria stay in code.
+
+**A gate that rejects is not a failed node.** It completes, writes its verdict into its own result,
+and a [`verdict()`](../annotations) pair routes on it — declared as *one* decision, so exactly one
+arm fires. A rejection costs nothing downstream (no TLC, no second model call) and still reports.
+
+The shape was chosen by checking four properties against four wirings in
+[`tests/strands/anchor_workflow.py`](../../tests/strands/anchor_workflow.py), and
+[`tests/strands/pipeline_run.py`](../../tests/strands/pipeline_run.py) re-proves `AlwaysReports`
+over the graph `build()` actually returns — so the shape that was checked and the object that runs
+are the same object rather than two things that agree today.
+
+```bash
+python src/agent/pipeline.py examples/aws1/07-trust-decay.dw \
+    --intent "After 15 minutes without advisor interaction, the agent loses write access."
+```
+
 ## Drafting a property, and the two gates on it
 
 ```bash
