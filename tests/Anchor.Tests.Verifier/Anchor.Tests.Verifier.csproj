@@ -28,6 +28,20 @@
     <None Update="testappsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+
+    <!-- How many test collections run at once. The runner reads this from the OUTPUT directory,
+         so it has to be copied there; without this line the file is inert and the default applies
+         silently, which is the worst of both — a setting that looks configured and is not.
+
+         `unlimited` was measured, not assumed. This suite is ten collections; on a 4-core/8-thread
+         laptop the wall clock came out 4m54s unlimited, 5m10s at the default (one thread per
+         logical processor, so 8), and 5m40s at 0.5x (4). Fewer lanes is worse because the work is
+         not evenly divisible; more lanes is only mildly worse because each harness spends most of
+         its time in a JVM that is already oversubscribing the machine on its own. If the
+         collection count grows a lot, measure again rather than trusting this line. -->
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <!-- The repo's specs, checked by SpecTests. They live at the repo root rather than under
