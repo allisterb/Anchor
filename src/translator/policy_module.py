@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .emit import policy_seq
-from .parse import Unsupported, like_matches, pattern_witnesses
+from .parse import TLC_MAX_INT, Unsupported, like_matches, pattern_witnesses
 
 KINDS = ["request", "response", "error"]
 DECISION_KIND = "request"
@@ -172,11 +172,18 @@ def joint_witness(patterns) -> str | None:
 
 
 def field_domain(literals: set, amounts: int) -> list:
-    """The values one field may take: every literal the policy names, plus one it does not.
+    """The values one field may take: every literal the policy names, plus ones it does not.
 
-    The extra value is what makes "this field does not match" reachable. Without it a field
+    The extra values are what make "this field does not match" reachable. Without them a field
     compared only against `true` would always be true, and a policy that depends on it being
     false would be reported vacuous when it is not.
+
+    A NUMERIC FIELD NEEDS ONE ON EACH SIDE, and for a long time it only got one above. A domain of
+    `{3, 4}` for a field the policy compares with `< 3` contains nothing that satisfies it, so an
+    ordinary `context.input.cost < 25000` came back **VACUOUS** -- a working permit reported as
+    dead, which is the one wrong answer this checker must not give, and the advice that follows it
+    is to delete the rule. `==` and `>` were satisfiable and `<` and `<=` were not, which is why
+    it survived: every fixture that would have caught it compared for equality.
 
     A field with no literals -- bound only by `_` or by a join with the request's own context --
     gets a small numeric range, which needs at least two values for a join to mean anything.
@@ -204,8 +211,17 @@ def field_domain(literals: set, amounts: int) -> list:
         # Both witnesses are already here, and inventing a third address would say nothing the
         # two do not.
         return values
-    values.append(("n", max(v for v in literals) + 1) if kind == "n" else ("s", "\u0000none"))
-    return values
+    if kind != "n":
+        values.append(("s", "\u0000none"))
+        return values
+
+    # ONE ON EACH SIDE. Every comparison operator then has both a witness and a counter-witness in
+    # the domain; with only the value above, `<` and `<=` had neither. Clamped to what TLC can
+    # hold, because a literal may sit at the very edge of the range and stepping off it would
+    # generate a model that does not run.
+    values.append(("n", min(max(literals) + 1, TLC_MAX_INT)))
+    values.append(("n", max(min(literals) - 1, -TLC_MAX_INT)))
+    return sorted(set(values), key=lambda kv: kv[1])
 
 
 def tla_set(names) -> str:

@@ -128,6 +128,124 @@
       "unknown": [],
       "artifacts": "examples\\aws1\\traces\\03-data-freshness"
     },
+    "04-cumulative-budget-cap.dw": {
+      "kind": "derived",
+      "policy": "04-cumulative-budget-cap.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: execute_trade",
+          "witness": "execute_trade",
+          "session": [
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {
+                "cost": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {
+                "cost": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. execute_trade(cost = 1)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\04-cumulative-budget-cap"
+    },
+    "05-human-approval.dw": {
+      "kind": "derived",
+      "policy": "05-human-approval.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: execute_trade",
+          "witness": "execute_trade",
+          "session": [
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {
+                "cost": 24999,
+                "status": "approved"
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {
+                "cost": 24999,
+                "status": "approved"
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. execute_trade(cost = 24999, status = \"approved\")  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "examples\\aws1\\traces\\05-human-approval"
+    },
     "07-trust-decay.dw": {
       "kind": "derived",
       "policy": "07-trust-decay.dw",

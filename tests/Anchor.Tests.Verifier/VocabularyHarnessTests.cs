@@ -282,5 +282,40 @@ public class VocabularyHarnessTests : TestsRuntime
         Assert.DoesNotContain("TLC can't handle a number this big", run.Output);
     }
 
+    /// <summary>
+    /// A field's domain carries a value on <b>each side</b> of its literals, so every comparison
+    /// operator has a witness — not just <c>==</c> and <c>&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The domain is the literals a policy names plus values it does not, so that matching and
+    /// not-matching both stay reachable. The extra value used to be only <i>above</i> the largest
+    /// literal, which leaves <c>&lt;</c> and <c>&lt;=</c> with nothing that satisfies them: the
+    /// domain for <c>cost</c> below was <c>{25000, 25001}</c>, and neither is less than 25000.
+    /// </para>
+    /// <para>
+    /// So an ordinary <c>context.input.cost &lt; 25000</c> was reported <b>VACUOUS</b> — a working
+    /// permit declared dead, and the advice that follows a VACUOUS verdict is to delete the rule.
+    /// That is the one wrong answer this checker must not give, and it is the same shape as the
+    /// false VACUOUS that <c>FieldDomainsComeFromTheLiteralsThePolicyNames</c> guards from the
+    /// other direction.
+    /// </para>
+    /// <para>
+    /// It survived because every fixture that would have caught it compared for EQUALITY. Found by
+    /// running the published policies from AWS's temporal-policies article, one of which gates on
+    /// <c>cost &lt; 25000</c>.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task OrderingComparisonsHaveAWitnessInTheDomain()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/ordering_live.dw");
+
+        Assert.True(run.ExitCode == 0, run.Output);
+        Assert.Contains("live", run.Output);
+        Assert.DoesNotContain("VACUOUS", run.Output);
+    }
+
     #endregion
 }

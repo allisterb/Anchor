@@ -1,0 +1,19 @@
+// A perfectly ordinary permit that was reported VACUOUS -- a working rule declared dead, and the
+// advice that follows a VACUOUS verdict is to delete it.
+//
+// A field's domain is the literals the policy names plus values it does not name, so that both
+// matching and not-matching stay reachable. For a long time the only extra value was ABOVE the
+// largest literal, which makes `==` and `>` satisfiable and leaves `<` and `<=` with no witness
+// at all: the domain for the field below was {25000, 25001}, and neither is less than 25000.
+//
+// It survived because every fixture that would have caught it compared for EQUALITY. The article
+// this came from writes `context.input.cost < 25000` in its human-approval policy, which is how
+// it was found.
+permit (
+    principal,
+    action == AgentCore::Action::"execute_trade",
+    resource
+)
+when {
+    context.input.cost < 25000
+};

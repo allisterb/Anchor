@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| policies | 5 |
+| policies | 7 |
 | stated intentions (`.tla`) | 3 |
 | questions answered | 0 |
 
@@ -25,6 +25,8 @@
 | `01-workflow-sequencing.dw` | 2 | VACUOUS |
 | `02-output-to-input.dw` | 1 | VACUOUS |
 | `03-data-freshness.dw` | 1 | VACUOUS |
+| `04-cumulative-budget-cap.dw` | 1 | live |
+| `05-human-approval.dw` | 1 | live |
 | `07-trust-decay.dw` | 1 | live |
 | `agent-policy.dw` | 7 | live |
 

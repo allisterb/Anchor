@@ -26,7 +26,7 @@ check that does not know what it was meant to do.
 
 | | |
 |---|---|
-| `01-workflow-sequencing.dw`, `02-output-to-input.dw`, `03-data-freshness.dw`, `07-trust-decay.dw` | the article's policies, one per file, as published |
+| `01-workflow-sequencing.dw`, `02-output-to-input.dw`, `03-data-freshness.dw`, `04-cumulative-budget-cap.dw`, `05-human-approval.dw`, `07-trust-decay.dw` | the article's policies, one per file, as published. Six of the seven — see below for why 6 is missing |
 | `agent-policy.dw` | the same policies as a **set**, with the read actions permitted, which is how they would be deployed |
 | `TrustDecay.tla` / `.cfg` | what policy 7 is *supposed* to mean, stated as invariants |
 | `TradeGate.tla` / `.cfg` | what the trade protections are supposed to mean *together* |
@@ -35,28 +35,37 @@ check that does not know what it was meant to do.
 | [`transcript.md`](transcript.md) | the agent answering all five, with **every tool call and its full reply** |
 | `TrustDecay10.tla` / `.cfg` | the ten-minute claim on its own, because TLC stops at the first violated invariant |
 
-**Not transcribed**: the cumulative budget cap (policy 4), single-use approval (5) and mutual
-exclusion (6).
+**Six of the seven are here.** An earlier version of this note said policies 4, 5 and 6 were
+outside the modelled subset; that was written before aggregates were added and was wrong about 4
+and 5, which are now transcribed above and check like the rest. Policy 5 is the only one of the
+seven that uses `since`.
 
-**Two of those three are now within the subset, and this note used to say otherwise.** Aggregates
-were added after it was written, so only policy 5 is still out of reach. Measured on reconstructions
-of each shape — checked against the real engine with `dogwood check-parse` first, so the thing being
-tested is Dogwood rather than a strawman:
+**Policy 6 is not here because it does not parse — in Dogwood, not in Anchor.** As published it
+reads:
 
-| | needs | |
-|---|---|---|
-| **4** cumulative budget cap | `sum … for (t: Timepoint), (amount: Long). where …` | **parses and checks** |
-| **5** single-use approval | `!(formerly …) since within W B` | **refused**, by one gap: a `since`'s left operand is an *atom*, so a `formerly` cannot nest inside it. `since` itself is modelled, negated left operand included |
-| **6** mutual exclusion | `unless temporal { formerly … }`, or a negated conjunction | **parses and checks** |
+```dogwood
+AgentCore::Action::"execute_buy"{
+    stock_symbol: context.input.stock_symbol, eventResource: resource}
+```
 
-They stay untranscribed because the article's own text for them is not to hand, and a
-*reconstruction* sitting beside four verbatim policies would blur which is which — the whole value
-of this directory is that the policies are as published. Supply the text and 4 and 6 can be checked
-like the rest. See [`the-modelled-subset`](../../src/Anchor.MCPServer/knowledge/the-modelled-subset.md).
+The reference implementation rejects that:
 
-**Also dropped**: `resource == AgentCore::Gateway::<ARN>` scopes and the `eventResource: resource`
-joins that go with them. Anchor models actions, event kinds and input/output fields, not entity
-hierarchies. Recorded here so the difference from the published text is not mistaken for a finding.
+```
+$ dogwood check-parse policy6.dw
+× unexpected token `{`, expected comparison operator
+```
+
+A predicate needs the `::<kind>` segment after the quoted action, and a field needs its group
+prefix — `AgentCore::Action::"execute_buy"::request{ input.stock_symbol: … }` parses. Both are
+single-token omissions in the article's listing rather than anything about the language, but
+repairing a published policy and then reporting findings about it would be reporting findings
+about our repair. It stays out until the text can be checked against the article itself.
+
+**Also dropped**, in every file here: `resource == AgentCore::Gateway::<ARN>` scopes and the
+`eventResource: resource` joins that go with them. Anchor models actions, event kinds and
+input/output fields, not entity hierarchies. Recorded so the difference from the published text is
+not mistaken for a finding. See
+[`the-modelled-subset`](../../src/Anchor.MCPServer/knowledge/the-modelled-subset.md).
 
 ## 1. The derived questions, and what they cannot say
 

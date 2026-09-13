@@ -1,0 +1,22 @@
+// Policy 4 of 7 -- "Cumulative budget cap", from the AWS AgentCore temporal-policies article.
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "No single session can exceed $60,000 in total trade value."
+//
+// Transcribed as published, with the two things this directory documents as dropped throughout:
+// the `resource == AgentCore::Gateway::<ARN>` scope and the `eventResource: resource` joins.
+// Anchor models actions, event kinds and input/output fields, not entity hierarchies.
+//
+// This is the aggregate form -- `sum ... for (binder), (t: Timepoint). where (...)` with a
+// `formerly` inside the `where` body and `tp(t)` binding the timepoint. The README used to say
+// this shape was outside the modelled subset; it has not been since aggregates were added.
+permit (
+    principal,
+    action == AgentCore::Action::"execute_trade",
+    resource
+)
+when temporal {
+    exists (total: Long). ((sum amount for (amount: Long), (t: Timepoint). where (formerly within 24h (
+        AgentCore::Action::"get_market_price"::request{ input.cost: amount } && tp(t)))) == total && total < 60000
+    )
+};
