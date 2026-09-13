@@ -1,0 +1,17 @@
+// Policy 3 of 6 -- "Cumulative transfer cap", from the AWS AgentCore article
+// "Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore".
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "Block a transfer if the total amount transferred in the past 12 hours would exceed $50,000."
+//
+// Transcribed as published. Note which EVENT KIND it sums: `::request`.
+forbid ( principal, action == AgentCore::Action::"initiate_transfer", resource )
+when temporal {
+    exists (total: Long). (
+        (sum a for (a: Long), (t: Timepoint). where (
+            formerly within 12h (
+                AgentCore::Action::"initiate_transfer"::request{ input.amount: a } && tp(t)
+            )
+        )) == total && total > 50000
+    )
+};

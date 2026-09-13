@@ -1,0 +1,19 @@
+// A cumulative cap, and a permit for it to override. The shape AWS's articles use for a budget.
+//
+// THE FIXTURE'S POINT IS THE DOMAIN. `100` is the aggregate's comparison BOUND, not a literal any
+// field is compared against, so `amount` gets the default numeric domain {1, 2} and no session
+// built from that domain can ever sum past 100. Only a hand-built session can, which is exactly
+// what a property module is for -- and for a long time the sum silently skipped any value the
+// generated domain did not contain, reporting a smaller total rather than an unknown one.
+permit ( principal, action == AgentCore::Action::"transfer", resource );
+
+forbid ( principal, action == AgentCore::Action::"transfer", resource )
+when temporal {
+    exists (total: Long). (
+        (sum a for (a: Long), (t: Timepoint). where (
+            formerly within 12h (
+                AgentCore::Action::"transfer"::request{ input.amount: a } && tp(t)
+            )
+        )) == total && total > 100
+    )
+};

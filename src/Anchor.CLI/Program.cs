@@ -221,6 +221,8 @@ public static class Program
         if (!string.IsNullOrWhiteSpace(opts.Provider)) args.AddRange(["--provider", opts.Provider]);
         if (!string.IsNullOrWhiteSpace(opts.Model)) args.AddRange(["--model", opts.Model]);
         if (opts.Attempts is int a) args.AddRange(["--attempts", a.ToString()]);
+        if (opts.Smoke is int sm) args.AddRange(["--smoke", sm.ToString()]);
+        if (opts.MaxFields is int mf) args.AddRange(["--max-fields", mf.ToString()]);
         if (opts.NoModel) args.Add("--no-model");
 
         // No timeout of our own: a directory of policies is minutes of TLC per policy, and a cap

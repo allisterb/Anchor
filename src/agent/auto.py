@@ -144,6 +144,7 @@ def discover(directory: Path) -> Plan:
 
 def run_checker(policy: Path, *, against: Path | None = None, property_module: Path | None = None,
                 keep: Path | None = None, attempts: int | None = None,
+                smoke: int | None = None, max_fields: int | None = None,
                 timeout: int = 1800) -> dict:
     """One check, structured. A refusal is data, never an exception."""
     args = [sys.executable, str(CHECKER), str(policy)]
@@ -157,6 +158,14 @@ def run_checker(policy: Path, *, against: Path | None = None, property_module: P
         args += ["--keep", str(keep)]
     if attempts is not None:
         args += ["--attempts", str(attempts)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
+
+    # A random walk, for a set too big to exhaust. NOT passed to a --property run: a property is
+    # meant to HOLD and its counterexample is the answer, so sampling behaviours would turn "this
+    # claim is broken" into "we did not happen to break it", which is not the same sentence.
+    if smoke is not None and property_module is None:
+        args += ["--smoke", str(smoke)]
 
     proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
 
@@ -172,21 +181,28 @@ def run_checker(policy: Path, *, against: Path | None = None, property_module: P
                 "_why": (proc.stderr or proc.stdout).strip()[-1500:]}
 
 
-def check_all(plan: Plan, out: Path, attempts: int | None = None) -> dict:
+def check_all(plan: Plan, out: Path, attempts: int | None = None,
+              smoke: int | None = None, max_fields: int | None = None) -> dict:
     """Every check, in a fixed order, before the model is asked anything."""
     traces = out / "traces"
     results: dict = {"directory": str(plan.directory), "derived": {}, "properties": {},
+                     # Recorded so the report can say what this run could NOT establish. A smoke
+                     # sweep reports `live` or `unknown` and never VACUOUS, REDUNDANT or DEAD --
+                     # those are claims of ABSENCE and a random walk cannot make one.
+                     "smoke": smoke,
                      "unpaired": [{"module": m.name, "why": w} for m, w in plan.unpaired]}
 
     for policy in plan.policies:
         print(f"  checking {policy.name}", file=sys.stderr)
         results["derived"][policy.name] = run_checker(
-            policy, keep=traces / policy.stem, attempts=attempts)
+            policy, keep=traces / policy.stem, attempts=attempts,
+            smoke=smoke, max_fields=max_fields)
 
     for module, policy in plan.properties:
         print(f"  {policy.name} against {module.name}", file=sys.stderr)
         checked = run_checker(policy, property_module=module,
-                              keep=traces / f"{policy.stem}-{module.stem}", attempts=attempts)
+                              keep=traces / f"{policy.stem}-{module.stem}", attempts=attempts,
+                              max_fields=max_fields)
 
         # A BROKEN claim, carried back into the policy's own language and put to the reference
         # engine. Cheap -- the counterexample is already computed and a replay is milliseconds --
@@ -263,9 +279,22 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
     """The findings file. Written whether or not a model ran."""
     lines = [f"# Findings — `{plan.directory.name}`", ""]
 
+    # A SMOKE SWEEP CANNOT ESTABLISH ABSENCE, so it must not be summarised as having found none.
+    # `--smoke` explores a random sample of behaviours: a witness found that way is sound -- a
+    # witness is a witness however it was reached -- but "no witness" means this walk did not
+    # reach one, which is not the same claim as "there is none". VACUOUS, REDUNDANT and DEAD are
+    # all claims of absence, so a smoke run never reports any of them, and a headline saying "no
+    # inert rules found" would be describing a question that was never asked.
+    smoke = results.get("smoke")
+
     if findings:
         lines += [f"**{len(findings)} thing(s) to look at.**", ""]
         lines += [f"{i}. {f}" for i, f in enumerate(findings, 1)]
+    elif smoke:
+        lines += [f"**Nothing to report, and that is a weaker statement than usual.** This was a",
+                  f"SMOKE sweep — {smoke} random behaviours per policy rather than an exhaustive",
+                  "search — so no rule here could have been reported inert even if it were. See",
+                  "the note below.", ""]
     elif plan.properties:
         lines += ["**Nothing found.** Every rule is load-bearing and every stated intention holds,",
                   "within the bounds each check reports.", ""]
@@ -276,6 +305,26 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
         lines += ["**No inert rules found**, within the bounds each check reports. Nothing here",
                   "says the policies do what they were meant to do — see below.", ""]
     lines.append("")
+
+    if smoke:
+        lines += [
+            f"> **This run was `--smoke {smoke}`.** Each policy was explored as {smoke} random",
+            "> behaviours instead of exhaustively, because this set's request space is the product",
+            "> of its field domains and too large to exhaust. That changes what the verdicts mean:",
+            ">",
+            "> | | |",
+            "> |---|---|",
+            "> | `live` | **sound.** A witness is a witness however it was found, so the rule "
+            "really does change some verdict |",
+            "> | `unknown` | **not a finding.** This walk did not reach a session where the rule "
+            "matters. It does not mean the rule is inert |",
+            ">",
+            "> **VACUOUS, REDUNDANT and DEAD cannot appear in this report at all** — each is a "
+            "claim",
+            "> that no session exists, and a random walk cannot establish one. To get those "
+            "verdicts,",
+            "> re-run without `--smoke` and expect it to take much longer.",
+            ""]
 
     lines += ["## What was checked", "",
               "| | |", "|---|---|",
@@ -446,6 +495,16 @@ def main() -> int:
     ap.add_argument("--provider", type=str, default="auto", choices=("auto", "bedrock", "gemini"))
     ap.add_argument("--model", type=str, default=None)
     ap.add_argument("--attempts", type=int, default=None, help="session length bound")
+    ap.add_argument("--smoke", type=int, nargs="?", const=1000, default=None, metavar="N",
+                    help="explore each policy as a random walk of N behaviours (default 1000) "
+                         "instead of exhaustively -- for a set whose request space is too big to "
+                         "exhaust. Reports `live` or `unknown` and NEVER vacuous, redundant or "
+                         "dead: those are claims of absence, and a random walk cannot establish "
+                         "one. The report says so")
+    ap.add_argument("--max-fields", type=int, default=None, metavar="N",
+                    help="refuse a policy reading more than N input/output fields (default 4). "
+                         "The request space is the product of their domains, so raising this "
+                         "trades runtime for reach rather than soundness")
     args = ap.parse_args()
 
     if not args.directory.is_dir():
@@ -463,7 +522,8 @@ def main() -> int:
     print(f"{len(plan.policies)} polic(ies), {len(plan.properties)} stated intention(s), "
           f"{len(plan.questions)} question(s)\n", file=sys.stderr)
 
-    results = check_all(plan, out, attempts=args.attempts)
+    results = check_all(plan, out, attempts=args.attempts,
+                        smoke=args.smoke, max_fields=args.max_fields)
     findings = findings_of(results)
 
     answered = 0

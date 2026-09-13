@@ -1,0 +1,12 @@
+// Policy 2 of 6 -- "Identity verification", from the same article.
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "Do not initiate a transfer unless the caller's identity has been verified for that same
+//    account within the previous 15 minutes."
+permit ( principal, action == AgentCore::Action::"initiate_transfer", resource )
+when temporal {
+    formerly within 15m AgentCore::Action::"verify_identity"::response{
+        input.account:   context.input.account,
+        output.verified: true
+    }
+};

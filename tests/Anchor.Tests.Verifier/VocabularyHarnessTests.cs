@@ -408,5 +408,45 @@ public class VocabularyHarnessTests : TestsRuntime
         Assert.DoesNotContain("NOT VALID DOGWOOD", fine.Output);
     }
 
+    /// <summary>
+    /// An aggregate binder ranges over the scalars the <b>trace</b> carries, not only the generated
+    /// value domain.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>sum a for (a: Long). where (… { input.amount: a })</c> binds <c>a</c> by matching events.
+    /// A value present in the trace and absent from the generated domain was silently skipped, so
+    /// the total came out <i>smaller</i> rather than unknown — a wrong verdict with no symptom, in
+    /// the one construct whose whole purpose is to add things up.
+    /// </para>
+    /// <para>
+    /// It never showed on the built-in questions, whose traces are assembled FROM the domain, so
+    /// every value in them is in it already. It showed on a property module, which builds its own
+    /// session — and being able to state a claim about values the policy never names is precisely
+    /// why <c>PolicyUnderTest</c> offers no <c>Inputs</c>.
+    /// </para>
+    /// <para>
+    /// Found by running a published policy: AWS's cumulative transfer cap, where a $60,000 attempt
+    /// against a generated domain of <c>{1, 2}</c> summed to nothing, so a $50,000 cap was never
+    /// reached and the model said ALLOW where the engine said DENY.
+    /// </para>
+    /// <para>
+    /// <b>Both halves are asserted.</b> A model that summed nothing would pass
+    /// <c>UnderTheCapIsAllowed</c> and fail <c>OverTheCapIsRefused</c>; one that over-counted would
+    /// do the reverse. Verified to fail with the fix reverted.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task AnAggregateSeesTheValuesTheTraceCarries()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/aggregate_cap.dw",
+            "--property", "tests/policies/aggregate_cap.tla");
+
+        Assert.True(run.ExitCode == 0, run.Output);
+        Assert.Contains("every claim holds", run.Output);
+        Assert.DoesNotContain("BROKEN", run.Output);
+    }
+
     #endregion
 }

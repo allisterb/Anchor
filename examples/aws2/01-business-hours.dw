@@ -1,0 +1,12 @@
+// Policy 1 of 6 -- "Business hours and amount cap", from the AWS AgentCore article
+// "Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore".
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "Refunds might be issued only during business hours, defined as 9:00 AM-5:00 PM UTC, and only
+//    for amounts of $2,500 or less."
+//
+// Two `when` clauses on one rule, which Cedar conjoins -- both must hold.
+permit ( principal, action == AgentCore::Action::"issue_refund", resource )
+when { context.system.now.toTime() >= duration("9h")
+    && context.system.now.toTime() <= duration("17h") }
+when { context.input.amount <= 2500 };

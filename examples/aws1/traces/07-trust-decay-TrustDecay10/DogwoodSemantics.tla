@@ -343,8 +343,12 @@ TermHolds(term, trace, upto, dec, asg) ==
 (* bound to a field that repeats.                                          *)
 (*                                                                         *)
 (* A binder's domain is its declared type: Timepoint ranges over the trace *)
-(* indices visible at the decision, anything else over the scalars the     *)
-(* trace actually contains. That is finite, so TLC can enumerate it.       *)
+(* indices visible at the decision, anything else over the generated value *)
+(* domain TOGETHER WITH every scalar the trace carries. Both halves are    *)
+(* needed and the second was missing: a property module builds its own     *)
+(* session, so it can present a value the policy never names -- and a sum  *)
+(* that skips such a value reports a smaller total rather than an unknown  *)
+(* one. See `TraceScalars`. Finite either way, so TLC can enumerate it.    *)
 (***************************************************************************)
 RECURSIVE SumOver(_, _)
 SumOver(S, k) ==
@@ -408,9 +412,30 @@ PolicyMatches(p, trace, upto, dec, values) ==
     /\ p.actions = {} \/ dec.action \in p.actions
     /\ CondHolds(p.cond, trace, upto, dec, << >>, values)
 
+\* Every scalar the trace itself carries, from the input and output of every event.
+\*
+\* AN AGGREGATE BINDER HAS TO SEE THESE. `sum a for (a: Long). where (... { input.amount: a })`
+\* binds `a` by matching events, so a value present in the trace and absent from the generated
+\* domain is a value the sum silently skips -- and a total that omits a term is not reported as
+\* uncertain, it is reported as a smaller number. That is a wrong verdict with no symptom.
+\*
+\* It does not arise for the built-in questions, whose traces are assembled FROM the domain, which
+\* is why it went unnoticed: every value in such a trace is in `values` already. It arises for a
+\* property module, which builds its own session and is supposed to be able to state one about
+\* values the policy never names -- the whole reason `PolicyUnderTest` offers no `Inputs`.
+\*
+\* Adding to the binder's domain can only make MORE assignments satisfying, never fewer, so this
+\* cannot turn a real finding into a missed one. It is checked against the corpus like everything
+\* else here.
+TraceScalars(trace) ==
+    UNION { {trace[i].input[f]  : f \in DOMAIN trace[i].input}
+          \union {trace[i].output[f] : f \in DOMAIN trace[i].output}
+          : i \in DOMAIN trace }
+
 Decide(trace, policies, idx, values) ==
-    LET dec == trace[idx]
-        hit == {k \in DOMAIN policies : PolicyMatches(policies[k], trace, idx, dec, values)}
+    LET dec  == trace[idx]
+        seen == values \union TraceScalars(trace)
+        hit  == {k \in DOMAIN policies : PolicyMatches(policies[k], trace, idx, dec, seen)}
     IN /\ \E k \in hit : policies[k].effect = "permit"
        /\ ~\E k \in hit : policies[k].effect = "forbid"
 

@@ -1,0 +1,13 @@
+// Policy 6 of 6 -- "Supervisor approval for large refunds", from the same article.
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "A refund of more than $500 requires a supervisor's approval for that charge, recorded within
+//    the last 30 minutes."
+forbid ( principal, action == AgentCore::Action::"issue_refund", resource )
+when { context.input.amount > 500 }
+unless temporal {
+    formerly within 30m AgentCore::Action::"request_approval"::response{
+        input.charge_id: context.input.charge_id,
+        output.approved: true
+    }
+};

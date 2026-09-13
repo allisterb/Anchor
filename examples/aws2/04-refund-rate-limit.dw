@@ -1,0 +1,19 @@
+// Policy 4 of 6 -- "Refund rate limit", from the same article.
+//
+// THE ARTICLE'S STATED INTENT, verbatim:
+//   "The agent might attempt no more than three refunds against the same account within one hour."
+//
+// The same shape as policy 3 and, unlike it, CORRECT -- because this requirement says "attempt",
+// and `::request` is the attempt. Checked: the engine allows exactly three and denies the fourth.
+// Kept beside policy 3 deliberately; the pair is what shows the defect there is the event kind
+// rather than the shape.
+forbid ( principal, action == AgentCore::Action::"issue_refund", resource )
+when temporal {
+    exists (n: Long). (
+        (count for (t: Timepoint). where (
+            formerly within 1h (
+                AgentCore::Action::"issue_refund"::request{ input.account: context.input.account } && tp(t)
+            )
+        )) == n && n > 3
+    )
+};

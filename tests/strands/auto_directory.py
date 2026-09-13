@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.auto import (check_all, discover, findings_of,  # noqa: E402
+from agent.auto import (Plan, check_all, discover, findings_of,  # noqa: E402
                         parse_questions, report)
 
 POLICIES = REPO / "tests" / "policies"
@@ -146,6 +146,31 @@ Just prose, no blockquote.
 
         json.dumps(results, default=str)          # must be serialisable for results.json
         check("results serialise to JSON", True)
+
+    # --- a SMOKE sweep must not be summarised as having found nothing ---------------------------
+    # `--smoke` explores a random sample of behaviours. A witness found that way is sound, but "no
+    # witness" means this walk did not reach one -- which is not "there is none". VACUOUS,
+    # REDUNDANT and DEAD are all claims of absence, so a smoke run never reports any of them, and
+    # a headline saying "no inert rules found" would describe a question that was never asked.
+    smoked = report(Plan(directory=Path("policies")),
+                    {"directory": "policies", "derived": {}, "properties": {}, "smoke": 1000,
+                     "unpaired": []},
+                    [], model_used=False)
+
+    check("a smoke sweep says its verdicts mean something weaker",
+          "weaker statement than usual" in smoked, smoked[:200])
+    check("and that absence verdicts cannot appear at all",
+          "cannot appear in this report at all" in smoked)
+    check("and it does NOT claim no inert rules were found",
+          "No inert rules found" not in smoked)
+
+    # The control: without --smoke the ordinary headline is unchanged.
+    exhaustive = report(Plan(directory=Path("policies")),
+                        {"directory": "policies", "derived": {}, "properties": {},
+                         "unpaired": []},
+                        [], model_used=False)
+    check("an exhaustive run still says what it established",
+          "No inert rules found" in exhaustive and "weaker statement" not in exhaustive)
 
     print()
     if failures:

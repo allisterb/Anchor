@@ -74,6 +74,19 @@ public class AutoOptions : Options
     [Option("attempts", Required = false, HelpText = "Session length bound (default 3).")]
     public int? Attempts { get; set; }
 
+    [Option("smoke", Required = false, MetaValue = "N",
+        HelpText = "Explore each policy as a random walk of N behaviours (try 3000) instead of " +
+                   "exhaustively — for a set whose request space is too large to exhaust. Reports " +
+                   "only `live` or `unknown`, NEVER vacuous/redundant/dead: those are claims of " +
+                   "absence and a random walk cannot establish one. The report says so at the top.")]
+    public int? Smoke { get; set; }
+
+    [Option("max-fields", Required = false, MetaValue = "N",
+        HelpText = "Refuse a policy reading more than N input/output fields (default 4). The " +
+                   "request space is the product of their domains, so raising this trades runtime " +
+                   "for reach rather than soundness.")]
+    public int? MaxFields { get; set; }
+
     #endregion
 }
 
