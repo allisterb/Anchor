@@ -160,6 +160,12 @@ public static class PythonHarness
     }
 
     /// <summary>Run a harness, from the repo root, the way it is run by hand.</summary>
+    /// <remarks>
+    /// The environment is inherited, which is how <c>ANCHOR_TLC_JAVA_OPTS</c> reaches the TLC runs
+    /// these harnesses spawn — set once on the test host by <c>anchor.runsettings</c>, which is
+    /// also where the measurements justifying it are recorded. Running a harness by hand simply
+    /// does not set it, and is slower for it.
+    /// </remarks>
     public static async Task<(int ExitCode, string Output)> RunAsync(string script, params string[] args)
     {
         var info = new ProcessStartInfo(Interpreter!)

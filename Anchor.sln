@@ -50,6 +50,9 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Anchor.CLI", "src\Anchor.CLI\Anchor.CLI.csproj", "{AF7713A6-C0BE-409D-83BC-7DB0B708B211}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Scripts", "Scripts", "{3B5775B7-C313-45CA-BA01-C5F2AEF997BA}"
+	ProjectSection(SolutionItems) = preProject
+		Directory.Build.props = Directory.Build.props
+	EndProjectSection
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "agent", "src\agent\agent.pyproj", "{4C9A2E15-7B83-4D26-8E0F-5A1C3D7B92E6}"
 EndProject

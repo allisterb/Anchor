@@ -12,7 +12,9 @@ Resolved WHEN TLC IS RUN, not at import: `dw_to_tla.py` translates without ever 
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 import subprocess
 import tempfile
 from contextlib import nullcontext
@@ -66,13 +68,41 @@ def run_tlc(module: str, cwd: Path, scratch: Path | None = None,
     with (tempfile.TemporaryDirectory(prefix="anchor-tlc-") if scratch is None
           else nullcontext(str(scratch))) as tmp:
         proc = subprocess.run(
-            ["java", f"-Djava.io.tmpdir={tmp}",
+            ["java", *java_options(), f"-Djava.io.tmpdir={tmp}",
              "-cp", str(find_jar()), "tlc2.TLC", "-cleanup",
              "-metadir", str(Path(tmp) / "states"),
              *(extra or []),
              "-config", f"{module}.cfg", f"{module}.tla"],
             cwd=cwd, capture_output=True, text=True)
         return proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# The JVM flags to start TLC with, and there is deliberately no default.
+JAVA_OPTIONS = "ANCHOR_TLC_JAVA_OPTS"
+
+
+def java_options() -> list[str]:
+    """Extra JVM flags for TLC, from `ANCHOR_TLC_JAVA_OPTS`. Empty unless somebody sets it.
+
+    THE ONE WORTH KNOWING ABOUT IS `-XX:TieredStopAtLevel=1`, which stops the JVM's C2 optimising
+    compiler from running. It is a real trade and the crossover was measured rather than guessed:
+
+        1 run, 40 states           1.90s -> 1.59s     16% faster
+        8 concurrent, 40 states    8.92s -> 4.68s     1.9x faster
+        1 run, 960k states         3.72s -> 4.00s     8% SLOWER
+        1 run, 6.7M states        12.17s -> 18.67s    53% SLOWER
+
+    Which is exactly what it should do. A short run never runs long enough for C2's compilation to
+    pay for itself, and eight of them at once are eight JVMs each spending cores on background
+    compilation they will not benefit from; a long search is the opposite case, and there the
+    optimised code is most of the throughput.
+
+    So there is no setting that is right for both, and picking one globally would mean picking it
+    for the runs that care least. It is left unset for anything a person runs -- their policy might
+    be the big one -- and set by the TEST harness, where every model is bounded small by
+    construction and six of them compete for the machine. See tests/Anchor.Tests.Verifier.
+    """
+    return shlex.split(os.environ.get(JAVA_OPTIONS, ""))
 
 
 # ---------------------------------------------------------------------------- reading a trace back

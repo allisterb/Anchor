@@ -25,4 +25,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+
+  <PropertyGroup>
+    <!-- The test-host environment. See the file for what it sets and why. -->
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)/anchor.runsettings</RunSettingsFilePath>
+  </PropertyGroup>
+
 </Project>

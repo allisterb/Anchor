@@ -160,6 +160,33 @@ It has been got wrong twice, and both are pinned as fixtures rather than describ
 The rule that falls out: when this cannot decide, it refuses and names what is missing. A refusal
 is a correct answer; a false VACUOUS is not.
 
+## `ANCHOR_TLC_JAVA_OPTS`, and why it has no default
+
+Extra JVM flags for every TLC run, honoured by both the Python runner and `TLCProcess`. Unset, so
+a run started by hand gets the JVM's own defaults.
+
+The one worth knowing about is `-XX:TieredStopAtLevel=1`, which stops the C2 optimising compiler.
+Whether it helps depends entirely on how big the search is, and the crossover was measured:
+
+| | default | `-XX:TieredStopAtLevel=1` | |
+|---|---|---|---|
+| one run, 40 states | 1.90s | 1.59s | 16% faster |
+| **eight at once**, 40 states | 8.92s | 4.68s | **1.9× faster** |
+| one run, 960k states | 3.72s | 4.00s | 8% slower |
+| one run, 6.7M states | 12.17s | 18.67s | **53% slower** |
+
+A short run never lasts long enough for C2's compilation to pay for itself, and several at once are
+several JVMs each burning cores on optimisation they finish before benefiting from. A long search
+is the opposite case, and there the optimised code is most of the throughput.
+
+So there is no value right for both, and choosing one globally would be choosing it for the runs
+that care least. Every policy in this repo checks in about a second — but yours might be the big
+one, so the default is the JVM's. The **test suite** sets it, in
+`tests/*/anchor.runsettings`, because there every model is bounded small by construction and six
+classes compete for the machine; it took the suite from 8m46 to 3m30 together with the class split.
+
+Set it yourself if you are running many small checks at once — a directory sweep, or CI.
+
 ## Why it is not part of `translator`
 
 Translating a policy and reasoning about one are different jobs with different failure modes, and

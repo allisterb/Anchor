@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Test-host environment, applied by `dotnet test` through RunSettingsFilePath in the .csproj.
+
+     ANCHOR_TLC_JAVA_OPTS is read by translator.run_tlc and by TLCProcess, and is EMPTY for anyone
+     running Anchor by hand. `-XX:TieredStopAtLevel=1` stops the JVM's C2 optimising compiler.
+     Measured on this suite's models — around 40 states, under two seconds of which most is JVM
+     startup:
+
+         one run,     40 states      1.90s -> 1.59s    16% faster
+         eight at once, 40 states    8.92s -> 4.68s    1.9x faster
+         one run,    960k states     3.72s -> 4.00s     8% SLOWER
+         one run,    6.7M states    12.17s -> 18.67s   53% SLOWER
+
+     The win is the compiler threads that never start, not the compilation skipped: the suite runs
+     many model checks at once on four physical cores, and each JVM was spending cores optimising
+     code it finishes before benefiting from. The last row is why this belongs to the test host
+     and not to the checker — a person's own policy might be the big model, and that is the run
+     where losing C2 costs most.
+
+     Set here rather than in a base class because it is a property of how the tests are RUN, not of
+     what they test. -->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <ANCHOR_TLC_JAVA_OPTS>-XX:TieredStopAtLevel=1</ANCHOR_TLC_JAVA_OPTS>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

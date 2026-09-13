@@ -61,7 +61,15 @@ public class TLCProcess : Runtime
         // a NullPointerException followed by "Module-Table lookup failure" naming whichever spec
         // happened to lose: a failure that points at an unrelated, perfectly good file. It cost
         // about one run in four before this line.
-        var argv = new List<string>
+        // Extra JVM flags, from ANCHOR_TLC_JAVA_OPTS. The same knob the Python runner reads, so
+        // there is one of them rather than two, and it is empty unless something sets it — a run
+        // started by a person gets whatever the JVM's own defaults are. The test suite sets
+        // -XX:TieredStopAtLevel=1, which is a large win when six model checks compete for the
+        // machine and a large LOSS on a search big enough to profit from the optimising compiler;
+        // tests/*/anchor.runsettings carries the measurements.
+        var argv = new List<string>(
+            (Environment.GetEnvironmentVariable("ANCHOR_TLC_JAVA_OPTS") ?? "")
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             $"-Djava.io.tmpdir={metadir}",
             "-cp", tools.Value, "tlc2.TLC", "-tool", "-metadir", metadir
