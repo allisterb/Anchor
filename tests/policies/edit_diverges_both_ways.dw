@@ -1,0 +1,45 @@
+// The edit that looks like it goes both ways, and does not. Paired with
+// edit_diverges_both_ways_old.dw, which is the version it replaces.
+//
+// This file exists for ONE assertion: that a permissiveness verdict is read from a session's
+// FIRST divergence and nothing after it. Every other fixture gives the same answer with or
+// without that rule, so without this pair the `~Diverged` guard in Vacuity.tla is a soundness
+// argument nothing checks.
+//
+// The session that discriminates:
+//
+//   attempt 1   Trade     this file PERMITS, the old file denies      -> the edit WIDENED
+//                         and the attempt records a Trade::response
+//   attempt 2   Approve   this file FORBIDS -- a Trade just happened  -> looks like NARROWING
+//                         -- the old file permits
+//
+// The second observation is not evidence about the old file. It sits on a history that only THIS
+// file can produce: under the old file attempt 1 was denied, so no Trade::response was ever
+// recorded, so the forbid below never arms and the divergence never arises. Counting it would
+// report INCOMPARABLE -- "this edit both adds and removes permissions" -- on the strength of a
+// trajectory the old policy cannot reach.
+//
+// The honest verdict is MORE PERMISSIVE, and that is what the guard produces.
+
+permit (
+    principal,
+    action == Anchor::Action::"Trade",
+    resource
+);
+
+permit (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+);
+
+// Armed only by a completed Trade, which is the whole point: under the old policy no Trade ever
+// completes, so this rule is unreachable there.
+forbid (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+)
+when temporal {
+    formerly within 1000s Anchor::Action::"Trade"::response{ }
+};

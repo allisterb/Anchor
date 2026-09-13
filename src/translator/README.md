@@ -46,30 +46,6 @@ the condition; this module reads it and never decides.
 importing a policy translator should not. `import translator` loads no `strands` module, and that
 is worth keeping true.
 
-## Why it is a package
-
-It was not one, and the shape of the damage is worth recording because it is the ordinary way a
-library fails to appear.
-
-The parser and schema reader sat in `tests/strands/` next to the harnesses that exercised them,
-every TLA+ emitter lived **inside `dogwood_differential.py`**, and `to_tla` lived inside a file
-whose other 400 lines build fixture graphs. So `dw_to_tla.py`, whose output is a checked-in spec,
-imported `tla_cond` from a test harness, and so did the vacuity checker. Nothing was wrong with the
-code; the dependency arrow just pointed the wrong way, and would have kept pointing that way into
-the MCP server.
-
-Two duplications had already appeared, each character for character, which is what the missing layer
-looked like from outside:
-
-- `UNITS` — the second/minute/hour/day table — in both `dogwood_parse.py` and `dogwood_differential.py`.
-- `policy_seq` — a policy list as a TLA+ sequence — in both `dw_to_tla.py` and `properties.py`.
-
-A third was worse than a duplication. Five harnesses each spelled out the TLC command line, and the
-`-Djava.io.tmpdir` flag that stops parallel runs corrupting each other's unpacked standard modules
-was missing from **all five** — the C# runner had carried it for a while with a comment explaining
-that it cost about one run in four. A copied command line is a command line that drifts. There is
-now one `run_tlc`, and the explanation lives with it.
-
 ## The boundary
 
 The library translates and runs. It does not decide what to check, and it does not decide what
@@ -78,6 +54,3 @@ walkers and fixture graphs are consumers and live in `tests/`.
 
 The test for whether something belongs here is whether the MCP server would need it to answer a
 question about an artefact it was handed.
-
-**Nothing here imports from `tests/`.** If that ever reverses, it will show up in `__init__.py`
-first.

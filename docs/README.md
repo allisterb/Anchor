@@ -4,8 +4,8 @@
 |---|---|
 | [`verifying-a-strands-graph.md`](verifying-a-strands-graph.md) | the procedure for taking a Strands `Graph` and establishing what it will and will not do |
 | [`model-providers.md`](model-providers.md) | the reviewing agent runs on **Amazon Bedrock or Google Gemini**; how to configure either, and what each is verified to do |
-| [`where-anchor-fits.md`](where-anchor-fits.md) | how Anchor compares to the CEL verifier, Cedar Analysis and Zelkova, why the temporal dimension is the differentiator, and what is worth building next |
-| [`the-agentic-loop.md`](the-agentic-loop.md) | the interface: why every **edit** gets a verdict, the propose-check-feedback-repair-decompose loop, and the build order for it |
+| [`agent/where-anchor-fits.md`](agent/where-anchor-fits.md) | how Anchor compares to the CEL verifier, Cedar Analysis and Zelkova, why the temporal dimension is the differentiator, and what is worth building next |
+| [`agent/the-agentic-loop.md`](agent/the-agentic-loop.md) | the interface: why every **edit** gets a verdict, the propose-check-feedback-repair-decompose loop, and the build order for it |
 | [`agent/`](agent) | internal working notes — handoffs, task writeups, and anything else produced while doing the work rather than describing it. **Gitignored**, so this directory is local to a machine and backed up separately; a fresh clone will not have it |
 | [`agent/HANDOFF.md`](agent/HANDOFF.md) | current state of the work, and findings worth not re-deriving. **Start here** if you are picking the project up — and if it is missing, that is why |
 

@@ -121,19 +121,33 @@ MaxTime == 2 * MaxAttempts
 VARIABLES
     trace,      \* the session's recorded trajectory -- all the engine can see
     fired,      \* indices of permits that have actually GRANTED something
-    mattered    \* TRUE once removing Target would have changed a verdict
+    widened,    \* TRUE once Policies ALLOWED something Compared denied
+    narrowed    \* TRUE once Policies DENIED something Compared allowed
 
-vars == <<trace, fired, mattered>>
+vars == <<trace, fired, widened, narrowed>>
+
+\* The old single `mattered` flag, which asked only WHETHER the two sets part company. It is
+\* now derived rather than stored, because the direction is the more useful question and
+\* carrying both would be carrying the same bit twice.
+Mattered == widened \/ narrowed
+
+\* Once they have parted company the histories are no longer comparable: this exploration
+\* drives the session with `Policies`, so after a disagreement it is walking a trajectory the
+\* other set would not have produced. Everything up to the FIRST disagreement is common ground;
+\* past it, nothing is. So a session contributes AT MOST ONE directional observation.
+Diverged == Mattered
 
 TypeOK ==
     /\ fired \subseteq DOMAIN Policies
-    /\ mattered \in BOOLEAN
+    /\ widened \in BOOLEAN
+    /\ narrowed \in BOOLEAN
     /\ Len(trace) \in 0..MaxTime
 
 Init ==
     /\ trace = << >>
     /\ fired = {}
-    /\ mattered = FALSE
+    /\ widened = FALSE
+    /\ narrowed = FALSE
 
 (***************************************************************************)
 (* Events carry exactly the fields the evaluator reads: action, kind,      *)
@@ -239,7 +253,14 @@ Attempt(action, input, output, who) ==
           \* sets agree up to the FIRST point they disagree, so up to that point they have
           \* produced the same history -- and this exploration reaches it. If they never
           \* disagree along any such history, the other set produced those same histories too.
-          /\ mattered' = (mattered \/ (ok # AllowedCompared(withReq, idx)))
+          \* Guarded by ~Diverged, which is what makes the DIRECTION sound rather than merely
+          \* the fact of a difference. Without the guard a session could widen at one step and
+          \* then, on a history only `Policies` can produce, appear to narrow at a later one --
+          \* and the pair would be reported as incomparable on the strength of a trajectory the
+          \* other set never reaches. At most one direction can hold at any single step, since
+          \* `ok` is one boolean, so the first disagreement sets exactly one of these.
+          /\ widened'  = (widened  \/ (~Diverged /\ ok /\ ~AllowedCompared(withReq, idx)))
+          /\ narrowed' = (narrowed \/ (~Diverged /\ ~ok /\ AllowedCompared(withReq, idx)))
 
 \* The agent may attempt anything, with any input, and an approver may return
 \* either verdict. All of it is behaviour, so a VACUOUS result holds whatever
@@ -261,6 +282,19 @@ NeverFires == Target \notin fired
 \* session where the two sets decide differently. Read it for whichever question was
 \* asked: the rule is load-bearing (Target > 0), or the edit changed behaviour
 \* (Target = 0). A clean run means no session of this length tells them apart.
-NeverMatters == ~mattered
+NeverMatters == ~Mattered
+
+\* The DIRECTIONAL pair, each also meant to fail, each checked in its own run because TLC stops
+\* at the first violated invariant and we want a witness for each direction separately.
+\*
+\*   NeverWidened violated   `Policies` permits a session `Compared` denies -- the edit ADDED a
+\*                           permission. This is the dangerous direction: a permission removed
+\*                           is a support ticket, a permission silently added is an incident.
+\*   NeverNarrowed violated  `Policies` denies a session `Compared` permits -- the edit REMOVED
+\*                           a permission.
+\*
+\* Neither violated is EQUIVALENT within the bound; both violated is INCOMPARABLE.
+NeverWidened  == ~widened
+NeverNarrowed == ~narrowed
 
 =============================================================================

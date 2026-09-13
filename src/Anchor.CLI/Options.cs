@@ -57,8 +57,11 @@ public class CheckOptions : Options
     public string Policy { get; set; } = string.Empty;
 
     [Option("against", Required = false, MetaValue = "OTHER.dw",
-        HelpText = "A second .dw file. Reports a session the two policies decide DIFFERENTLY instead " +
-                   "of checking each rule — the question to ask before replacing a policy.")]
+        HelpText = "A second .dw file — the version being replaced. Reports whether this policy is " +
+                   "MORE PERMISSIVE, LESS PERMISSIVE, EQUIVALENT or INCOMPARABLE to it, with a " +
+                   "witness session for each direction, instead of checking each rule. The question " +
+                   "to ask before replacing a policy: a permission removed is a support ticket, a " +
+                   "permission silently added is an incident.")]
     public string Against { get; set; } = string.Empty;
 
     [Option("event-schema", Required = false, MetaValue = "FILE.dwschema",
@@ -96,6 +99,18 @@ public class CheckOptions : Options
 
     [Option("verbose", Required = false, HelpText = "Include the raw TLC output for each rule.")]
     public bool Verbose { get; set; }
+
+    [Option("trace", Required = false,
+        HelpText = "Emit the result as JSON with the witness as structured EVENTS — action, kind, " +
+                   "time and the input/output values — instead of a one-line summary. For anything " +
+                   "that has to act on the answer rather than read it. Use with --against.")]
+    public bool Trace { get; set; }
+
+    [Option("keep", Required = false, MetaValue = "DIR",
+        HelpText = "Keep the generated TLA+ here instead of discarding it: the module built from " +
+                   "the policy text, the .cfg with the bounds, the raw TLC output, and a README " +
+                   "saying how to re-run it. For checking the model rather than trusting the verdict.")]
+    public string Keep { get; set; } = string.Empty;
 
     [Option("timeout", Required = false, HelpText = "Seconds before giving up (default 600).")]
     public int? Timeout { get; set; }

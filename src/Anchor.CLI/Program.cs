@@ -169,6 +169,8 @@ public static class Program
                 amount: opts.Amount,
                 maxFields: opts.MaxFields,
                 verbose: opts.Verbose ? true : null,
+                trace: opts.Trace ? true : null,
+                keep: Blank(opts.Keep),
                 smoke: opts.Smoke,
                 timeoutSeconds: opts.Timeout);
         }

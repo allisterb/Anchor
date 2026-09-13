@@ -1,0 +1,13 @@
+// The version being replaced by edit_diverges_both_ways.dw. See that file for what the pair is
+// for.
+//
+// Approvals are allowed unconditionally and trades are not allowed at all -- there is no permit
+// for Trade, so it is denied by default. That second fact is what makes the pair discriminating:
+// no trade ever completes under this policy, so no `Trade::response` is ever recorded, so the
+// forbid in the new file never arms along any history this policy can produce.
+
+permit (
+    principal,
+    action == Anchor::Action::"Approve",
+    resource
+);

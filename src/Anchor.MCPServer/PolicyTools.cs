@@ -67,13 +67,28 @@ public partial class PolicyTools : Runtime
         "IF IT DOES NOT FINISH, use `smoke` rather than lowering `attempts`. See that argument.")]
     public async Task<PolicyCheckResult> CheckPolicyAsync(
         [Description("Path to the .dw policy file, relative to the project directory.")] string policy,
-        [Description("Optional second .dw file. Given one, the tool stops checking rules and instead reports a session the two policies decide DIFFERENTLY -- the question to ask before replacing a policy with an edited version.")] string? against = null,
+        [Description("Optional second .dw file -- the version being replaced. Given one, the tool stops checking rules and instead reports whether `policy` is MORE PERMISSIVE, LESS PERMISSIVE, EQUIVALENT or INCOMPARABLE to it, with a witness session for each direction. This is the question to ask about an EDIT. Report the direction, never just that they differ: a permission removed is a support ticket, a permission silently added is an incident.")] string? against = null,
         [Description("Path to the .dwschema event schema the policy is deployed under. Pass it whenever one exists; see the note above about the unpinned reading.")] string? eventSchema = null,
         [Description("Path to a TLA+ module of your own that extends PolicyUnderTest and states what this policy is SUPPOSED to mean, with a companion .cfg naming its invariants. Use this for a claim the three built-in findings cannot express, such as 'SSH from the local range is permitted and every external source is denied'.")] string? property = null,
         [Description("Session length bound (default 3). This is the number that makes VACUOUS provisional.")] int? attempts = null,
         [Description("Numeric domain for input fields, 1..N (default 2).")] int? amount = null,
         [Description("Refuse a policy reading more than N input/output fields (default 4). The request space is the product of their domains, so this bounds the state space rather than soundness.")] int? maxFields = null,
         [Description("Include the raw TLC output for each rule. Verbose and rarely what you want.")] bool? verbose = null,
+        [Description(
+            "Return the result as JSON with the witness as STRUCTURED EVENTS -- action, kind, time " +
+            "and the input/output values -- instead of a one-line summary like 'Approve -> Trade'. " +
+            "Only meaningful together with `against`.\n\n" +
+            "Use this when you need to ACT on the witness rather than quote it: to say which input " +
+            "reached the decision, to propose a fix, or to re-check after editing. The prose " +
+            "summary names the actions and drops the values, so it cannot tell you that the session " +
+            "that slipped through had port 22 rather than 3389.")] bool? trace = null,
+        [Description(
+            "Directory to keep the generated TLA+ in, instead of discarding it: the module built " +
+            "from the policy text, the .cfg with the bounds, the raw TLC output, and a README " +
+            "saying how to re-run it by hand.\n\n" +
+            "For a reader who knows TLA+ and wants to check the model rather than take the verdict " +
+            "on trust. Offer it when someone disputes a result. The path is resolved inside the " +
+            "project directory and refused if it escapes.")] string? keep = null,
         [Description(
             "Run TLC as a random walk of N behaviours instead of exhaustively -- for a model too " +
             "big to exhaust, which is what raising `attempts` eventually produces. Try 1000.\n\n" +
@@ -100,6 +115,18 @@ public partial class PolicyTools : Runtime
         if (maxFields is int f) args.AddRange(["--max-fields", f.ToString()]);
         if (smoke is int s) args.AddRange(["--smoke", s.ToString()]);
         if (verbose is true) args.Add("--verbose");
+
+        // `--json` replaces the whole of stdout, the prose reading included, so the parsing below
+        // must not also try to read findings out of it. `Findings` stays empty and the JSON is
+        // carried in `Output` for the caller to parse -- which is what asked for it.
+        if (trace is true) args.Add("--json");
+
+        // Contained like every other path, but with the WRITE verb: this one is created, not read,
+        // and an agent choosing where a tool writes is exactly the case containment exists for.
+        if (!string.IsNullOrWhiteSpace(keep))
+        {
+            args.AddRange(["--keep", ProjectPath.Resolve(ProjectRoot, keep, nameof(keep), "Write")]);
+        }
 
         var timeout = TimeSpan.FromSeconds(timeoutSeconds ?? 600);
         var r = await PythonProcess.RunAsync(CheckerScript, [.. args], root: AnchorRoot,

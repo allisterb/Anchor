@@ -551,34 +551,60 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
-    /// Policy diff: is there a session two versions of a policy set decide differently? The
-    /// question a policy author actually has when editing a set somebody else wrote.
+    /// Permissiveness: did this edit <b>add</b> permissions, <b>remove</b> them, both, or
+    /// neither? The question a policy author actually has when editing a set somebody else
+    /// wrote — and "did they differ" is the weaker version of it that nobody can act on.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Same mechanism as the load-bearing check — compare two policy sets at every decision
     /// across every session — differing only in where the second set comes from. That is why
     /// there is no separate spec: a duplicated session model would drift, and this repo already
-    /// carries <c>src/translator/dw_to_tla.py --check</c> because copies drift.
+    /// carries <c>src/translator/dw_to_tla.py --check</c> because copies drift. The direction
+    /// comes from splitting one <c>mattered</c> flag into <c>widened</c> and <c>narrowed</c>,
+    /// each recorded only at a session's FIRST divergence — past that point the exploration is
+    /// walking a history the other set would never have produced, so a later disagreement is not
+    /// evidence about it.
     /// </para>
     /// <para>
-    /// <b>"No difference" is the answer that must never be wrong</b>, because it tells someone
-    /// their edit was safe. It rests on the action vocabulary being the <b>union</b> of both
-    /// files: take it from the first alone and an action only the second mentions is never
-    /// attempted, so the run reports no difference having never looked. The third case below
-    /// pins exactly that, and dropping the union turns it red.
+    /// The vocabulary is Cedar Analysis's — Equivalent / More Permissive / Less Permissive /
+    /// Incomparable — because agreeing with the neighbouring tool costs nothing. What differs is
+    /// the domain: Cedar compares a policy as a function of one <i>request</i>, and this compares
+    /// over <i>sessions</i>, which is the only way a rate limit or an approval window is visible
+    /// at all.
+    /// </para>
+    /// <para>
+    /// <b>EQUIVALENT is the answer that must never be wrong</b>, because it tells someone their
+    /// edit was safe. It rests on the action vocabulary being the <b>union</b> of both files:
+    /// take it from the first alone and an action only the second mentions is never attempted,
+    /// so the run reports no difference having never looked. The last case below pins exactly
+    /// that, and dropping the union turns it red.
     /// </para>
     /// </remarks>
     [PythonHarness("properties.py")]
-    public async Task PolicyDiffFindsASessionTheTwoVersionsDecideDifferently()
+    public async Task PolicyComparisonReportsWhichDirectionAnEditMoved()
     {
-        // One line apart: approvals permitted, versus forbidden.
-        var differs = await PythonHarness.RunAsync(
+        // One line apart: approvals permitted, versus forbidden. The first allows strictly more.
+        var wider = await PythonHarness.RunAsync(
             "src/checker/properties.py", "tests/policies/docs_trading.dw",
             "--against", "tests/policies/docs_trading_forbidden.dw");
 
-        Assert.True(differs.ExitCode == 0, differs.Output);
-        Assert.Contains("THEY DIFFER", differs.Output);
+        Assert.True(wider.ExitCode == 0, wider.Output);
+        Assert.Contains("MORE PERMISSIVE", wider.Output);
+        Assert.Contains("ApproveSale", wider.Output);
+
+        // THE SAME PAIR, SWAPPED. Antisymmetry is the cheapest real check available on a
+        // directional verdict: a bug that reported one direction regardless of argument order
+        // would pass every assertion above and fail here. The witness must survive the swap too,
+        // because it is the same session being described from the other side.
+        var narrower = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/docs_trading_forbidden.dw",
+            "--against", "tests/policies/docs_trading.dw");
+
+        Assert.True(narrower.ExitCode == 0, narrower.Output);
+        Assert.Contains("LESS PERMISSIVE", narrower.Output);
+        Assert.Contains("ApproveSale", narrower.Output);
+        Assert.DoesNotContain("MORE PERMISSIVE", narrower.Output);
 
         // Deleting the rule the checker called REDUNDANT. The two findings check each other:
         // "removing this changes no verdict" and "these files decide identically" are the same
@@ -588,8 +614,8 @@ public class HarnessTests : TestsRuntime
             "--against", "tests/policies/redundant_permit_minimal.dw");
 
         Assert.True(same.ExitCode == 0, same.Output);
-        Assert.Contains("no difference", same.Output);
-        Assert.DoesNotContain("THEY DIFFER", same.Output);
+        Assert.Contains("EQUIVALENT", same.Output);
+        Assert.DoesNotContain("PERMISSIVE", same.Output);
 
         // The difference is on an action only the SECOND file mentions, so this passes only if
         // the vocabulary spans both.
@@ -598,8 +624,136 @@ public class HarnessTests : TestsRuntime
             "--against", "tests/policies/added_action.dw");
 
         Assert.True(added.ExitCode == 0, added.Output);
-        Assert.Contains("THEY DIFFER", added.Output);
+        Assert.Contains("LESS PERMISSIVE", added.Output);
         Assert.Contains("Refund", added.Output);
+
+        // THE ONLY CASE THAT COVERS THE ~Diverged GUARD, and it exists because nothing else did:
+        // removing the guard leaves every assertion above green. Here a session widens at the
+        // first attempt (Trade, newly permitted) and then appears to narrow at the second, on a
+        // history only the NEW policy can produce — the old one denied the trade, so the forbid
+        // that fires here never arms there. Counting the second observation reports INCOMPARABLE
+        // on the strength of a trajectory the old policy cannot reach.
+        var firstDivergenceOnly = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/edit_diverges_both_ways.dw",
+            "--against", "tests/policies/edit_diverges_both_ways_old.dw");
+
+        Assert.True(firstDivergenceOnly.ExitCode == 0, firstDivergenceOnly.Output);
+        Assert.Contains("MORE PERMISSIVE", firstDivergenceOnly.Output);
+        Assert.DoesNotContain("INCOMPARABLE", firstDivergenceOnly.Output);
+    }
+
+    /// <summary>
+    /// <c>--keep</c> preserves the model a verdict came from, for every question the checker
+    /// answers — not just the comparison it was first written for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A verdict from a model checker is only as good as the model.</b> These were written to a
+    /// temp directory and deleted on the way out, so nobody could examine the thing the answer
+    /// came from — an awkward position for a project whose claim is that its answers are
+    /// checkable.
+    /// </para>
+    /// <para>
+    /// The per-rule case is the one that needs asserting rather than eyeballing: each rule runs
+    /// under a different <c>Target</c>, so a single kept config would silently describe whichever
+    /// rule happened to be checked last. This pins one config and one output PER RULE, and pins
+    /// that the <c>Target</c> values actually differ.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task KeptArtifactsCoverEveryRuleNotJustTheLast()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "anchor-keep-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // dead_forbid.dw is one permit and one forbid, so the permit draws both questions
+            // (NeverMatters and NeverFires) and the forbid draws only the first.
+            var run = await PythonHarness.RunAsync(
+                "src/checker/properties.py", "tests/policies/dead_forbid.dw", "--keep", dir);
+
+            Assert.True(run.ExitCode == 0, run.Output);
+
+            foreach (var name in new[] { "PolicyUnderTest.tla", "Vacuity.tla",
+                                         "DogwoodSemantics.tla", "README.md",
+                                         "rule-1-NeverMatters.cfg", "rule-1-NeverMatters.tlc.txt",
+                                         "rule-1-NeverFires.cfg",
+                                         "rule-2-NeverMatters.cfg", "rule-2-NeverMatters.tlc.txt" })
+            {
+                Assert.True(File.Exists(Path.Combine(dir, name)), $"missing {name}");
+            }
+
+            // The forbid is not a permit, so it is never asked whether it FIRES.
+            Assert.False(File.Exists(Path.Combine(dir, "rule-2-NeverFires.cfg")));
+
+            // Each rule's config targets that rule. Equal targets would mean the kept configs are
+            // copies of one run wearing different names.
+            Assert.Contains("Target = 1", await File.ReadAllTextAsync(Path.Combine(dir, "rule-1-NeverMatters.cfg")));
+            Assert.Contains("Target = 2", await File.ReadAllTextAsync(Path.Combine(dir, "rule-2-NeverMatters.cfg")));
+
+            // The README must name a jar that exists, or the reproduction instructions are a
+            // promise that cannot be kept. It said `tla2tools.jar` once; the file is versioned.
+            var readme = await File.ReadAllTextAsync(Path.Combine(dir, "README.md"));
+            var jar = readme.Split('\n').First(l => l.Contains("tlc2.TLC"))
+                            .Split("-cp ")[1].Split(" tlc2.TLC")[0];
+            Assert.True(File.Exists(jar), $"README names a jar that does not exist: {jar}");
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The same verdict as <see cref="PolicyComparisonReportsWhichDirectionAnEditMoved"/>, but as
+    /// JSON carrying the witness as structured EVENTS — for a reader that has to act on the answer
+    /// rather than read it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The prose summary loses exactly what a repair loop needs.</b> "ApproveSale" names the
+    /// action and drops the values, so it cannot say which input reached the decision — and an
+    /// agent asked to fix the policy has to know whether the session that slipped through carried
+    /// port 22 or port 3389. This asserts the values survive.
+    /// </para>
+    /// <para>
+    /// Also asserts stdout is JSON and <i>only</i> JSON. The prose reading is printed before the
+    /// verdict on the normal path, and leaving it in front of the document would make every
+    /// caller strip a preamble before parsing — the same class of bug as a stray
+    /// <c>Console.WriteLine</c> in the stdio transport.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task PolicyComparisonEmitsTheWitnessAsStructuredEvents()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/docs_trading.dw",
+            "--against", "tests/policies/docs_trading_forbidden.dw", "--json");
+
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        // Parses as a whole document, so nothing precedes or follows it.
+        using var doc = System.Text.Json.JsonDocument.Parse(run.Output);
+        var root = doc.RootElement;
+
+        Assert.Equal("MORE PERMISSIVE", root.GetProperty("verdict").GetString());
+        Assert.True(root.GetProperty("bound").GetProperty("exhaustive").GetBoolean());
+
+        // The direction that found nothing is null rather than absent or an empty object: a caller
+        // must be able to tell "no permissions removed" from "this field was not computed".
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, root.GetProperty("removed").ValueKind);
+
+        var session = root.GetProperty("added").GetProperty("session");
+        Assert.True(session.GetArrayLength() >= 1, run.Output);
+
+        var first = session[0];
+        Assert.Equal("ApproveSale", first.GetProperty("action").GetString());
+        Assert.Equal("request", first.GetProperty("kind").GetString());
+
+        // THE POINT OF THE WHOLE THING: the input VALUES, which the prose form discards. `stock`
+        // is the field docs_trading.dw joins on, and it arrives as a plain number rather than as
+        // the tagged {k,v} record the model uses internally.
+        Assert.Equal(System.Text.Json.JsonValueKind.Number,
+            first.GetProperty("input").GetProperty("stock").ValueKind);
     }
 
     /// <summary>

@@ -27,7 +27,7 @@ policy text says so. If you report one, say plainly that the rule grants nothing
 ## Every negative answer is bounded, and the bound is printed
 
 `VACUOUS` means *no session of up to `attempts` attempts makes it grant*. It does not mean "never".
-The same applies to `REDUNDANT`, `DEAD`, and to `no difference` from an `against` comparison.
+The same applies to `REDUNDANT`, `DEAD`, and to `EQUIVALENT` from an `against` comparison.
 
 So when you report one of these, report the bound with it. "Vacuous within 3 attempts" is true;
 "vacuous" alone overstates what was checked. Raising `attempts` trades runtime for confidence.
@@ -38,6 +38,29 @@ A `live` verdict has no such caveat: a witness exists, and it was exhibited.
 
 For a `live` rule the note carries the session that proves it, as the actions attempted in order —
 `Approve -> Trade`. That is the shortest thing to quote when explaining why a rule matters.
+
+## Comparing an edit: report the DIRECTION, never just "they differ"
+
+Given `against`, the checker answers a different question — not "is each rule doing something" but
+**what did this edit change**. Four verdicts:
+
+| | |
+|---|---|
+| `MORE PERMISSIVE` | the new set allows sessions the old one denied — **it added permissions** |
+| `LESS PERMISSIVE` | the new set denies sessions the old one allowed |
+| `EQUIVALENT` | no session within the bound tells them apart |
+| `INCOMPARABLE` | both at once, which is usually a mistake rather than an intention |
+
+**`MORE PERMISSIVE` is the one to lead with, even when the person asked about the other
+direction.** Someone editing a policy usually wants to know what they took away, because that is
+what generates complaints. What they need to know is what they added: a permission removed is a
+support ticket, a permission silently added is an incident. Quote the `ADDED` witness session.
+
+Do not soften `INCOMPARABLE` into "some changes". It means the edit moved in both directions at
+once — almost always a condition that was rewritten rather than extended, and worth asking about.
+
+`EQUIVALENT` is a claim of absence, so it carries the bound like every other one. It licenses "no
+session of up to N attempts tells them apart", not "the edit is safe".
 
 ## A refusal is not a pass
 
