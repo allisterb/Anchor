@@ -41,8 +41,10 @@ A review needs credentials, a network call and a bill. Everything underneath it 
 |---|---|---|
 | [`tests/strands/agent_wiring.py`](../../tests/strands/agent_wiring.py) | no | the server launches, every tool is advertised, every article is reachable both as a tool and as a resource, a real check runs, containment holds, a refusal is still a refusal — and Bedrock builds a client without reading `~/.aws`, signing with the bearer token, which is what keeps a native dependency out of the lock |
 | [`tests/strands/repair_loop.py`](../../tests/strands/repair_loop.py) | no | the repair loop's mechanics: a defect is caught, the objection reaches the next round, the bound bounds, a refusal is data rather than a crash, and `no_widening` is enforced in code |
+| [`tests/strands/clarify_readings.py`](../../tests/strands/clarify_readings.py) | no | that a proposed ambiguity is VERIFIED before anyone is asked: readings deciding every session alike are not raised, and an uncheckable one is not counted as agreement |
 | `policy_agent.py` | yes | whether a model given only a thin prompt reports honestly |
 | `repair.py` | yes | whether a model can act on a counterexample |
+| `clarify.py` | yes | whether a model notices that a request admits more than one policy |
 
 That split earned itself immediately. Building the agent found a bug nothing else had: **`CheckPolicy`
 hung forever over stdio** — five seconds over HTTP, never over stdio — because `PythonProcess` did
@@ -92,6 +94,44 @@ NO ACCEPTED CANDIDATE after 2 round(s).
 Round 2 is the interesting one: pressed by an objection it could not satisfy, the model produced
 something invalid. The loop reported that and stopped, rather than accepting a plausible-looking
 answer — and the run exits 1. **A loop that cannot fail is a loop that will not stop.**
+
+## Ambiguity, before a policy exists
+
+```bash
+python src/agent/clarify.py firewall.dw --ask "also open RDP in addition to SSH"
+```
+
+A verifier answers questions about a policy that exists. It cannot tell you the **request** was
+ambiguous, because by the time it runs a reading has already been chosen — silently, by whatever
+wrote the policy. *In addition to* what, exactly: the same authentication requirement? the same
+rate limit? a separate allowance of its own?
+
+**The readings are compared against each other, not merely listed.** A model can always manufacture
+a distinction; whether one exists is a question with an answer. Real output:
+
+```
+  (a) RDP permitted, but only from the local network, just like SSH
+  (b) RDP permitted from any origin; SSH still local-only
+  (c) Any connection from the local network is permitted
+
+  (b) is MORE PERMISSIVE than (a) -- it newly allows:
+      1. Connect(origin = "external", port = 3389)  allowed
+
+  (c) is MORE PERMISSIVE than (a) -- it newly allows:
+      1. Connect(origin = "local", port = 3390)  allowed
+```
+
+Those two witnesses are the content. (b) lets RDP in **from outside**; (c) opens an arbitrary port,
+which is how you can tell it opened everything rather than just RDP.
+
+**Silence is a feature.** Readings that decide every session alike are not raised, however
+different their text — an assistant that asks a clarifying question every time trains people to
+click past it. And a reading the checker could not answer about is reported as unchecked rather
+than counted as agreement: *"I could not tell"* and *"they are the same"* are different answers and
+only one of them is reassuring.
+
+Exit codes: **3** when a person should choose, 0 when there is nothing to ask — so a script can
+branch on "needs a human" without parsing prose.
 
 ## Configuration
 

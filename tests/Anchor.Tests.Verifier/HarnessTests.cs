@@ -643,6 +643,37 @@ public class HarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Ambiguity reporting: a request that admits more than one policy is raised <b>only when the
+    /// readings actually decide something differently</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A verifier answers questions about a policy that exists; it cannot say the <i>request</i>
+    /// was ambiguous, because by then a reading has already been chosen — silently, by whatever
+    /// wrote the policy. That gap is what this closes, and the competing readings are compared
+    /// against each other rather than merely listed.
+    /// </para>
+    /// <para>
+    /// <b>The negative case is the one that keeps it honest.</b> A model can always manufacture a
+    /// distinction, and an assistant that asks a clarifying question every time trains people to
+    /// click past it. Two readings that decide every session alike must not reach a person however
+    /// different their text — and "I could not check that one" must not read as "they agree".
+    /// </para>
+    /// </remarks>
+    [PythonHarness("clarify_readings.py", "strands")]
+    public async Task AmbiguityIsVerifiedBeforeItIsRaised()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/clarify_readings.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("and it comes with a session, not just a verdict", run.Output);
+        Assert.Contains("readings that agree on every session are NOT material", run.Output);
+        Assert.Contains("an unusable reading is excluded from a no-difference claim", run.Output);
+        Assert.Contains("no readings is not the same as no ambiguity", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
+    /// <summary>
     /// Blame minimisation: <b>which</b> part of an inert rule made it inert. A verdict sends a
     /// reader back to re-read their own condition; a minimal core is an instruction.
     /// </summary>
