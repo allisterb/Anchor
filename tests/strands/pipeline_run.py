@@ -1,25 +1,30 @@
 """`src/agent/pipeline.py` end to end, and the claim that makes it worth having.
 
-Three things are checked here, and the third is the one the whole graph exercise was for:
+Five scenarios, and the first is the one the whole graph exercise was for:
 
-  1. A REJECTED DRAFT still reports. The static gate turns the draft away, `score`, `check` and
-     `answer` never run -- no TLC, no second model call -- and findings.md says what was rejected
-     and that nothing was verified.
-  2. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts rather than the
-     drafter's reasoning.
-  3. THE SHAPE THAT RUNS IS THE SHAPE THAT WAS CHECKED. `to_tla` over the graph `pipeline.build`
-     actually returns must carry both gate decisions as ExclusivePairs, and must satisfy
+  1. THE SHAPE THAT RUNS IS THE SHAPE THAT WAS CHECKED. `to_tla` over the graph `pipeline.build`
+     actually returns must carry both gate decisions as exclusive pairs, and must satisfy
      `AlwaysReports` -- the same claim, over the same module, that tests/strands/anchor_workflow.py
      proves about the `gated` variant. Without this the design work checked a drawing.
+  2. A DRAFT THAT WILL NOT COMPILE is retried, having been told the line and the token. This is
+     the failure a live run hit, over one stray `*`. The retry lives inside the `draft` node, so
+     the graph stays acyclic -- asserted, because a cycle would put it outside what either model
+     can express.
+  3. RUNNING OUT OF ROUNDS is not a crash and not a silence: the last attempt is judged by the
+     same gates, and findings.md says the allowance ran out.
+  4. A REJECTED DRAFT still reports, without a TLC run or a second model call.
+  5. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
+     rather than the drafter's module.
 
-No provider and no credentials: both agents are scripted, so the only cost is the TLC runs behind
-the `score` gate in scenario 2.
+No provider and no credentials: every agent is scripted, so the only cost is the TLC runs behind
+the `score` gate.
 
     python tests/strands/pipeline_run.py
 """
 
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 from collections.abc import AsyncGenerator
@@ -73,8 +78,33 @@ class Fixed(Model):
                             "metrics": {"latencyMs": 0}}}
 
 
+class Scripted(Fixed):
+    """A different reply per call, so a retry can be told apart from a repeat."""
+
+    def __init__(self, *texts: str) -> None:
+        super().__init__(texts[0])
+        self.texts, self.prompts = texts, []
+
+    async def stream(self, messages, *a, **kw):                # type: ignore[override]
+        self.prompts.append(pipeline.incoming(messages))
+        self.text = self.texts[min(self.calls, len(self.texts) - 1)]
+        async for event in super().stream(messages, *a, **kw):
+            yield event
+
+
 def agent(text: str, name: str) -> Agent:
     return Agent(model=Fixed(text), callback_handler=None, name=name)
+
+
+def scripted(name: str, *texts: str) -> Agent:
+    return Agent(model=Scripted(*texts), callback_handler=None, name=name)
+
+
+# The draft a live run actually produced: right in every respect but one stray `*` after a comment
+# terminator, which SANY rejects and no amount of re-reading catches.
+WONT_COMPILE = "===MODULE===\n" + (POLICIES / "firewall_unparseable.tla").read_text(
+    encoding="utf-8").replace("MODULE firewall_unparseable", "MODULE Intent", 1) + (
+    "\n===CONFIG===\n" + (POLICIES / "firewall.cfg").read_text(encoding="utf-8"))
 
 
 # A draft that holds and discriminates: tests/policies/firewall.tla, renamed to the module name the
@@ -110,15 +140,66 @@ def check(label: str, ok: bool, detail: str = "") -> None:
             print(f"          {detail[:400]}")
 
 
-def run_pipeline(draft: str, out: Path, mutants: int = 2):
+def run_pipeline(draft, out: Path, mutants: int = 2, rounds: int = 3):
     run = pipeline.Run(policy=POLICIES / "firewall.dw",
                        intent="SSH from the local range is permitted, and every external source "
                               "is denied.",
-                       out=out, mutants=mutants)
-    drafter, answerer = agent(draft, "draft"), agent("The property held.", "answer")
+                       out=out, mutants=mutants, rounds=rounds)
+    drafter = draft if isinstance(draft, Agent) else agent(draft, "draft")
+    answerer = agent("The property held.", "answer")
     graph = pipeline.build(run, drafter=drafter, answerer=answerer)
     result = graph("State and check the intention for firewall.dw.")
     return run, result, [n.node_id for n in result.execution_order], answerer
+
+
+def retries() -> None:
+    """The failure a live run hit: a module that will not compile, fixed by being told where."""
+    print("\nA draft that does not compile, and the round that fixes it")
+    print("-" * 78)
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        drafter = scripted("draft", WONT_COMPILE, GOOD)
+        run, result, ran, _ = run_pipeline(drafter, Path(tmp))
+
+        print(f"  ran {len(ran)}/{result.total_nodes}: {', '.join(ran)}  "
+              f"({run.round} drafting round(s))")
+        check("it took a second round", run.round == 2, str(run.round))
+        check("and the run then completed", set(ran) == set(pipeline.STAGES), str(sorted(set(ran))))
+        check("not rejected", run.rejected_at == "", run.rejected_at)
+
+        # A complaint without a LOCATION is one no round can act on. SANY has it; nothing else in
+        # the pipeline does.
+        second = drafter.model.prompts[1]                      # type: ignore[attr-defined]
+        check("round 2 was told the module did not compile",
+              "did not compile" in second, second[:200])
+        check("...and where SANY choked",
+              "Parse Error" in second and re.search(r"at line \d+, column \d+", second) is not None,
+              second[-400:])
+
+        # THE RETRY IS INSIDE ONE NODE, which is why the graph is still acyclic and still the
+        # shape the models checked. If `draft` ever starts appearing twice, a cycle has been
+        # introduced and neither model can express it -- see stage_draft's docstring.
+        check("the graph stayed acyclic: draft ran once", ran.count("draft") == 1, str(ran))
+
+
+def exhausted() -> None:
+    """Running out of rounds is not a crash, and must not be a silent one either."""
+    print("\nRounds exhausted")
+    print("-" * 78)
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        drafter = scripted("draft", WONT_COMPILE)              # never improves
+        run, result, ran, answerer = run_pipeline(drafter, Path(tmp), rounds=2)
+
+        print(f"  ran {len(ran)}/{result.total_nodes}: {', '.join(ran)}  "
+              f"({run.round} round(s), exhausted={run.exhausted})")
+        check("every round was used", run.round == 2, str(run.round))
+        check("and the allowance is recorded as spent", run.exhausted is True)
+        check("the run was NOT aborted", result.status.value != "failed", str(result.status))
+        check("report still ran", "report" in ran, str(ran))
+        check("the answerer was not invoked", answerer.model.calls == 0)
+
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("findings.md says the allowance ran out", "allowance ran out" in text, text[:400])
+        check("...and that nothing was verified", "nothing here was verified" in text)
 
 
 def rejected_path() -> None:
@@ -215,6 +296,8 @@ def main() -> int:
     print("=" * 78)
 
     same_object()
+    retries()
+    exhausted()
     rejected_path()
     accepted_path()
 

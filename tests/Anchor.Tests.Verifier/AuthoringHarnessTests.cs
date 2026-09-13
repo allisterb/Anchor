@@ -202,6 +202,25 @@ public class AuthoringHarnessTests : TestsRuntime
 
         // And the claim the whole graph exercise was for.
         Assert.Contains("ok    AlwaysReports HOLDS on the graph that actually runs", run.Output);
+
+        // The retry, which exists because a live run lost a semantically perfect module to one
+        // stray `*`. A round that is not told WHERE cannot fix it, so the location is pinned too.
+        Assert.Contains("ok    it took a second round", run.Output);
+        Assert.Contains("ok    ...and where SANY choked", run.Output);
+
+        // AND THAT IT IS NOT A CYCLE. A retry edge in the graph would put this shape outside what
+        // either model can express — `oracle` is fixed per behaviour, so a retry edge cannot say
+        // "again, then stop", and StartBatch increments `runs` with no guard. If `draft` ever runs
+        // twice, everything proved about this graph stops applying to it.
+        Assert.Contains("ok    the graph stayed acyclic: draft ran once", run.Output);
+
+        // Running out of rounds ends in a report, not a stopped run.
+        Assert.Contains("ok    the run was NOT aborted", run.Output);
+        Assert.Contains("ok    findings.md says the allowance ran out", run.Output);
+
+        // The bound travels with the verdict. A live run reported "for all possible requests and
+        // scenarios" over a property ranging across three ports and two origins.
+        Assert.Contains("ok    the answerer was told what the property RANGES OVER", run.Output);
     }
 
     #endregion

@@ -115,6 +115,26 @@ criteria stay in code.
 and a [`verdict()`](../annotations) pair routes on it — declared as *one* decision, so exactly one
 arm fires. A rejection costs nothing downstream (no TLC, no second model call) and still reports.
 
+**The retry is inside `draft`, not in the graph**, and that is a constraint rather than a
+preference. A retry is a cycle, and neither model can express one: `oracle` is chosen in `Init` and
+never changes, so a retry edge cannot mean "again, then stop", and `StrandsGraph`'s `StartBatch`
+increments `runs` with no guard, so a cycle breaks `TypeOK`. Keeping the loop in one node keeps the
+graph acyclic and every property proved about it true — at the price that the rounds are invisible
+to the model. Only the cheap checks are in the loop: SANY (~1s) and `preflight` (milliseconds).
+`score` runs TLC per mutant and stays outside, one shot.
+
+**Limits are ours to set, and two of them end a run with no report.** `--max-node-executions` and
+`--execution-timeout` make the executor set `FAILED` and return from the batch loop; `--node-timeout`
+fails a node, which fail-fasts. None of those reaches `report`. So the cap is set above what the
+graph can use and `--rounds` is what actually bounds the work — running out of rounds still reports.
+
+| flag | default | note |
+|---|---|---|
+| `--rounds` | 3 | drafting attempts. One model call plus ~1s of SANY each |
+| `--max-node-executions` | `2 × stages` | a backstop; hitting it produces **no findings.md** |
+| `--node-timeout` | none | a timed-out node fail-fasts the run |
+| `--mutants` | 8 | how many broken policies the `score` gate tries |
+
 The shape was chosen by checking four properties against four wirings in
 [`tests/strands/anchor_workflow.py`](../../tests/strands/anchor_workflow.py), and
 [`tests/strands/pipeline_run.py`](../../tests/strands/pipeline_run.py) re-proves `AlwaysReports`

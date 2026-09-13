@@ -172,6 +172,11 @@ class Run:
     event_schema: Path | None = None
     module_name: str = "Intent"
     mutants: int = 8
+    rounds: int = 3
+
+    round: int = 0
+    attempts: list[str] = field(default_factory=list)
+    exhausted: bool = False
 
     vocab: dict = field(default_factory=dict)
     module: str = ""
@@ -203,6 +208,67 @@ def stage_describe(run: Run, _: str) -> str:
         raise RuntimeError(f"could not read {run.policy.name}: {run.vocab.get('_why')}")
     run.vocab["requiredModuleName"] = run.module_name
     return author.draft_prompt(run.vocab, run.intent)
+
+
+def stage_draft(run: Run, asked: str, drafter) -> str:
+    """Propose a module, and try again when it will not compile or says nothing.
+
+    THE RETRY IS HERE AND NOT IN THE GRAPH, deliberately. A retry is a cycle, and neither model
+    can express one: `oracle` is chosen in Init and never changes, so a retry edge cannot say
+    "again, then stop", and StrandsGraph's StartBatch increments `runs` with no guard, so a cycle
+    breaks TypeOK's `runs \\in 0..MaxRuns`. A cyclic graph here would be a graph nothing checks.
+    Keeping the loop inside one node keeps the whole shape acyclic and every property we proved
+    about it true -- at the price that these rounds are invisible to the model, which is a real
+    limitation and is stated rather than hidden.
+
+    ONLY THE CHEAP GATES ARE IN THE LOOP: SANY (~1s) and `preflight` (milliseconds). `score` runs
+    TLC once per mutant and stays outside, one shot -- a rejection there ends the run with a
+    report, which is what `AlwaysReports` guarantees.
+    """
+    run.out.mkdir(parents=True, exist_ok=True)
+    scratch = run.out / f"{run.module_name}.tla"
+
+    feedback = ""
+    for attempt in range(1, max(1, run.rounds) + 1):
+        run.round = attempt
+        prompt = author.draft_prompt(run.vocab, run.intent, feedback) if feedback else asked
+        text = str(drafter(prompt)).strip()
+        module, config = author.parse_draft(text)
+        run.attempts.append(text)
+
+        if not module.strip() or not config.strip():
+            feedback = ("Your reply did not contain both files. Return the module between "
+                        "===MODULE=== and ===CONFIG===, and the .cfg after ===CONFIG===.")
+            continue
+
+        # DOES IT COMPILE? The failure a live run actually hit, and the cheapest to fix: SANY
+        # names the line, the column and the token, and one more round is seconds.
+        scratch.write_text(module, encoding="utf-8")
+        scratch.with_suffix(".cfg").write_text(config, encoding="utf-8")
+        ok, out = author.compiles(run.policy, scratch, event_schema=run.event_schema)
+        if not ok:
+            feedback = ("Your module did not compile. Fix exactly this and return the whole "
+                        f"module again:\n\n{out[:2000]}")
+            continue
+
+        # AND DOES IT SAY ANYTHING? Free, and it is the other way a draft comes back useless.
+        try:
+            said = author.preflight(module, config, run.module_name)
+        except Exception as e:                              # noqa: BLE001 - fed back, not raised
+            feedback = f"Your module could not be read: {e}"
+            continue
+        if said:
+            feedback = "Your draft was rejected:\n\n" + "\n".join(said) + "\n\nTry again."
+            continue
+
+        return text                                          # the gate nodes still judge it
+
+    # Rounds exhausted. The last attempt is passed on ANYWAY rather than raising: the gates below
+    # are what refuse a draft, and `report` is downstream of them. A node that raised here would
+    # fail-fast the run and produce no findings.md at all -- the one outcome this shape exists to
+    # prevent.
+    run.exhausted = True
+    return run.attempts[-1] if run.attempts else ""
 
 
 def stage_preflight(run: Run, said: str) -> str:
@@ -292,6 +358,10 @@ def stage_report(run: Run, said: str) -> str:
     run.findings = run.out / "findings.md"
 
     lines = [f"# {run.policy.name}", "", f"**Stated intention.** {run.intent}", ""]
+    if run.round > 1 or run.exhausted:
+        lines += [f"*Drafted in {run.round} of {run.rounds} attempt(s)"
+                  + (", and the allowance ran out -- what follows is the last attempt, judged by "
+                     "the same gates as any other." if run.exhausted else ".") + "*", ""]
     if run.rejected_at:
         lines += [f"## No property was checked: the draft was rejected at `{run.rejected_at}`", "",
                   "The gate below is a criterion in code, not a judgement a model was asked to "
@@ -320,7 +390,8 @@ def computed(run: Run, fn, name: str) -> Agent:
     return Agent(model=Computed(run, fn), callback_handler=None, name=name)
 
 
-def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None):
+def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None, *,
+          max_node_executions: int | None = None, node_timeout: float | None = None):
     """The graph. `gated` from tests/strands/anchor_workflow.py, wired to the real stages.
 
     The two agents are injected so the pipeline can be exercised without a provider -- and so that
@@ -339,19 +410,30 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None)
     preflight_ok, preflight_no = verdict("preflight")
     score_ok, score_no = verdict("score")
 
+    # THE SEPARATION, asserted here because the graph no longer gets it free. While `draft` was
+    # the drafting Agent itself, GraphBuilder refused one instance as two nodes; now that the
+    # retry loop wraps it, the drafter is not a node and nobody else is checking.
+    if drafter is answerer:
+        raise ValueError("the agent that drafts the property cannot be the agent that reports on "
+                         "it: asked for both, a model finds a trivial property the cheapest way "
+                         "to pass, and a reporter that wrote the claim is not reviewing it")
+
     b = GraphBuilder()
-    # A REAL BOUND, not a way to quiet the warning GraphBuilder logs when there is none. Its
-    # concern is a cycle running forever, and this graph is acyclic today -- but a retry round is
-    # the obvious next change here, and a retry IS a cycle. Twice the stage count leaves room for
-    # one and still stops.
+    # A BACKSTOP, and it must never be what stops this run. Hitting it is not a graceful finish:
+    # the executor sets status FAILED and returns from the batch loop (graph.py:787), so `report`
+    # never runs and there is no findings.md -- the precise outcome `AlwaysReports` exists to
+    # forbid. So the cap is set above what the graph can possibly use, and the thing that actually
+    # bounds the work is `rounds`, inside `draft`, where running out still routes to `report`.
     #
-    # Deliberately NOT set_execution_timeout: the `score` gate runs TLC once per mutant, a wall
-    # clock bound would turn a slow-but-correct check into a failed node, and fail-fast would take
-    # the whole run down with it. `author.score` carries its own timeout, where the thing being
-    # timed is known.
-    b.set_max_node_executions(len(STAGES) * 2)
+    # Deliberately NOT set_execution_timeout: the `score` gate runs TLC once per mutant, and a
+    # wall-clock bound would turn a slow-but-correct check into a stopped run with no report, for
+    # the same reason. `author.score` carries its own timeout, where what is being timed is known.
+    b.set_max_node_executions(max_node_executions or len(STAGES) * 2)
+    if node_timeout is not None:
+        b.set_node_timeout(node_timeout)
+
     b.add_node(computed(run, stage_describe, "describe"), "describe")
-    b.add_node(drafter, "draft")
+    b.add_node(computed(run, lambda r, t: stage_draft(r, t, drafter), "draft"), "draft")
     b.add_node(computed(run, stage_preflight, "preflight"), "preflight")
     b.add_node(computed(run, stage_score, "score"), "score")
     b.add_node(computed(run, stage_check, "check"), "check")
@@ -379,6 +461,17 @@ def main() -> int:
     p.add_argument("--event-schema", type=Path, default=None)
     p.add_argument("--mutants", type=int, default=8)
     p.add_argument("--name", default="Intent", help="the property module's name")
+    p.add_argument("--rounds", type=int, default=3,
+                   help="drafting attempts. A round costs one model call plus ~1s of SANY; "
+                        "running out still reports (default: 3)")
+    p.add_argument("--max-node-executions", type=int, default=None,
+                   help="backstop on total node executions. Hitting it STOPS THE RUN WITH NO "
+                        "REPORT, so it is set above what the graph can use; lower it only to "
+                        "observe that behaviour")
+    p.add_argument("--node-timeout", type=float, default=None,
+                   help="per-node seconds. A node that times out fails, and a failed node "
+                        "fail-fasts the whole run -- so this too can end a run with no report. "
+                        "`score` runs TLC per mutant and is the one that would hit it")
     p.add_argument("--verbose", action="store_true",
                    help="leave third-party logging alone; see the note below")
     args = p.parse_args()
@@ -395,9 +488,11 @@ def main() -> int:
 
     run = Run(policy=args.policy, intent=args.intent,
               out=args.out or args.policy.parent / "anchor",
-              event_schema=args.event_schema, module_name=args.name, mutants=args.mutants)
+              event_schema=args.event_schema, module_name=args.name, mutants=args.mutants,
+              rounds=args.rounds)
 
-    graph = build(run)
+    graph = build(run, max_node_executions=args.max_node_executions,
+                  node_timeout=args.node_timeout)
     result = graph(f"State and check the intention for {args.policy.name}.")
 
     ran = [n.node_id for n in result.execution_order]

@@ -91,6 +91,24 @@ def describe(policy: Path, event_schema: Path | None = None) -> dict:
         return {"_failed": True, "_why": (proc.stderr or proc.stdout).strip()[-1200:]}
 
 
+def compiles(policy: Path, module: Path, *, event_schema: Path | None = None,
+             timeout: int = 300) -> tuple[bool, str]:
+    """Does this module parse and resolve? SANY, about a second, against minutes for `score`.
+
+    NEEDS THE POLICY, and that is not incidental: a property module EXTENDS `PolicyUnderTest`,
+    which is generated from the policy, so "does it compile" is only answerable against a
+    particular one. Parsing the module alone reports the whole vocabulary missing.
+
+    The output is the drafter's feedback when this fails, so it is returned whole -- SANY names the
+    line, the column and the token, and a complaint without those is one no next round can act on.
+    """
+    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module), "--parse"]
+    if event_schema is not None:
+        args += ["--event-schema", str(event_schema)]
+    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
+
+
 def score(policy: Path, module: Path, *, event_schema: Path | None = None,
           mutants: int = 8, timeout: int = 3600) -> dict:
     """Check a property AND ask whether it would notice the policy breaking.
