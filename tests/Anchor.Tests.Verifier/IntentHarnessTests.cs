@@ -340,6 +340,15 @@ public class IntentHarnessTests : TestsRuntime
     /// at all rather than a guess.
     /// </para>
     /// <para>
+    /// <b>And the evidence has to be runnable, not merely printed.</b> The kept directory carries a
+    /// copy of the policy, a generated Cedar schema, the trace and a README with the exact command —
+    /// so it can be moved, attached to a ticket, or handed to somebody without this checkout and
+    /// still answer for itself. The harness <i>executes</i> that command and compares its output to
+    /// the verdict the finding claims: a README that tells somebody to run something other than what
+    /// produced the answer is worse than no README, because they run it, get something different,
+    /// and the disagreement is ours.
+    /// </para>
+    /// <para>
     /// The engine half needs the built binary and skips without it; the reading half — where the
     /// reasoning lives — runs either way.
     /// </para>
@@ -354,6 +363,7 @@ public class IntentHarnessTests : TestsRuntime
         Assert.Contains("a claim that the policy must ALLOW is read as demanding an allow", run.Output);
         Assert.Contains("a state that does NOT break the claim yields no demand, not a guess", run.Output);
         Assert.Contains("a value with no Dogwood form is refused, not guessed", run.Output);
+        Assert.Contains("the event schema reaches the engine when there is one", run.Output);
         Assert.DoesNotContain("FAIL", run.Output);
     }
 

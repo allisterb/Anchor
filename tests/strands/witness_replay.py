@@ -201,6 +201,55 @@ def main() -> int:
               and keeps_found[0].agreed is True,
               str(keeps_found and (keeps_found[0].engine, keeps_found[0].why)))
 
+    # --- the evidence has to be RUNNABLE, not just printed --------------------------------------
+    # A finding somebody cannot reproduce is a finding they have to take on trust, which is the
+    # thing this whole file exists to avoid. So the kept directory must be self-contained and the
+    # command in it must be the command that produced the verdict.
+    if DOGWOOD.exists():
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="anchor-witness-test-") as tmp:
+            kept = Path(tmp) / "witness"
+            found = confirm(EXAMPLES / "07-trust-decay.dw", EXAMPLES / "TrustDecay.tla",
+                            "Error: Invariant LosesWriteAfter15m is violated by the initial "
+                            "state:\ngap = 960\n\n", keep=kept)
+            c = found[0]
+
+            check("the policy is COPIED in, not referenced",
+                  (kept / "07-trust-decay.dw").exists(),
+                  "a directory pointing at a policy elsewhere stops being evidence when moved")
+            check("the generated schema is kept", (kept / "generated.cedarschema").exists())
+            check("the trace is kept", (kept / "LosesWriteAfter15m.log").exists())
+            check("and a README explains how to re-run it", (kept / "README.md").exists())
+
+            readme = (kept / "README.md").read_text(encoding="utf-8")
+            check("the README carries the exact command", c.command in readme, c.command)
+
+            # THE ONE THAT MATTERS. A README telling somebody to run something other than what
+            # produced the verdict is worse than no README: they run it, get a different answer,
+            # and the disagreement is ours. So run it, from where it says to, and compare.
+            rerun = subprocess.run([str(DOGWOOD), *c.command.split()[1:]], cwd=kept,
+                                   capture_output=True, text=True, timeout=120)
+            check("the command in the README runs", rerun.returncode == 0,
+                  (rerun.stdout + rerun.stderr)[-300:])
+            check("and reproduces the verdict this finding claims",
+                  f"@{c.at}" in rerun.stdout and c.engine.upper() in rerun.stdout,
+                  f"claimed {c.engine} at t={c.at}, got: {rerun.stdout.strip()[:200]}")
+
+    # --- the event schema travels with the counterexample ----------------------------------------
+    # A universal pin changes what history a temporal predicate can see, so the same policy and the
+    # same trace mean different things under different schemas. Replaying a witness found under a
+    # pinned reading against the engine's default answers a question nobody asked -- confidently,
+    # and with the reference implementation's authority behind it.
+    from checker.witness import replay_args  # noqa: PLC0415
+
+    check("the event schema reaches the engine when there is one",
+          "--event-schema" in replay_args("p.dw", "t.log", "s.cedarschema", "deployed.dwschema"),
+          str(replay_args("p.dw", "t.log", "s.cedarschema", "deployed.dwschema")))
+    check("and is absent when there is not, rather than guessed at",
+          "--event-schema" not in replay_args("p.dw", "t.log", "s.cedarschema", None))
+
     print()
     if failures:
         print(f"{len(failures)} check(s) failed: {', '.join(failures)}")

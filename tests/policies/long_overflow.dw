@@ -1,0 +1,23 @@
+// A perfectly valid policy that a BOUNDED MODEL CHECKER cannot represent.
+//
+// Cedar's `Long` runs to 2^63-1, and a budget cap written in cents reaches nine figures without
+// anyone thinking about it. TLC holds integers in a Java int and reserves `Integer.MAX_VALUE`, so
+// the largest literal it will accept is 2147483646 -- measured, not assumed: 2147483646 checks and
+// 2147483647 fails.
+//
+// WITHOUT AN EXPLICIT REFUSAL the failure arrives from inside TLC, as
+//
+//     Error: TLC can't handle a number this big.
+//     3000000000
+//
+// from a run that names neither the policy nor the field, at a point where a reader has no reason
+// to suspect the literal. This fixture exists so that stays a refusal naming the construct.
+permit (
+    principal,
+    action == AgentCore::Action::"execute_trade",
+    resource
+)
+when temporal {
+    formerly within 1h AgentCore::Action::"approve_trade"::response{ }
+    && context.input.amount_cents < 3000000000
+};

@@ -500,8 +500,12 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
     if args.witness:
         from checker.witness import confirm, render     # noqa: PLC0415  -- one direction only
 
+        # THE EVENT SCHEMA GOES WITH IT. TLC found this counterexample under whatever reading the
+        # schema imposes, and replaying it against the engine's default would be answering about a
+        # different deployment -- confidently, and with the reference implementation's authority.
         found = confirm(args.policy, args.property_module, out,
-                        keep=args.keep / "witness" if args.keep else None)
+                        keep=args.keep / "witness" if args.keep else None,
+                        event_schema=args.event_schema)
         if found:
             print("\nIn Dogwood's own terms:\n")
             print(render(found))

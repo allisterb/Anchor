@@ -50,9 +50,33 @@ or tell the user plainly that this policy cannot be checked and which construct 
 not retry the same call, and do not fall back to reasoning about the policy yourself and presenting
 it as a checked result.
 
-## Two limits worth knowing separately
+## What is NOT modelled, and which of it is deliberate
+
+Measured against Dogwood's own grammar, with each construct confirmed legal by
+`dogwood check-parse` before being called a gap:
+
+| construct | example | |
+|---|---|---|
+| **a temporal operator where an ATOM is expected** | `formerly within 1h A since within 1h B`, `!formerly within 15m A` | **not modelled.** A `since`'s left operand and a bare `!`'s operand are *atoms* — a predicate, or a parenthesised Cedar-level condition — and another temporal operator cannot nest there. This is the single largest gap: it is what a consumed-approval policy needs |
+| an aggregate compared against an aggregate | `(count …) < (count …)` | not modelled — an aggregate's bound must be an integer literal |
+| entity attributes | `principal.dept` | deliberate: Anchor models actions, event kinds and input/output fields, not entity hierarchies |
+| array terms | `input.tags: [1, 2]` | not modelled |
+| disjunction between temporal terms | `formerly … \|\| formerly …` | deliberate |
+
+Everything else in the temporal grammar is modelled, including the parts easiest to assume are
+not: **`since`** with full MFOTL semantics and a negated left operand (`!A since within W B`),
+**aggregates** (`count`, `sum`, `for` binders, `tp()`, the `exists` idiom), field injection,
+`previous`, dotted field paths, entity and decimal terms, wildcards, negative integers and macros.
+
+## Three limits worth knowing separately
 
 - **Integers only for ordering.** `>`, `<`, `>=`, `<=` are modelled for integers. Decimals are
   excluded deliberately, because the reference engine denies on them.
-- **Addresses are four octets, never a 32-bit number.** TLC works in Java ints and stops at
-  2,147,483,647, so an address above 127.255.255.255 is not a value it can hold as an integer.
+- **Addresses are four octets, never a 32-bit number.** TLC works in Java ints, so an address above
+  127.255.255.255 is not a value it can hold as an integer.
+- **An integer literal has to fit in ±2,147,483,646.** TLA+ integers are unbounded; this is *TLC's*
+  limit, and the number is odd rather than a power of two because TLC reserves `Integer.MAX_VALUE`
+  (2147483646 checks, 2147483647 does not). Cedar's `Long` runs to 2^63-1, so a budget cap written
+  in cents is a valid policy this checker cannot represent — refused by name, because unrefused it
+  surfaces as `Error: TLC can't handle a number this big.` from inside a run that names neither the
+  policy nor the field. **Scaling the units makes the same comparison fit.**

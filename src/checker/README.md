@@ -207,6 +207,37 @@ the decision assumed each way, and the assumption that makes it *false* is what 
 neither does, this reader and TLC disagree about what a counterexample is, and it says so and
 claims nothing rather than guessing.
 
+### The evidence is portable
+
+`--keep DIR` writes everything the engine consumes into `DIR/witness/`, so the finding can be
+checked by someone who does not have this checkout — or does not trust it:
+
+| file | |
+|---|---|
+| `<policy>.dw` | **copied, not referenced.** A directory pointing at a policy elsewhere stops being evidence the moment it is moved or the policy is edited — and editing it is exactly what somebody does after reading the finding |
+| `generated.cedarschema` | built from the policy's own actions and field types. `replay` requires one, and hand-writing it would be a second description of the policy to keep in step with the first |
+| `<Claim>.log` | the session, in Dogwood's trace syntax |
+| `<schema>.dwschema` | the event schema, when the check used one |
+| `README.md` | what each file is, the exact command, and how to read the result |
+
+```bash
+cd traces/07-trust-decay-TrustDecay10/witness
+dogwood replay --policy-schema generated.cedarschema --trace LosesWriteAfter10m.log 07-trust-decay.dw
+```
+```
+@961 (time point 0): ALLOW  [rules: 0]
+```
+
+The command in that README is the command that produced the verdict — same builder, so the two
+cannot drift — and [the harness runs it](../../tests/strands/witness_replay.py) and compares its
+output to what the finding claims. A README telling somebody to run something else is worse than
+none: they run it, get a different answer, and the disagreement is ours.
+
+**The event schema travels with the counterexample**, and that is a correctness matter rather than
+tidiness. A universal pin changes what history a temporal predicate can see, so replaying a witness
+TLC found under a pinned reading against the engine's default answers a question nobody asked —
+confidently, with the reference implementation's authority behind it.
+
 `--witness` needs the `dogwood` binary, which is not in the repo. Without it the session is still
 printed — only the engine's confirmation is missing.
 

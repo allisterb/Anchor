@@ -64,6 +64,11 @@ the policy decides the opposite way from the claim about it. Where a
 verdict is shown it is the **Dogwood engine's**, not ours — the finding
 does not rest on our reading of the language.
 
+**Every file the engine needs is kept beside each finding**, so you can run
+it yourself rather than take this on trust — the trace, a Cedar schema
+generated from the policy's own actions, and a copy of the policy. Each
+directory has a README and answers for itself if you move it.
+
 **`TradeGate.tla` — FreshPriceAloneIsNotEnough** (`prereq = "freshPriceOnly"`)
 
 with prereq = "freshPriceOnly", the Dogwood engine ALLOWS this session at t=40, where `FreshPriceAloneIsNotEnough` says your policy must REFUSE it
@@ -71,6 +76,12 @@ with prereq = "freshPriceOnly", the Dogwood engine ALLOWS this session at t=40, 
 ```
 @11 scope(principal: AgentCore::OAuthUser::"agent", resource: AgentCore::Gateway::"gw") AgentCore::Action::"get_market_price"::response(input: { }, output: { }, callerPrincipal: AgentCore::OAuthUser::"agent", callerResource: AgentCore::Gateway::"gw", requestId: "e1")
 @40 scope(principal: AgentCore::OAuthUser::"agent", resource: AgentCore::Gateway::"gw") request_context(input: { profile_id: 1 }) AgentCore::Action::"execute_trade"::request(input: { profile_id: 1 }, callerPrincipal: AgentCore::OAuthUser::"agent", callerResource: AgentCore::Gateway::"gw", requestId: "e2")
+```
+
+Run it yourself, from `traces/agent-policy-TradeGate/witness`:
+
+```bash
+dogwood replay --policy-schema generated.cedarschema --trace FreshPriceAloneIsNotEnough.log agent-policy.dw
 ```
 
 **`TrustDecay.tla` — KeepsWriteWhileAdvisorEngaged** (`gap = 1`)
@@ -82,6 +93,12 @@ with gap = 1, the Dogwood engine REFUSES this session at t=2, where `KeepsWriteW
 @2 scope(principal: AgentCore::OAuthUser::"agent", resource: AgentCore::Gateway::"gw") request_context(input: { }) AgentCore::Action::"execute_trade"::request(input: { }, callerPrincipal: AgentCore::OAuthUser::"agent", callerResource: AgentCore::Gateway::"gw", requestId: "e2")
 ```
 
+Run it yourself, from `traces/07-trust-decay-TrustDecay/witness`:
+
+```bash
+dogwood replay --policy-schema generated.cedarschema --trace KeepsWriteWhileAdvisorEngaged.log 07-trust-decay.dw
+```
+
 **`TrustDecay10.tla` — LosesWriteAfter10m** (`gap = 960`)
 
 with gap = 960, the Dogwood engine ALLOWS this session at t=961, where `LosesWriteAfter10m` says your policy must REFUSE it
@@ -89,6 +106,12 @@ with gap = 960, the Dogwood engine ALLOWS this session at t=961, where `LosesWri
 ```
 @1 scope(principal: AgentCore::OAuthUser::"agent", resource: AgentCore::Gateway::"gw") AgentCore::Action::"interact_advisor"::response(input: { }, output: { }, callerPrincipal: AgentCore::OAuthUser::"agent", callerResource: AgentCore::Gateway::"gw", requestId: "e1")
 @961 scope(principal: AgentCore::OAuthUser::"agent", resource: AgentCore::Gateway::"gw") request_context(input: { }) AgentCore::Action::"execute_trade"::request(input: { }, callerPrincipal: AgentCore::OAuthUser::"agent", callerResource: AgentCore::Gateway::"gw", requestId: "e2")
+```
+
+Run it yourself, from `traces/07-trust-decay-TrustDecay10/witness`:
+
+```bash
+dogwood replay --policy-schema generated.cedarschema --trace LosesWriteAfter10m.log 07-trust-decay.dw
 ```
 
 

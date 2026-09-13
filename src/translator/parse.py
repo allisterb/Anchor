@@ -403,7 +403,7 @@ class Parser:
         tok = self.take()
         if not re.fullmatch(r"\d+", tok):
             raise Unsupported(f"comparison bound {tok!r} is not an integer")
-        return -int(tok) if neg else int(tok)
+        return bounded(-int(tok) if neg else int(tok), "an aggregate's comparison bound")
 
     def unary(self) -> dict:
         if self.peek() == "exists":
@@ -824,7 +824,7 @@ class Parser:
         if tok in ("true", "false"):
             return tok == "true"
         if re.fullmatch(r"\d+", tok):
-            return -int(tok) if neg else int(tok)
+            return bounded(-int(tok) if neg else int(tok), "a value the policy compares against")
         if tok == "decimal":
             self.expect("(")
             text = self.take()
@@ -954,7 +954,7 @@ class Parser:
         if self.peek() and re.fullmatch(r"\d+", self.peek()):
             n = int(self.take())
             return {"side": lhs, "field": field, "kind": "lit", "name": "",
-                    "value": -n if neg else n}
+                    "value": bounded(-n if neg else n, f"the value bound to {lhs}.{field}")}
         if neg:
             raise Unsupported(f"bind value '-{self.peek()}'")
 
@@ -988,6 +988,33 @@ class Parser:
 # `def temporal once(?w, ?s) {` -- the header only; the body is brace-matched from the `{`,
 # because a macro body contains predicates with braces of their own and a regex cannot count them.
 DEF_HEAD = re.compile(r"\bdef\s+(cedar|temporal)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{")
+
+
+# THE LARGEST INTEGER LITERAL TLC WILL ACCEPT, measured rather than assumed: 2147483646 checks
+# cleanly and 2147483647 fails, so TLC holds integers in a Java int and reserves
+# `Integer.MAX_VALUE`. TLA+ itself has unbounded integers -- this is the model CHECKER's limit,
+# not the language's, which is why the number is odd rather than a power of two.
+TLC_MAX_INT = 2147483646
+
+
+def bounded(n: int, what: str) -> int:
+    """An integer literal the checker can actually hold, or a refusal naming why it cannot.
+
+    WITHOUT THIS THE FAILURE ARRIVES FROM INSIDE TLC -- `Error: TLC can't handle a number this
+    big.` followed by the bare number, from a run that names neither the policy nor the field it
+    came from, at a point where the reader has no reason to suspect the literal. A Cedar `Long`
+    runs to 2^63-1, so a policy comparing against one is perfectly valid and simply outside what a
+    bounded model checker can represent. That is exactly the case the house rule covers: refuse,
+    and say which construct is responsible.
+    """
+    if not -TLC_MAX_INT <= n <= TLC_MAX_INT:
+        raise Unsupported(
+            f"{what} is {n}, which TLC cannot represent. It holds integers in a Java int and "
+            f"reserves Integer.MAX_VALUE, so a literal has to fit in +/-{TLC_MAX_INT}. Cedar's "
+            f"Long goes to 2^63-1, so the policy is valid and this is the checker's limit rather "
+            f"than the language's. Scaling the units -- cents to dollars, bytes to megabytes -- "
+            f"makes the same comparison fit")
+    return n
 
 MAX_EXPANSION_DEPTH = 8
 

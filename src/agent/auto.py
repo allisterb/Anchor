@@ -48,7 +48,11 @@ def as_finding(c: Confirmation) -> dict:
     """One replayed counterexample, as data. The `sentence` is what a person reads."""
     return {"invariant": c.invariant, "state": c.state, "demanded": c.demanded,
             "engine": c.engine, "confirms": c.agreed, "at": c.at, "events": c.events,
-            "why": c.why, "sentence": c.sentence(), "trace": c.trace}
+            "why": c.why, "sentence": c.sentence(), "trace": c.trace,
+            # Where the runnable files went, and the command that reproduces the verdict from
+            # inside that directory. Carried as data so the report prints the real invocation
+            # rather than a template somebody has to fill in.
+            "directory": c.directory, "command": c.command}
 
 # The findings carry em dashes and policy text; a Windows console defaults to a codepage that
 # cannot hold them, and the report then LOOKS corrupted while the file beside it is fine. The
@@ -358,12 +362,10 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
                       "the policy decides the opposite way from the claim about it. Where a",
                       "verdict is shown it is the **Dogwood engine's**, not ours — the finding",
                       "does not rest on our reading of the language.", "",
-                      "Each trace is kept under `traces/<policy>-<module>/witness/` beside a",
-                      "generated Cedar schema, so you can put it to the engine yourself:", "",
-                      "```bash",
-                      "dogwood replay --policy-schema traces/<policy>-<module>/witness/generated.cedarschema \\",
-                      "    --trace traces/<policy>-<module>/witness/<Claim>.log <policy>.dw",
-                      "```", ""]
+                      "**Every file the engine needs is kept beside each finding**, so you can run",
+                      "it yourself rather than take this on trust — the trace, a Cedar schema",
+                      "generated from the policy's own actions, and a copy of the policy. Each",
+                      "directory has a README and answers for itself if you move it.", ""]
             for name, r in witnessed:
                 for w in r["witness"]:
                     lines.append(f"**`{name}` — {w.get('invariant', '?')}**"
@@ -372,6 +374,22 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
                     lines += ["", w.get("sentence", ""), ""]
                     if w.get("trace"):
                         lines += ["```", w["trace"].rstrip(), "```", ""]
+
+                    # The exact command, with the paths this run actually wrote -- not a template
+                    # with placeholders to fill in. A reader who has to reconstruct the invocation
+                    # is a reader who does not check the finding.
+                    if w.get("command") and w.get("directory"):
+                        # Relative to the report, which is what a reader has open. Both sides are
+                        # resolved first: the kept path is relative to the working directory and
+                        # the report's is not, so comparing them as written silently fails and
+                        # prints an absolute path from somebody else's machine.
+                        rel = Path(w["directory"]).resolve()
+                        try:
+                            rel = rel.relative_to(Path(results.get("directory", ".")).resolve())
+                        except (ValueError, OSError):
+                            pass
+                        lines += [f"Run it yourself, from `{rel.as_posix()}`:", "",
+                                  "```bash", w["command"], "```", ""]
             lines.append("")
 
     lines += ["---", "",

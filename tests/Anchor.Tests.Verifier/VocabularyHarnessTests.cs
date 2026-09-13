@@ -245,5 +245,42 @@ public class VocabularyHarnessTests : TestsRuntime
         Assert.Contains("up to date", run.Output);
     }
 
+    /// <summary>
+    /// A literal too large for TLC is <b>refused by name</b>, not left to fail inside the model
+    /// checker.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Cedar's <c>Long</c> runs to 2^63-1 and a budget cap written in cents reaches nine figures
+    /// without anyone thinking about it. TLA+ integers are unbounded — this is <b>TLC's</b> limit,
+    /// not the language's: it holds them in a Java int and reserves <c>Integer.MAX_VALUE</c>, so
+    /// the largest literal it accepts is 2147483646. Measured, not assumed: 2147483646 checks and
+    /// 2147483647 does not.
+    /// </para>
+    /// <para>
+    /// What this pins is the <i>shape</i> of the failure. Unrefused, it arrives as
+    /// <c>Error: TLC can't handle a number this big.</c> followed by the bare number, from a run
+    /// naming neither the policy nor the field, at a point where a reader has no reason to suspect
+    /// the literal. The house rule is to refuse and say which construct is responsible — the
+    /// policy is valid, and it is the checker that cannot take it.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("properties.py")]
+    public async Task ALiteralTooBigForTlcIsRefusedByName()
+    {
+        var run = await PythonHarness.RunAsync(
+            "src/checker/properties.py", "tests/policies/long_overflow.dw");
+
+        // 2 is "no verdict", which is what a refusal is. Never 0, which would report a policy
+        // nobody checked as a policy with nothing wrong with it.
+        Assert.True(run.ExitCode == 2, run.Output);
+        Assert.Contains("outside the modelled subset", run.Output);
+        Assert.Contains("3000000000", run.Output);
+        Assert.Contains("2147483646", run.Output);
+
+        // The raw TLC error must NOT be what the reader sees.
+        Assert.DoesNotContain("TLC can't handle a number this big", run.Output);
+    }
+
     #endregion
 }

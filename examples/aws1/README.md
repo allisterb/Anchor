@@ -36,9 +36,23 @@ check that does not know what it was meant to do.
 | `TrustDecay10.tla` / `.cfg` | the ten-minute claim on its own, because TLC stops at the first violated invariant |
 
 **Not transcribed**: the cumulative budget cap (policy 4), single-use approval (5) and mutual
-exclusion (6). Anchor's modelled subset does not cover their aggregate and `since` forms, so it
-would refuse them — and a refusal is the honest answer rather than a silent partial check. See
-[`the-modelled-subset`](../../src/Anchor.MCPServer/knowledge/the-modelled-subset.md).
+exclusion (6).
+
+**Two of those three are now within the subset, and this note used to say otherwise.** Aggregates
+were added after it was written, so only policy 5 is still out of reach. Measured on reconstructions
+of each shape — checked against the real engine with `dogwood check-parse` first, so the thing being
+tested is Dogwood rather than a strawman:
+
+| | needs | |
+|---|---|---|
+| **4** cumulative budget cap | `sum … for (t: Timepoint), (amount: Long). where …` | **parses and checks** |
+| **5** single-use approval | `!(formerly …) since within W B` | **refused**, by one gap: a `since`'s left operand is an *atom*, so a `formerly` cannot nest inside it. `since` itself is modelled, negated left operand included |
+| **6** mutual exclusion | `unless temporal { formerly … }`, or a negated conjunction | **parses and checks** |
+
+They stay untranscribed because the article's own text for them is not to hand, and a
+*reconstruction* sitting beside four verbatim policies would blur which is which — the whole value
+of this directory is that the policies are as published. Supply the text and 4 and 6 can be checked
+like the rest. See [`the-modelled-subset`](../../src/Anchor.MCPServer/knowledge/the-modelled-subset.md).
 
 **Also dropped**: `resource == AgentCore::Gateway::<ARN>` scopes and the `eventResource: resource`
 joins that go with them. Anchor models actions, event kinds and input/output fields, not entity
