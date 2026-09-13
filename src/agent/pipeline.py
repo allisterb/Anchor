@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,6 +179,13 @@ class Run:
     attempts: list[str] = field(default_factory=list)
     exhausted: bool = False
 
+    # Per-invocation caps on the agent loop: turns / total_tokens / output_tokens. Empty means no
+    # cap. NOT cumulative across calls -- `rounds` rounds of `turns` turns is the product, which is
+    # the number to reason about when bounding a run.
+    limits: dict[str, int] = field(default_factory=dict)
+    capped: list[str] = field(default_factory=list)
+    calls: list["Call"] = field(default_factory=list)
+
     vocab: dict = field(default_factory=dict)
     module: str = ""
     config: str = ""
@@ -191,6 +199,57 @@ class Run:
     answered: str = ""
     rejected_at: str = ""
     findings: Path | None = None
+
+
+@dataclass
+class Call:
+    """One model call, and what it cost."""
+
+    who: str
+    input: int = 0
+    output: int = 0
+    total: int = 0
+    seconds: float = 0.0
+    capped: bool = False
+
+
+def spent(result) -> tuple[int, int, int]:
+    """This call's tokens -- NOT the agent's running total.
+
+    `metrics.accumulated_usage` is cumulative across every invocation of the same Agent object, so
+    reading it per call bills round 1 again on round 2 and the first two again on round 3. The
+    drafter is reused across rounds, so that error would be silent and would grow. The per-call
+    figure is `agent_invocations[-1].usage`; this is the same trap recorded in
+    tests/strands/shared_budget.py, met again in a different place.
+    """
+    m = getattr(result, "metrics", None)
+    invocations = getattr(m, "agent_invocations", None) if m else None
+    usage = invocations[-1].usage if invocations else getattr(m, "accumulated_usage", None)
+    if not usage:
+        return 0, 0, 0
+    return (usage.get("inputTokens", 0), usage.get("outputTokens", 0), usage.get("totalTokens", 0))
+
+
+def ask(agent, prompt: str, run: Run, who: str) -> tuple[str, bool]:
+    """Call an agent under the run's caps. Returns (what it said, whether a cap cut it off).
+
+    A TRIPPED CAP IS NOT AN ERROR AND DOES NOT LOOK LIKE ONE. Strands reports it as a stop_reason
+    -- `limit_turns`, `limit_total_tokens`, `limit_output_tokens` -- and the agent returns
+    normally, so `Graph` marks the node COMPLETED (it maps only "interrupt" to anything else).
+    A capped agent is therefore indistinguishable from a finished one unless somebody looks, and
+    what it returns is a truncated answer. Here somebody looks.
+    """
+    started = time.monotonic()
+    result = agent(prompt, **({"limits": run.limits} if run.limits else {}))
+    elapsed = time.monotonic() - started
+
+    tokens = spent(result)
+    stop = str(getattr(result, "stop_reason", "") or "")
+    cut = stop.startswith("limit_")
+    run.calls.append(Call(who, *tokens, seconds=elapsed, capped=cut))
+    if cut:
+        run.capped.append(f"{who} was cut off by the {stop} cap")
+    return str(result).strip(), cut
 
 
 def gate(ok: bool, said: str) -> str:
@@ -232,9 +291,18 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
     for attempt in range(1, max(1, run.rounds) + 1):
         run.round = attempt
         prompt = author.draft_prompt(run.vocab, run.intent, feedback) if feedback else asked
-        text = str(drafter(prompt)).strip()
+        text, cut = ask(drafter, prompt, run, f"draft round {attempt}")
         module, config = author.parse_draft(text)
         run.attempts.append(text)
+
+        # A CAPPED DRAFT IS A FAILED ROUND, not a draft. Left alone it would reach the gates as a
+        # half-written module, be rejected for not compiling, and the report would blame the model
+        # for a syntax error that was really a budget running out.
+        if cut:
+            feedback = ("Your reply was cut off before it finished -- a budget cap was reached. "
+                        "Return the two files and nothing else: no commentary, no explanation, "
+                        "and keep the comments in the module short.")
+            continue
 
         if not module.strip() or not config.strip():
             feedback = ("Your reply did not contain both files. Return the module between "
@@ -348,6 +416,23 @@ def stage_check(run: Run, _: str) -> str:
     return run.checked
 
 
+def stage_answer(run: Run, said: str, answerer) -> str:
+    """The reporter, called by us rather than by the graph, so that a cap can be put on it.
+
+    `Limits` is a per-call argument on `__call__` / `invoke_async` / `stream_async` and is not
+    available on the constructor, and `Graph` invokes a node executor itself with no way to pass
+    one. An agent that is a node is therefore an agent nobody can bound -- so this one is wrapped,
+    as `draft` is.
+    """
+    run.answered, cut = ask(answerer, unframe(said), run, "the report")
+    if cut:
+        # Said in the findings rather than only in `run.capped`: a truncated report that does not
+        # say it was truncated reads as a complete one, and the reader cannot tell.
+        run.answered += ("\n\n**This report was cut off by a budget cap and is incomplete.** The "
+                         "verdicts above are the record; this prose is not all of it.")
+    return run.answered
+
+
 def stage_report(run: Run, said: str) -> str:
     """findings.md, on every path -- including both rejections.
 
@@ -358,6 +443,13 @@ def stage_report(run: Run, said: str) -> str:
     run.findings = run.out / "findings.md"
 
     lines = [f"# {run.policy.name}", "", f"**Stated intention.** {run.intent}", ""]
+    # BUDGET CAPS FIRST, because every verdict below is read differently if one fired. A capped
+    # run is not a shorter run: it is one whose agent was interrupted mid-sentence.
+    if run.capped:
+        lines += ["> **A budget cap fired during this run.**", ">"]
+        lines += [f"> - {c}" for c in run.capped]
+        lines += [">", "> Raise `--turns` / `--total-tokens` / `--output-tokens`, or narrow the "
+                  "intention, and run it again.", ""]
     if run.round > 1 or run.exhausted:
         lines += [f"*Drafted in {run.round} of {run.rounds} attempt(s)"
                   + (", and the allowance ran out -- what follows is the last attempt, judged by "
@@ -370,7 +462,9 @@ def stage_report(run: Run, said: str) -> str:
     else:
         # `said` is what the ANSWERER said -- report's parent on this path. The verdicts it was
         # answering from are read off Run, because they are the record and its prose is not.
-        run.answered = unframe(said)
+        # `stage_answer` already set this from the agent's own reply. The fallback is defensive:
+        # an empty report section would be worse than one with some scaffolding in it.
+        run.answered = run.answered or unframe(said)
         lines += ["## What was checked", "", f"`{run.module_name}.tla`, drafted from the "
                   f"intention above and kept only because it caught "
                   f"{run.score.get('caught')} broken version(s) of this policy.", "",
@@ -383,6 +477,55 @@ def stage_report(run: Run, said: str) -> str:
 
     run.findings.write_text("\n".join(lines), encoding="utf-8")
     return f"wrote {run.findings}"
+
+
+def usage(run: Run, result) -> str:
+    """What the run cost, in tokens and in seconds.
+
+    APPENDED AFTER THE GRAPH FINISHES rather than written by `report`, because the node timings
+    only exist once every node has run -- and `report` is a node.
+
+    THE GRAPH'S OWN TOTALS ARE NOT USED, and cannot be. Every stage here is an Agent whose model is
+    `Computed`, which reports zero tokens because it makes no model call; the two real calls happen
+    INSIDE those nodes, through `ask`. So `result.accumulated_usage` is zero for this pipeline and
+    reading it would report a run that cost nothing. The per-call figures are the record.
+    """
+    lines = ["", "## What this run cost", "", "| | tokens in | out | total | seconds |",
+             "|---|---:|---:|---:|---:|"]
+    for c in run.calls:
+        lines.append(f"| {c.who}{' (cut off)' if c.capped else ''} | {c.input:,} | {c.output:,} "
+                     f"| {c.total:,} | {c.seconds:.1f} |")
+
+    tin = sum(c.input for c in run.calls)
+    tout = sum(c.output for c in run.calls)
+    ttot = sum(c.total for c in run.calls)
+    tsec = sum(c.seconds for c in run.calls)
+    lines.append(f"| **{len(run.calls)} model call(s)** | **{tin:,}** | **{tout:,}** "
+                 f"| **{ttot:,}** | **{tsec:.1f}** |")
+
+    order = getattr(result, "execution_order", None) or []
+    if order:
+        lines += ["", "Time per stage, model calls and verification together:", "", "```"]
+        for node in order:
+            ms = getattr(node, "execution_time", 0) or 0
+            lines.append(f"  {node.node_id:<12} {ms / 1000:8.1f}s")
+        total_ms = getattr(result, "execution_time", 0) or 0
+        lines.append(f"  {'total':<12} {total_ms / 1000:8.1f}s")
+        lines.append("```")
+        # The gap between the two totals is TLC, which is most of the wall clock on any real
+        # policy and costs no tokens at all. Worth saying, or the token figure reads as the price
+        # of the run rather than as the price of the two model calls in it.
+        lines += ["", f"Of which {tsec:.1f}s was model calls; the rest is verification -- TLC "
+                  f"runs in `score` and `check`, which cost no tokens."]
+
+    return "\n".join(lines) + "\n"
+
+
+def append_usage(run: Run, result) -> None:
+    """Add the cost section to findings.md. Safe to call when there is no findings.md."""
+    if run.findings and run.findings.exists():
+        run.findings.write_text(run.findings.read_text(encoding="utf-8").rstrip() + "\n"
+                                + usage(run, result), encoding="utf-8")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -437,7 +580,7 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     b.add_node(computed(run, stage_preflight, "preflight"), "preflight")
     b.add_node(computed(run, stage_score, "score"), "score")
     b.add_node(computed(run, stage_check, "check"), "check")
-    b.add_node(answerer, "answer")
+    b.add_node(computed(run, lambda r, t: stage_answer(r, t, answerer), "answer"), "answer")
     b.add_node(computed(run, stage_report, "report"), "report")
 
     b.add_edge("describe", "draft")
@@ -464,6 +607,14 @@ def main() -> int:
     p.add_argument("--rounds", type=int, default=3,
                    help="drafting attempts. A round costs one model call plus ~1s of SANY; "
                         "running out still reports (default: 3)")
+    p.add_argument("--turns", type=int, default=None,
+                   help="cap on agent loop iterations PER CALL -- one model call plus the tools "
+                        "it asked for. Not cumulative: --rounds R with --turns T allows R*T")
+    p.add_argument("--total-tokens", type=int, default=None,
+                   help="cap on input+output tokens per call")
+    p.add_argument("--output-tokens", type=int, default=None,
+                   help="cap on generated tokens per call. Soft: one oversized response can "
+                        "overshoot, since caps are checked at turn boundaries")
     p.add_argument("--max-node-executions", type=int, default=None,
                    help="backstop on total node executions. Hitting it STOPS THE RUN WITH NO "
                         "REPORT, so it is set above what the graph can use; lower it only to "
@@ -489,14 +640,23 @@ def main() -> int:
     run = Run(policy=args.policy, intent=args.intent,
               out=args.out or args.policy.parent / "anchor",
               event_schema=args.event_schema, module_name=args.name, mutants=args.mutants,
-              rounds=args.rounds)
+              rounds=args.rounds,
+              limits={k: v for k, v in (("turns", args.turns),
+                                        ("total_tokens", args.total_tokens),
+                                        ("output_tokens", args.output_tokens)) if v})
 
     graph = build(run, max_node_executions=args.max_node_executions,
                   node_timeout=args.node_timeout)
     result = graph(f"State and check the intention for {args.policy.name}.")
 
+    append_usage(run, result)
+
     ran = [n.node_id for n in result.execution_order]
     print(f"\nran {len(ran)}/{result.total_nodes}: {', '.join(ran)}", file=sys.stderr)
+    print(f"{sum(c.total for c in run.calls):,} tokens over {len(run.calls)} model call(s); "
+          f"{(getattr(result, 'execution_time', 0) or 0) / 1000:.1f}s total", file=sys.stderr)
+    for c in run.capped:
+        print(f"CAP: {c}", file=sys.stderr)
     if run.findings:
         print(run.findings)
     # A rejected draft is a complete run with nothing verified, and that is not a success.

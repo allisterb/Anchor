@@ -424,13 +424,19 @@ def build_model(provider: str = "auto", model_id: str | None = None,
 
 def review(request: str, project_dir: Path | None = None, model: str | None = None,
            provider: str = "auto", streaming: bool | None = None,
-           transcript: Path | None = None, heading: str = "") -> str:
+           transcript: Path | None = None, heading: str = "",
+           limits: dict | None = None) -> str:
     """Run one review. Returns what the agent said.
 
     `transcript` writes the whole exchange -- every tool call, with its arguments and its full
     reply -- as markdown, APPENDING when the file already exists so several questions build one
     log. The prose an agent produces is a claim about what the tools returned; saving both is what
     lets somebody check the one against the other instead of taking it.
+
+    `limits` caps the agent loop: `turns`, `total_tokens`, `output_tokens`. THIS is the agent with
+    tools -- it can call the checker repeatedly, and a run that keeps re-asking is the one worth
+    bounding. A cap does not raise: it comes back as a stop_reason, so it is reported below rather
+    than left to look like a finished answer.
     """
     from strands import Agent
 
@@ -442,7 +448,18 @@ def review(request: str, project_dir: Path | None = None, model: str | None = No
         # twice — which reads as a bug in the checker rather than in the plumbing.
         agent = Agent(model=build_model(provider, model, streaming), tools=tools,
                       system_prompt=SYSTEM_PROMPT, callback_handler=None)
-        answer = str(agent(request))
+        result = agent(request, **({"limits": limits} if limits else {}))
+        answer = str(result)
+
+        # A CAP IS NOT AN ANSWER THAT FINISHED. It arrives as a stop_reason with the agent
+        # returning normally, so nothing downstream can tell a bounded review from a complete one
+        # unless it is said here -- and a half-finished review of a policy is exactly the kind of
+        # thing a reader would act on believing it was the whole of it.
+        stop = str(getattr(result, "stop_reason", "") or "")
+        if stop.startswith("limit_"):
+            answer += (f"\n\n**This review was stopped by the `{stop}` cap and is incomplete.** "
+                       f"It may not have run every check it intended to. Raise the cap or ask a "
+                       f"narrower question.")
 
         if transcript is not None:
             from agent import transcript as tr
@@ -535,6 +552,16 @@ def main() -> int:
                     help="a title for this exchange in the transcript")
     ap.add_argument("--ask", type=str, default=None,
                     help="ask something else about the policy instead of the standard review")
+    # BOUNDING THE LOOP. This agent has the MCP tools, so it can keep calling the checker; these
+    # are the caps on that. A trip is a stop_reason rather than an error, so the answer says it
+    # was cut short instead of merely being shorter.
+    ap.add_argument("--turns", type=int, default=None,
+                    help="cap on loop iterations -- one model call plus the tools it asked for")
+    ap.add_argument("--total-tokens", type=int, default=None,
+                    help="cap on input+output tokens for this review")
+    ap.add_argument("--output-tokens", type=int, default=None,
+                    help="cap on generated tokens. Soft: checked at turn boundaries, so one "
+                         "oversized response can overshoot")
     args = ap.parse_args()
 
     if args.ask:
@@ -560,7 +587,10 @@ def main() -> int:
     try:
         print(review(request, args.project_dir, args.model, args.provider,
                      streaming=False if args.no_stream else None,
-                     transcript=args.transcript, heading=args.heading))
+                     transcript=args.transcript, heading=args.heading,
+                     limits={k: v for k, v in (("turns", args.turns),
+                                               ("total_tokens", args.total_tokens),
+                                               ("output_tokens", args.output_tokens)) if v}))
     except Exception as e:  # noqa: BLE001 -- the far side refusing is an outcome, not a crash
         return refused(e)
     return 0

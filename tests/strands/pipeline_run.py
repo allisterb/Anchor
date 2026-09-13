@@ -1,6 +1,6 @@
 """`src/agent/pipeline.py` end to end, and the claim that makes it worth having.
 
-Five scenarios, and the first is the one the whole graph exercise was for:
+Six scenarios, and the first is the one the whole graph exercise was for:
 
   1. THE SHAPE THAT RUNS IS THE SHAPE THAT WAS CHECKED. `to_tla` over the graph `pipeline.build`
      actually returns must carry both gate decisions as exclusive pairs, and must satisfy
@@ -12,8 +12,11 @@ Five scenarios, and the first is the one the whole graph exercise was for:
      can express.
   3. RUNNING OUT OF ROUNDS is not a crash and not a silence: the last attempt is judged by the
      same gates, and findings.md says the allowance ran out.
-  4. A REJECTED DRAFT still reports, without a TLC run or a second model call.
-  5. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
+  4. A BUDGET CAP is neither a bad draft nor a finished report. A cut-off draft is a failed
+     round; a cut-off report says so of itself, because a truncated report that does not reads
+     as a complete one.
+  5. A REJECTED DRAFT still reports, without a TLC run or a second model call.
+  6. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
      rather than the drafter's module.
 
 No provider and no credentials: every agent is scripted, so the only cost is the TLC runs behind
@@ -74,7 +77,10 @@ class Fixed(Model):
         yield {"contentBlockDelta": {"delta": {"text": self.text}}}
         yield {"contentBlockStop": {}}
         yield {"messageStop": {"stopReason": "end_turn"}}
-        yield {"metadata": {"usage": Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+        # A FIXED, NON-ZERO COST PER CALL. Zero would make the accounting untestable: the whole
+        # question is whether a second call to the SAME agent reports its own usage or the running
+        # total, and 0 + 0 looks the same either way.
+        yield {"metadata": {"usage": Usage(inputTokens=10, outputTokens=5, totalTokens=15),
                             "metrics": {"latencyMs": 0}}}
 
 
@@ -90,6 +96,28 @@ class Scripted(Fixed):
         self.text = self.texts[min(self.calls, len(self.texts) - 1)]
         async for event in super().stream(messages, *a, **kw):
             yield event
+
+
+class Capped(Fixed):
+    """Stops the way a tripped budget cap stops: a stop_reason, and a truncated reply.
+
+    Simulated rather than provoked, because a `turns` cap cannot fire on an agent with no tools --
+    one turn always completes. The shape is what matters and it is the SDK's own: stop_reason
+    `limit_turns` / `limit_total_tokens` / `limit_output_tokens`, returned normally.
+    """
+
+    def __init__(self, text: str, reason: str = "limit_output_tokens") -> None:
+        super().__init__(text)
+        self.reason = reason
+
+    async def stream(self, messages, *a, **kw):                # type: ignore[override]
+        self.calls += 1
+        self.seen = pipeline.incoming(messages)
+        yield {"messageStart": {"role": "assistant"}}
+        yield {"contentBlockStart": {"start": {}}}
+        yield {"contentBlockDelta": {"delta": {"text": self.text}}}
+        yield {"contentBlockStop": {}}
+        yield {"messageStop": {"stopReason": self.reason}}
 
 
 def agent(text: str, name: str) -> Agent:
@@ -149,6 +177,7 @@ def run_pipeline(draft, out: Path, mutants: int = 2, rounds: int = 3):
     answerer = agent("The property held.", "answer")
     graph = pipeline.build(run, drafter=drafter, answerer=answerer)
     result = graph("State and check the intention for firewall.dw.")
+    pipeline.append_usage(run, result)
     return run, result, [n.node_id for n in result.execution_order], answerer
 
 
@@ -179,6 +208,57 @@ def retries() -> None:
         # shape the models checked. If `draft` ever starts appearing twice, a cycle has been
         # introduced and neither model can express it -- see stage_draft's docstring.
         check("the graph stayed acyclic: draft ran once", ran.count("draft") == 1, str(ran))
+
+        # THE ACCOUNTING TRAP, and this is the only scenario that can catch it: the drafter is
+        # called TWICE on the same Agent object. `metrics.accumulated_usage` is cumulative across
+        # invocations, so reading it per call would bill round 1 again on round 2 -- 15 then 30,
+        # totalling 45 for two calls that each cost 15. Silent, and it grows with the round count.
+        drafts = [c for c in run.calls if c.who.startswith("draft")]
+        check("two drafting rounds were billed", len(drafts) == 2, str([c.who for c in run.calls]))
+        check("...each at ITS OWN cost, not the agent's running total",
+              [c.total for c in drafts] == [15, 15], str([c.total for c in drafts]))
+
+
+def capped() -> None:
+    """A budget cap must not read as a bad draft, or as a finished report."""
+    print("\nA budget cap fires")
+    print("-" * 78)
+
+    # --- the DRAFTER is cut off -------------------------------------------------------------
+    # Left alone this reaches the gates as a half-written module, is rejected for not compiling,
+    # and the report blames the model for a syntax error that was really a budget running out.
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        cut = Agent(model=Capped("===MODULE===\n---- MODULE Int"), callback_handler=None,
+                    name="draft")
+        run, result, ran, _ = run_pipeline(cut, Path(tmp), rounds=2)
+
+        check("a cut-off draft is a failed round, not a draft",
+              run.round == 2 and run.exhausted, f"round={run.round} exhausted={run.exhausted}")
+        check("and the cap is recorded against the round that hit it",
+              len(run.capped) == 2 and "draft round 1" in run.capped[0], str(run.capped))
+        check("the run still reported", "report" in ran, str(ran))
+
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("findings.md leads with the cap", "A budget cap fired" in text, text[:300])
+        check("...and names which cap", "limit_output_tokens" in text, text[:400])
+
+    # --- the REPORTER is cut off -------------------------------------------------------------
+    # The dangerous one: a truncated report that does not say so reads as a complete one, and
+    # nothing in the verdicts would tell the reader otherwise.
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        run = pipeline.Run(policy=POLICIES / "firewall.dw", intent="x", out=Path(tmp), mutants=2)
+        graph = pipeline.build(run, drafter=agent(GOOD, "draft"),
+                               answerer=Agent(model=Capped("The property h"),
+                                              callback_handler=None, name="answer"))
+        result = graph("go")
+        ran = [n.node_id for n in result.execution_order]
+
+        check("the run completed", set(ran) == set(pipeline.STAGES), str(sorted(set(ran))))
+        check("the cap on the reporter was caught",
+              any("the report" in c for c in run.capped), str(run.capped))
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("the report says of ITSELF that it is incomplete",
+              "cut off by a budget cap and is incomplete" in text, text[-400:])
 
 
 def exhausted() -> None:
@@ -264,6 +344,16 @@ def accepted_path() -> None:
               "Inputs from previous nodes" not in text and "Original Task:" not in text,
               text[-400:])
 
+        # --- WHAT IT COST ---------------------------------------------------------------------
+        check("findings.md reports the cost", "## What this run cost" in text, text[-600:])
+        check("one row per model call", len(run.calls) == 2,
+              str([c.who for c in run.calls]))
+        check("and a per-stage time for every stage that ran",
+              all(f"  {s:<12}" in text for s in pipeline.STAGES), text[-800:])
+
+        check("with the tokens each one cost", all(c.total == 15 for c in run.calls),
+              str([(c.who, c.total) for c in run.calls]))
+
 
 def same_object() -> None:
     """The claim the graph work exists to support."""
@@ -297,6 +387,7 @@ def main() -> int:
 
     same_object()
     retries()
+    capped()
     exhausted()
     rejected_path()
     accepted_path()

@@ -131,9 +131,44 @@ graph can use and `--rounds` is what actually bounds the work — running out of
 | flag | default | note |
 |---|---|---|
 | `--rounds` | 3 | drafting attempts. One model call plus ~1s of SANY each |
+| `--turns` | none | agent loop iterations **per call** — not cumulative, so `--rounds R --turns T` allows `R×T` |
+| `--total-tokens` | none | input+output per call |
+| `--output-tokens` | none | generated per call. Soft — checked at turn boundaries |
 | `--max-node-executions` | `2 × stages` | a backstop; hitting it produces **no findings.md** |
 | `--node-timeout` | none | a timed-out node fail-fasts the run |
 | `--mutants` | 8 | how many broken policies the `score` gate tries |
+
+**A tripped cap does not look like a failure.** Strands returns it as a `stop_reason`
+(`limit_turns`, `limit_total_tokens`, `limit_output_tokens`) with the agent returning normally, and
+`Graph` maps only `"interrupt"` to a non-completed status — so a capped node is `COMPLETED` with a
+truncated answer. Two places that matters, both handled: a cut-off **draft** is treated as a failed
+round rather than reaching the gates as a half-written module (where it would be rejected for a
+syntax error that was really a budget), and a cut-off **report** says so in its own text, because a
+truncated report that doesn't reads as a complete one. Any cap that fires is also printed to stderr
+as `CAP:` and leads findings.md.
+
+`policy_agent.py` takes the same three flags. It is the agent that holds the MCP tools, so it is the
+one that can loop.
+
+## What a run cost
+
+findings.md ends with a table: tokens in/out/total and seconds per model call, then wall clock per
+stage. The same totals go to stderr.
+
+**The graph's own totals are not used and cannot be.** Every stage is an `Agent` whose model is
+`Computed`, which reports zero tokens because it makes no model call — the two real calls happen
+*inside* those nodes. `result.accumulated_usage` is therefore zero for this pipeline, and reporting
+it would say the run was free.
+
+**Tokens are read per call, not from the running total.** `metrics.accumulated_usage` is cumulative
+across every invocation of the same `Agent` object, and the drafter is reused each round — so
+reading it per call bills round 1 again on round 2. Measured here: 15, 30, 45 across three calls
+that each cost 15, against a flat 15 from `metrics.agent_invocations[-1].usage`, which is what this
+uses. The same trap is recorded in [`tests/strands/shared_budget.py`](../../tests/strands/shared_budget.py);
+this is the second place it has come up.
+
+Most of the wall clock is TLC, in `score` and `check`, and costs no tokens — so the report says
+which part of the total was model calls.
 
 The shape was chosen by checking four properties against four wirings in
 [`tests/strands/anchor_workflow.py`](../../tests/strands/anchor_workflow.py), and

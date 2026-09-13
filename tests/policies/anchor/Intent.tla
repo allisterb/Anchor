@@ -29,7 +29,7 @@ Grants(input) == D!Decide(<<Request("Connect", input)>>, Policies, 1, AllValues)
 (* mentions.                                                               *)
 (***************************************************************************)
 originValues == {Str("external"), Str("local")}
-portValues == {Num(21), Num(22), Num(23)}
+portValues == {Num(21), Num(22), Num(23)} \* Includes Num(22) for SSH
 
 Requests == {[origin |-> origin, port |-> port] : origin \in originValues, port \in portValues}
 
@@ -43,12 +43,10 @@ Spec == Init /\ [][Next]_req
 (***************************************************************************)
 (* THE CLAIM.                                                              *)
 (***************************************************************************)
-\* Intention: SSH from the local range is permitted, and every external source is denied.
+\* SSH from the local range is permitted.
+LocalSshIsPermitted == (req.port = Num(22) /\ req.origin = Str("local")) => Grants(req)
 
-\* SSH from the local range is permitted
-SshFromLocalIsPermitted == (req.port = Num(22) /\ req.origin = Str("local")) => Grants(req)
-
-\* Every external source is denied
+\* Every external source is denied.
 ExternalIsDenied == (req.origin = Str("external")) => ~Grants(req)
 
 =============================================================================

@@ -221,6 +221,22 @@ public class AuthoringHarnessTests : TestsRuntime
         // The bound travels with the verdict. A live run reported "for all possible requests and
         // scenarios" over a property ranging across three ports and two origins.
         Assert.Contains("ok    the answerer was told what the property RANGES OVER", run.Output);
+
+        // Budget caps. A trip is a stop_reason and the agent returns normally, so Graph marks the
+        // node COMPLETED — a capped agent is indistinguishable from a finished one unless someone
+        // looks. Both halves are pinned: a cut-off draft must not reach the gates as a draft, and
+        // a cut-off report must say so of itself, since a truncated report reads as a whole one.
+        Assert.Contains("ok    a cut-off draft is a failed round, not a draft", run.Output);
+        Assert.Contains("ok    findings.md leads with the cap", run.Output);
+        Assert.Contains("ok    the report says of ITSELF that it is incomplete", run.Output);
+
+        // What the run cost. The accounting one matters most: metrics.accumulated_usage is
+        // cumulative across invocations of the same Agent, and the drafter is reused every round,
+        // so reading it per call would bill round 1 again on round 2 — 15, then 30, for two calls
+        // that each cost 15. Silent, and it grows with the round count.
+        Assert.Contains("ok    findings.md reports the cost", run.Output);
+        Assert.Contains("ok    ...each at ITS OWN cost, not the agent's running total", run.Output);
+        Assert.Contains("ok    and a per-stage time for every stage that ran", run.Output);
     }
 
     #endregion
