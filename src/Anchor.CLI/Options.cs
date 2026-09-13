@@ -164,6 +164,19 @@ public class CheckOptions : Options
     [Option("verbose", Required = false, HelpText = "Include the raw TLC output for each rule.")]
     public bool Verbose { get; set; }
 
+    [Option("explain", Required = false,
+        HelpText = "Before checking a --property, say in English what each claim FORBIDS and how " +
+                   "many of the states it ranges over its condition applies to. Same reading as " +
+                   "the `explain` verb, printed before the verdict instead of after it.")]
+    public bool Explain { get; set; }
+
+    [Option("witness", Required = false,
+        HelpText = "When a --property claim is BROKEN, carry the counterexample back into Dogwood " +
+                   "— the session it stands for as a .log trace, and the verdict `dogwood replay` " +
+                   "gives it. The finding in the language the policy was written in, confirmed by " +
+                   "the reference engine. Needs the dogwood binary; says so when it is absent.")]
+    public bool Witness { get; set; }
+
     [Option("trace", Required = false,
         HelpText = "Emit the result as JSON with the witness as structured EVENTS — action, kind, " +
                    "time and the input/output values — instead of a one-line summary. For anything " +

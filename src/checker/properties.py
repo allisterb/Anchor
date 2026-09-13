@@ -493,6 +493,18 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
           "request that breaks the claim, and the claim is quoted beneath it -- read the two\n"
           "together, because a violated invariant says which direction failed only when you can\n"
           "see what it asserted.")
+
+    # THE SAME FINDING IN THE POLICY'S OWN LANGUAGE. The state above is a TLA+ variable belonging
+    # to a module a tool may have drafted; this is the session it stands for, in Dogwood, with the
+    # reference engine's verdict on it where the engine is available to ask.
+    if args.witness:
+        from checker.witness import confirm, render     # noqa: PLC0415  -- one direction only
+
+        found = confirm(args.policy, args.property_module, out,
+                        keep=args.keep / "witness" if args.keep else None)
+        if found:
+            print("\nIn Dogwood's own terms:\n")
+            print(render(found))
     if args.mutation_score:
         mutation_report(args, policies, vocab, keys, held=False)
     return 1
@@ -1118,6 +1130,12 @@ def main() -> int:
                          "condition even applies to. The one step in this pipeline nothing else "
                          "verifies is whether the property says what you meant, and this is the "
                          "sentence to disagree with while disagreeing is still cheap")
+    ap.add_argument("--witness", action="store_true",
+                    help="when a --property claim is BROKEN, carry the counterexample back into "
+                         "Dogwood: the concrete session it stands for, as a .log trace, and the "
+                         "verdict `dogwood replay` gives it. The counterexample is a TLA+ variable; "
+                         "this is the same finding in the language the policy was written in, "
+                         "confirmed by the reference engine rather than by our model")
     ap.add_argument("--describe", action="store_true",
                     help="print, as JSON, what a --property module extending PolicyUnderTest may "
                          "name for this policy -- actions, fields, domains, constructors -- plus a "

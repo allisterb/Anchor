@@ -41,6 +41,14 @@ if str(REPO / "src") not in sys.path:
 CHECKER = REPO / "src" / "checker" / "properties.py"
 
 from checker.explain import as_dict, explain_file  # noqa: E402
+from checker.witness import Confirmation, confirm  # noqa: E402
+
+
+def as_finding(c: Confirmation) -> dict:
+    """One replayed counterexample, as data. The `sentence` is what a person reads."""
+    return {"invariant": c.invariant, "state": c.state, "demanded": c.demanded,
+            "engine": c.engine, "confirms": c.agreed, "at": c.at, "events": c.events,
+            "why": c.why, "sentence": c.sentence(), "trace": c.trace}
 
 # The findings carry em dashes and policy text; a Windows console defaults to a codepage that
 # cannot hold them, and the report then LOOKS corrupted while the file beside it is fine. The
@@ -173,14 +181,30 @@ def check_all(plan: Plan, out: Path, attempts: int | None = None) -> dict:
 
     for module, policy in plan.properties:
         print(f"  {policy.name} against {module.name}", file=sys.stderr)
+        checked = run_checker(policy, property_module=module,
+                              keep=traces / f"{policy.stem}-{module.stem}", attempts=attempts)
+
+        # A BROKEN claim, carried back into the policy's own language and put to the reference
+        # engine. Cheap -- the counterexample is already computed and a replay is milliseconds --
+        # and it is the difference between a finding a Dogwood author can check and one they
+        # cannot. Degrades to the TLA+ counterexample alone when the engine is not built.
+        confirmations = []
+        if not checked.get("held"):
+            try:
+                confirmations = [as_finding(c) for c in
+                                 confirm(policy, module, checked.get("output", ""),
+                                         keep=traces / f"{policy.stem}-{module.stem}" / "witness")]
+            except Exception as e:                   # never let the extra step lose the finding
+                confirmations = [{"why": f"the counterexample could not be replayed: {e}"}]
+
         results["properties"][module.name] = {
             "policy": policy.name,
             # READ BEFORE RUN. What the module claims is worked out from its own text, costs
             # nothing, and is the only part of this report a reader can disagree with on sight --
             # "holds" is a fact about a claim nobody has read yet.
             "claims": as_dict(explain_file(module)),
-            **run_checker(policy, property_module=module,
-                          keep=traces / f"{policy.stem}-{module.stem}", attempts=attempts),
+            "witness": confirmations,
+            **checked,
         }
     return results
 
@@ -195,7 +219,17 @@ def findings_of(results: dict) -> list[str]:
     """
     out = []
     for name, r in results.get("properties", {}).items():
-        if not r.get("held"):
+        if r.get("held"):
+            continue
+
+        # THE CONCRETE ONE FIRST, when there is one. "A stated intention is not met" is true and
+        # unusable; "with gap = 960 the Dogwood engine ALLOWS this, and your claim says it must
+        # REFUSE it" is the same finding in the language the policy was written in, and it names
+        # a value somebody can go and try.
+        said = [w["sentence"] for w in (r.get("witness") or []) if w.get("sentence")]
+        if said:
+            out += [f"**{r['policy']} does not satisfy {name}** — {s}" for s in said]
+        else:
             out.append(f"**{r['policy']} does not satisfy {name}** — a stated intention is not met")
 
     # A CLAIM THAT CANNOT FAIL IS A FINDING, and it belongs beside the broken ones rather than in
@@ -309,6 +343,35 @@ def report(plan: Plan, results: dict, findings: list[str], *, model_used: bool) 
             if unchecked := (r.get("claims") or {}).get("definedButNotChecked", []):
                 lines.append(f"- _defined but not named in the `.cfg`, so never checked:_ "
                              + ", ".join(f"`{u}`" for u in unchecked))
+            lines.append("")
+
+        # THE SESSION THAT BREAKS IT, in Dogwood. A counterexample is the most useful thing a model
+        # checker produces and the least useful thing to print as a TLA+ variable: `gap = 960` is
+        # an answer in a language the policy's author never chose. Below it is a trace they can
+        # feed to `dogwood replay` themselves -- and, where the binary was available, the verdict
+        # the engine already gave it.
+        witnessed = [(name, r) for name, r in results.get("properties", {}).items()
+                     if r.get("witness")]
+        if witnessed:
+            lines += ["### The session that breaks it", "",
+                      "Each of these is a concrete history, in Dogwood's own trace syntax, that",
+                      "the policy decides the opposite way from the claim about it. Where a",
+                      "verdict is shown it is the **Dogwood engine's**, not ours — the finding",
+                      "does not rest on our reading of the language.", "",
+                      "Each trace is kept under `traces/<policy>-<module>/witness/` beside a",
+                      "generated Cedar schema, so you can put it to the engine yourself:", "",
+                      "```bash",
+                      "dogwood replay --policy-schema traces/<policy>-<module>/witness/generated.cedarschema \\",
+                      "    --trace traces/<policy>-<module>/witness/<Claim>.log <policy>.dw",
+                      "```", ""]
+            for name, r in witnessed:
+                for w in r["witness"]:
+                    lines.append(f"**`{name}` — {w.get('invariant', '?')}**"
+                                 + (f" (`{'`, `'.join(f'{k} = {v}' for k, v in w['state'].items())}`)"
+                                    if w.get("state") else ""))
+                    lines += ["", w.get("sentence", ""), ""]
+                    if w.get("trace"):
+                        lines += ["```", w["trace"].rstrip(), "```", ""]
             lines.append("")
 
     lines += ["---", "",

@@ -160,6 +160,56 @@ It has been got wrong twice, and both are pinned as fixtures rather than describ
 The rule that falls out: when this cannot decide, it refuses and names what is missing. A refusal
 is a correct answer; a false VACUOUS is not.
 
+## The counterexample, in Dogwood — `--witness`
+
+A broken claim ends in a TLA+ state:
+
+```
+BROKEN  Invariant LosesWriteAfter15m is violated by the initial state:
+    gap = 960
+```
+
+Correct, and in the wrong language. The input was a `.dw` file its author wrote and can read; the
+output is a variable belonging to a TLA+ module a tool may have drafted, holding a number whose
+units are not written down. `--witness` carries it back:
+
+```bash
+python src/checker/properties.py policy.dw --property TrustDecay.tla --witness
+```
+
+```
+  LosesWriteAfter10m
+      TLC found      gap = 960
+      which is       @1 interact_advisor::response  @961 execute_trade::request
+      dogwood says   ALLOW at t=961  -- confirms the finding
+      so             with gap = 960, the Dogwood engine ALLOWS this session at t=961, where
+                     `LosesWriteAfter10m` says your policy must REFUSE it
+```
+
+Two steps, worth keeping apart:
+
+1. **What session is `gap = 960`?** The property module says: `Session(gap) == << Interaction(1),
+   Trade(1 + gap) >>`. That recipe is already parsed by [`explain.py`](explain.py), so evaluating
+   it at 960 gives concrete events with times.
+2. **Ask Dogwood.** Those events render as a `.log` trace, a Cedar schema is generated from the
+   policy's own vocabulary, and `dogwood replay` judges it.
+
+**The second step is a different kind of evidence from anything else here.** Every other verdict
+rests on our TLA+ semantics being a faithful reading of Dogwood — established by differential
+testing against 914 recorded pairs, which is a very good argument and not a proof. A replay is not
+an argument: it is the reference implementation answering the question. A confirmed finding no
+longer depends on us being right about the language.
+
+And a **disagreement is a bug in Anchor**, reported as one and never quietly dropped.
+
+Which way round a claim reads is decided by evaluation, not by syntax: the claim is evaluated with
+the decision assumed each way, and the assumption that makes it *false* is what the policy did. If
+neither does, this reader and TLC disagree about what a counterexample is, and it says so and
+claims nothing rather than guessing.
+
+`--witness` needs the `dogwood` binary, which is not in the repo. Without it the session is still
+printed — only the engine's confirmation is missing.
+
 ## `ANCHOR_TLC_JAVA_OPTS`, and why it has no default
 
 Extra JVM flags for every TLC run, honoured by both the Python runner and `TLCProcess`. Unset, so

@@ -190,3 +190,28 @@ The two are complementary; neither replaces the other.
 A violation means the policy does **not** mean what your property says it means, and the state
 printed is the request that breaks it. A clean run means every claim held over every request you
 named — and says nothing about requests you did not name.
+
+## Do not report a violation as `gap = 960`
+
+That is the answer in the wrong language. The person who owns the policy wrote `.dw` and may never
+have seen the module; a state naming a TLA+ variable, in units nobody wrote down, is something they
+cannot check — and a finding nobody can check is a finding nobody acts on.
+
+Pass `witness` and the same finding comes back in theirs:
+
+```
+  LosesWriteAfter10m
+      TLC found      gap = 960
+      which is       @1 interact_advisor::response  @961 execute_trade::request
+      dogwood says   ALLOW at t=961  -- confirms the finding
+      so             with gap = 960, the Dogwood engine ALLOWS this session at t=961, where
+                     `LosesWriteAfter10m` says your policy must REFUSE it
+```
+
+It works out which session the counterexample stands for — from your module's own `Session(gap)` —
+renders it as a Dogwood trace, and puts it to `dogwood replay`. **That verdict is the reference
+engine's, not ours.** Quote it in preference to the TLA+ state: it names a concrete value the
+author can try against their own policy, and it does not ask them to trust our reading of Dogwood.
+
+If the two ever disagree, say so plainly. A disagreement is a defect in Anchor, not a finding about
+the policy, and reporting it as the latter would be wrong.

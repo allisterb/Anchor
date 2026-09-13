@@ -173,6 +173,8 @@ public static class Program
                 attempts: opts.Attempts,
                 amount: opts.Amount,
                 maxFields: opts.MaxFields,
+                explain: opts.Explain ? true : null,
+                witness: opts.Witness ? true : null,
                 verbose: opts.Verbose ? true : null,
                 trace: opts.Trace ? true : null,
                 keep: Blank(opts.Keep),

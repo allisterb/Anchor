@@ -73,6 +73,21 @@ public partial class PolicyTools : Runtime
         [Description("Session length bound (default 3). This is the number that makes VACUOUS provisional.")] int? attempts = null,
         [Description("Numeric domain for input fields, 1..N (default 2).")] int? amount = null,
         [Description("Refuse a policy reading more than N input/output fields (default 4). The request space is the product of their domains, so this bounds the state space rather than soundness.")] int? maxFields = null,
+        [Description(
+            "Before checking a `property`, say in ENGLISH what each of its claims forbids, which " +
+            "states it will be checked in, and how many of those its condition even applies to. " +
+            "Whether the property says what its author MEANT is the one question nothing " +
+            "downstream verifies, and this is that question in a form a person can answer. A " +
+            "claim reported as applying to NONE of its states will pass having tested nothing.")] bool? explain = null,
+        [Description(
+            "When a `property` claim comes back BROKEN, carry the counterexample back into " +
+            "Dogwood: the concrete session it stands for as a .log trace, and the verdict the " +
+            "real `dogwood replay` engine gives it.\n\n" +
+            "USE THIS BEFORE REPORTING A BROKEN CLAIM TO A PERSON. The counterexample on its own " +
+            "is a TLA+ variable -- `gap = 960` -- in units that are not written down, belonging " +
+            "to a module they may not have written. This is the same finding in the language " +
+            "their policy is written in, with a concrete value they can try, confirmed by the " +
+            "reference implementation rather than by our model of it.")] bool? witness = null,
         [Description("Include the raw TLC output for each rule. Verbose and rarely what you want.")] bool? verbose = null,
         [Description(
             "Return the result as JSON with the witness as STRUCTURED EVENTS -- action, kind, time " +
@@ -115,6 +130,8 @@ public partial class PolicyTools : Runtime
         if (maxFields is int f) args.AddRange(["--max-fields", f.ToString()]);
         if (smoke is int s) args.AddRange(["--smoke", s.ToString()]);
         if (verbose is true) args.Add("--verbose");
+        if (explain is true) args.Add("--explain");
+        if (witness is true) args.Add("--witness");
 
         // `--json` replaces the whole of stdout, the prose reading included, so the parsing below
         // must not also try to read findings out of it. `Findings` stays empty and the JSON is

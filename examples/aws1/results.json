@@ -667,6 +667,37 @@
         ],
         "vacuous": []
       },
+      "witness": [
+        {
+          "invariant": "FreshPriceAloneIsNotEnough",
+          "state": {
+            "prereq": "\"freshPriceOnly\""
+          },
+          "demanded": false,
+          "engine": "allow",
+          "confirms": true,
+          "at": 40,
+          "events": [
+            {
+              "time": 11,
+              "action": "get_market_price",
+              "kind": "response",
+              "input": "[]",
+              "output": "[]"
+            },
+            {
+              "time": 40,
+              "action": "execute_trade",
+              "kind": "request",
+              "input": "[profile_id |-> 1]",
+              "output": "[]"
+            }
+          ],
+          "why": "",
+          "sentence": "with prereq = \"freshPriceOnly\", the Dogwood engine ALLOWS this session at t=40, where `FreshPriceAloneIsNotEnough` says your policy must REFUSE it",
+          "trace": "@11 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") AgentCore::Action::\"get_market_price\"::response(input: { }, output: { }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e1\")\n@40 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") request_context(input: { profile_id: 1 }) AgentCore::Action::\"execute_trade\"::request(input: { profile_id: 1 }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e2\")\n"
+        }
+      ],
       "kind": "property",
       "held": false,
       "exitCode": 1,
@@ -745,6 +776,37 @@
         "definedButNotChecked": [],
         "vacuous": []
       },
+      "witness": [
+        {
+          "invariant": "KeepsWriteWhileAdvisorEngaged",
+          "state": {
+            "gap": "1"
+          },
+          "demanded": true,
+          "engine": "deny",
+          "confirms": true,
+          "at": 2,
+          "events": [
+            {
+              "time": 1,
+              "action": "interact_advisor",
+              "kind": "response",
+              "input": "[]",
+              "output": "[]"
+            },
+            {
+              "time": 2,
+              "action": "execute_trade",
+              "kind": "request",
+              "input": "[]",
+              "output": "[]"
+            }
+          ],
+          "why": "",
+          "sentence": "with gap = 1, the Dogwood engine REFUSES this session at t=2, where `KeepsWriteWhileAdvisorEngaged` says your policy must ALLOW it",
+          "trace": "@1 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") AgentCore::Action::\"interact_advisor\"::response(input: { }, output: { }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e1\")\n@2 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") request_context(input: { }) AgentCore::Action::\"execute_trade\"::request(input: { }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e2\")\n"
+        }
+      ],
       "kind": "property",
       "held": false,
       "exitCode": 1,
@@ -787,6 +849,37 @@
         "definedButNotChecked": [],
         "vacuous": []
       },
+      "witness": [
+        {
+          "invariant": "LosesWriteAfter10m",
+          "state": {
+            "gap": "960"
+          },
+          "demanded": false,
+          "engine": "allow",
+          "confirms": true,
+          "at": 961,
+          "events": [
+            {
+              "time": 1,
+              "action": "interact_advisor",
+              "kind": "response",
+              "input": "[]",
+              "output": "[]"
+            },
+            {
+              "time": 961,
+              "action": "execute_trade",
+              "kind": "request",
+              "input": "[]",
+              "output": "[]"
+            }
+          ],
+          "why": "",
+          "sentence": "with gap = 960, the Dogwood engine ALLOWS this session at t=961, where `LosesWriteAfter10m` says your policy must REFUSE it",
+          "trace": "@1 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") AgentCore::Action::\"interact_advisor\"::response(input: { }, output: { }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e1\")\n@961 scope(principal: AgentCore::OAuthUser::\"agent\", resource: AgentCore::Gateway::\"gw\") request_context(input: { }) AgentCore::Action::\"execute_trade\"::request(input: { }, callerPrincipal: AgentCore::OAuthUser::\"agent\", callerResource: AgentCore::Gateway::\"gw\", requestId: \"e2\")\n"
+        }
+      ],
       "kind": "property",
       "held": false,
       "exitCode": 1,

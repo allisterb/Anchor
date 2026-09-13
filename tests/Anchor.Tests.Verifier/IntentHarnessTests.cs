@@ -314,5 +314,48 @@ public class IntentHarnessTests : TestsRuntime
             first.GetProperty("input").GetProperty("stock").ValueKind);
     }
 
+    /// <summary>
+    /// A counterexample, carried back into Dogwood's own language and put to the real engine.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A broken claim ends in a TLA+ state — <c>gap = 960</c> — in units nobody wrote down,
+    /// belonging to a module a tool may have drafted. The input to all of this was a <c>.dw</c>
+    /// file its author can read; an answer they cannot check is an answer they will not act on.
+    /// So the module's own recipe for a session is evaluated at that value, rendered as a Dogwood
+    /// <c>.log</c> trace, and handed to <c>dogwood replay</c>.
+    /// </para>
+    /// <para>
+    /// <b>The replay is a different KIND of evidence from everything else in this suite.</b> Every
+    /// other verdict rests on our TLA+ semantics being a faithful reading of Dogwood — established
+    /// by differential testing, which is a very good argument rather than a proof. A replay is the
+    /// reference implementation answering directly, so a confirmed finding no longer depends on us
+    /// being right about the language.
+    /// </para>
+    /// <para>
+    /// The half with no symptom is the DIRECTION: whether a claim demanded an allow or a refusal.
+    /// Invert it and a correct policy is reported as broken, with engine output apparently proving
+    /// it. The harness asserts both polarities on two claims that differ only in which way round
+    /// they read, and asserts that a state which does <i>not</i> break the claim yields no verdict
+    /// at all rather than a guess.
+    /// </para>
+    /// <para>
+    /// The engine half needs the built binary and skips without it; the reading half — where the
+    /// reasoning lives — runs either way.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("witness_replay.py", "strands")]
+    public async Task ACounterexampleIsCarriedBackIntoDogwood()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/witness_replay.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("a claim that the policy must REFUSE is read as demanding a refusal", run.Output);
+        Assert.Contains("a claim that the policy must ALLOW is read as demanding an allow", run.Output);
+        Assert.Contains("a state that does NOT break the claim yields no demand, not a guess", run.Output);
+        Assert.Contains("a value with no Dogwood form is refused, not guessed", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+    }
+
     #endregion
 }

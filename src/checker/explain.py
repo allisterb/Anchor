@@ -66,6 +66,10 @@ class Unknown:
 
 UNKNOWN = Unknown()
 
+# "this is not one of mine", which UNKNOWN cannot say: UNKNOWN is a legitimate RESULT, so a lookup
+# returning it would be indistinguishable from an operator that exists and could not be computed.
+NOTHING = object()
+
 
 @dataclass(frozen=True)
 class Tag:
@@ -435,6 +439,21 @@ MACHINERY = {"Init", "Next", "Spec", "TypeOK", "vars"}
 # are known here by name rather than resolved.
 CONSTRUCTORS = {"Str": 1, "Num": 1, "Bool": 1, "Addr": 4}
 
+# And so do these, which BUILD a session rather than a value. Known here for the same reason and
+# one more: a counterexample is a value of the property's own variable -- `gap = 960` -- and the
+# only thing that turns that back into something a person recognises is the module's own recipe
+# for a session. `Session(960)` is that recipe, and evaluating it needs these.
+#
+# They mirror `translator/policy_module.py` exactly. The four fields it fills with `Anon` are left
+# out: nothing here reads them, and a renderer supplies its own principal and resource anyway.
+DECISION_KIND = "request"
+EVENT_FIELDS = ("time", "action", "kind", "input", "output")
+
+
+def event(action, kind, input_, output, time) -> Rec:
+    return Rec((("time", time), ("action", action), ("kind", kind),
+                ("input", input_), ("output", output)))
+
 
 @dataclass
 class Definition:
@@ -468,6 +487,7 @@ class Module:
         self._values: dict[str, Any] = {}
         self._read_definitions(tla)
 
+        self.assumed: dict[str, Any] = {}
         self.variables = [v.strip() for m in VARIABLES.findall(tla)
                           for v in m.split(",") if v.strip()]
         self.invariants = [n for line in INVARIANT_CFG.findall(cfg) for n in line.split()]
@@ -503,6 +523,21 @@ class Module:
                 [source_lines[j].strip().lstrip("\\*").strip() for j in range(head, i)])
 
     # --- evaluating ---------------------------------------------------------------------------
+    def assuming(self, operator: str, value: Any) -> "Module":
+        """This module, with `operator` taken to return `value` whatever its arguments.
+
+        FOR ASKING WHAT A CLAIM DEMANDED. A counterexample says the claim came out false; assuming
+        the policy's decision each way and seeing which one does that is how you learn whether the
+        claim wanted an allow or a refusal, without having to reason about where in the expression
+        the decision sits or how many negations are above it.
+
+        Returns self, so it reads as a modifier. The memo is cleared because a nullary definition
+        computed before the assumption would otherwise survive it.
+        """
+        self.assumed[operator] = value
+        self._values.clear()
+        return self
+
     def value(self, name: str) -> Any:
         """The value of a nullary definition, or UNKNOWN. Memoised, and cycle-safe."""
         if name in self._values:
@@ -540,6 +575,11 @@ class Module:
             case ("name", n):
                 if n in env:
                     return env[n]
+                # The generated module's two nullary constants, for the same reason as `Ev`.
+                if n == "NoFields" and n not in self.defs:
+                    return Rec(())
+                if n == "DecisionKind" and n not in self.defs:
+                    return DECISION_KIND
                 return self.value(n)
             case ("dot", target, fieldname):
                 rec = ev(target)
@@ -614,15 +654,57 @@ class Module:
         return combos
 
     def apply(self, name: str, values: list[Any], args, env: dict[str, Any], depth: int) -> Any:
+        if name in self.assumed:
+            return self.assumed[name]
+
         if name in CONSTRUCTORS:
             if any(isinstance(v, Unknown) for v in values):
                 return UNKNOWN
             return Tag(name, values[0] if len(values) == 1 else tuple(values))
 
+        # The session builders, from the generated module. See EVENT_FIELDS above.
+        if name == "Ev" and len(values) == 5 and not any(isinstance(v, Unknown) for v in values):
+            return event(*values)                    # Ev(action, kind, input, output, time)
+        if name == "Request" and len(values) == 2 and not any(isinstance(v, Unknown) for v in values):
+            return event(values[0], DECISION_KIND, values[1], Rec(()), 1)
+
+        # `Sequences` and `FiniteSets`, which every property module EXTENDS. Only the handful that
+        # turn up in one: `Len(Session(w))` is how a module says "the decision is the last event",
+        # which is the commonest shape there is and was unreadable without this.
+        if name not in self.defs and (standard := self.standard(name, values)) is not NOTHING:
+            return standard
+
         d = self.defs.get(name)
         if d is None or len(d.params) != len(values) or (tree := d.tree()) is None:
             return UNKNOWN
         return self.evaluate(tree, {**env, **dict(zip(d.params, values))}, depth + 1)
+
+    def standard(self, name: str, values: list[Any]) -> Any:
+        """An operator from `Sequences` or `FiniteSets`, or NOTHING if this is not one.
+
+        NOT A LIBRARY, on purpose. These are the ones property modules actually use; anything else
+        falls through to UNKNOWN, which is the correct answer for an operator nobody implemented.
+        A definition here that guessed would be worse than none.
+        """
+        if any(isinstance(v, Unknown) for v in values):
+            return UNKNOWN
+
+        match (name, values):
+            case ("Len", [Seq() as s]):
+                return len(s.items)
+            case ("Len", [str() as s]):
+                return len(s)
+            case ("Cardinality", [frozenset() as s]):
+                return len(s)
+            case ("Head", [Seq(items)]) if items:
+                return items[0]
+            case ("Tail", [Seq(items)]) if items:
+                return Seq(items[1:])
+            case ("Append", [Seq(items), x]):
+                return Seq(items + (x,))
+            case ("SubSeq", [Seq(items), int() as i, int() as j]):
+                return Seq(items[max(i, 1) - 1:j])
+        return NOTHING
 
     def binary(self, op: str, left, right, ev) -> Any:
         # Short-circuits first, because a conjunction with one false half is FALSE whatever the

@@ -2,7 +2,7 @@
   <PropertyGroup Label="Settings">
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
-    <NoWarn>NETSDK1233,IKVM0109</NoWarn>
+    <NoWarn>NETSDK1233,IKVM0109,IKVM0100,IKVM0117</NoWarn>
   </PropertyGroup>
 
   <!-- Repository root. $(SolutionDir) is only set when MSBuild is driven by the .sln, so targets that

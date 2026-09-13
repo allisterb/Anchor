@@ -56,6 +56,27 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Scripts", "Scripts", "{3B57
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "agent", "src\agent\agent.pyproj", "{4C9A2E15-7B83-4D26-8E0F-5A1C3D7B92E6}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Examples", "Examples", "{FC91202A-F219-4D48-BA09-B73BB4B43485}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "aws1", "aws1", "{EEEAAF25-06EC-4DFA-BA18-3E18D1EC3F3F}"
+	ProjectSection(SolutionItems) = preProject
+		examples\aws1\01-workflow-sequencing.dw = examples\aws1\01-workflow-sequencing.dw
+		examples\aws1\02-output-to-input.dw = examples\aws1\02-output-to-input.dw
+		examples\aws1\03-data-freshness.dw = examples\aws1\03-data-freshness.dw
+		examples\aws1\07-trust-decay.dw = examples\aws1\07-trust-decay.dw
+		examples\aws1\findings.md = examples\aws1\findings.md
+		examples\aws1\questions.md = examples\aws1\questions.md
+		examples\aws1\README.md = examples\aws1\README.md
+		examples\aws1\results.json = examples\aws1\results.json
+		examples\aws1\TradeGate.cfg = examples\aws1\TradeGate.cfg
+		examples\aws1\TradeGate.tla = examples\aws1\TradeGate.tla
+		examples\aws1\transcript.md = examples\aws1\transcript.md
+		examples\aws1\TrustDecay.cfg = examples\aws1\TrustDecay.cfg
+		examples\aws1\TrustDecay.tla = examples\aws1\TrustDecay.tla
+		examples\aws1\TrustDecay10.cfg = examples\aws1\TrustDecay10.cfg
+		examples\aws1\TrustDecay10.tla = examples\aws1\TrustDecay10.tla
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -216,6 +237,7 @@ Global
 		{D574E189-B9C6-4979-8E8A-055DF574AC25} = {8C1EB6B3-A40E-4964-8913-154B82B68535}
 		{AF7713A6-C0BE-409D-83BC-7DB0B708B211} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
 		{4C9A2E15-7B83-4D26-8E0F-5A1C3D7B92E6} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
+		{EEEAAF25-06EC-4DFA-BA18-3E18D1EC3F3F} = {FC91202A-F219-4D48-BA09-B73BB4B43485}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F5715F99-B6C8-47A8-8813-968B2AEF6BB2}
