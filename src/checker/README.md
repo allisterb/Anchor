@@ -143,6 +143,21 @@ So the two gates catch different things and neither replaces the other:
 | `explain` | a claim whose condition no state satisfies; one true by its own arithmetic; a `.cfg` naming an invariant that does not exist; claims defined but never listed | milliseconds, reading |
 | `--mutation-score` | a claim that holds of the policy *and of every broken version of it* — including a tautology about the decision, which reading cannot see | one TLC run per mutant |
 
+**`--mutants N` takes a prefix, so the ORDER of the mutants decides which rules ever get broken.**
+They are generated breadth first — every rule's deletion, then every inversion, then the dropped
+conditions — so the default cap of 8 still touches every rule of a 7-rule policy. Grouped by rule,
+as they were, those 8 went entirely to rules 1–3 and **rules 4–7 were never damaged**: a property
+about a later rule survived every mutant tried and was told it "is not constraining this policy at
+all", which is false and is the worst thing this gate can say. Measured on
+`examples/aws2/agent-policy.dw`: a property about `initiate_transfer` (rules 4 and 5) caught **0 of
+the first 8** and **4 of all 21**, every one of the four on rules 4 and 5.
+
+**Every mutation removes or narrows a permission**, which bounds what this gate can prove. A rule
+deleted, a permit typed as a forbid, a condition dropped so a forbid matches more — all of them
+make the policy refuse *more*. So a property whose claims only say what must be **refused** survives
+every one of them however carefully it names its values, and needs at least one claim about what
+must be **allowed** before this gate means anything. The complaint says so.
+
 ## The answer this must never get wrong
 
 A false **VACUOUS** tells someone to delete a rule that works. Everything else the checker can get

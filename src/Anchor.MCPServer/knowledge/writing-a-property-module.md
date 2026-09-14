@@ -89,6 +89,43 @@ comparison instead of quietly answering one.
 time — `Ev("execute_trade", "request", NoFields, NoFields, 900)`. The constructors are for field
 values *inside* the input and output records, and nowhere else.
 
+### And a VARIABLE must never range over tagged values
+
+This is the other half of the same rule, and on its own it has cost more runs than anything else
+in this file. **Let your variables hold plain values and tag them where they are used.**
+
+```tla
+VARIABLES gap, verified, account                   \* RIGHT
+Init == /\ gap      \in {60, 960}
+        /\ verified \in {TRUE, FALSE}
+        /\ account  \in {1, 2}
+...     [account |-> Num(account), ...], [verified |-> Bool(verified), ...]
+
+VARIABLES verified, account                        \* WRONG — dies at run time
+Init == /\ verified \in {Bool(TRUE), Bool(FALSE)}
+        /\ account  \in {Num(1), Num(2)}
+```
+
+The wrong version compiles, and then TLC stops while computing the initial states with:
+
+```
+Error: Attempted to check equality of integer 1 with non-integer:
+FALSE
+Error: TLC was unable to fingerprint.
+```
+
+`Num(1)` is `[v |-> 1, k |-> "n"]` and `Bool(FALSE)` is `[v |-> FALSE, k |-> "b"]`, so comparing
+them compares `1` with `FALSE`. **The message names neither your variables nor the tagging**, which
+is why this is worth memorising rather than deriving: it looks like an arithmetic bug and is a
+typing one.
+
+*Reproduced three times in live sessions on the same requirement, and fixed each time by moving the
+tags from the `Init` domains to the point of use, changing nothing else. The exact mechanism inside
+TLC is not established here; the reproduction and the fix are.*
+
+Your claims then read more naturally too — `verified /\ account = 2` rather than
+`verified = Bool(TRUE) /\ account = Num(2)`.
+
 ## Three rules that stop the usual syntax failures
 
 - **Bound every quantifier.** `\A x \in Requests : P(x)`, never `\A x : P(x)` — TLC cannot

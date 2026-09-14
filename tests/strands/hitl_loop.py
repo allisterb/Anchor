@@ -182,6 +182,14 @@ def per_gate() -> None:
                                                "broken version of this policy that was tried"])
     check("a property that catches no mutant asks what must NEVER be allowed",
           a is not None and "never allow" in a.question.lower(), a.question if a else "none")
+    # AND WHAT MUST BE ALLOWED, which is the half that actually catches a mutant. Every mutation
+    # tried removes or narrows a permission, so a refusal-only property survives all of them — and
+    # asking only for a refusal, as this did, is a question that induces exactly the property the
+    # gate then rejects. Three live sessions went round that loop.
+    check("...and ALSO what it must allow, which is the half a mutant can break",
+          a is not None and "must allow" in a.question.lower(), a.question if a else "none")
+    check("...and says why, so the answer is not a guess",
+          a is not None and "takes permissions AWAY" in a.said, a.said if a else "none")
 
     # --- the decision probe, and it must OUTRANK the mutation gate ------------------------------
     # Both fire together whenever the policy refuses everything the property names, and only one
@@ -229,6 +237,25 @@ def nothing_to_ask() -> None:
           asked(unreachable=["draft: 404 model not found"]) is None)
     check("nor is a bug in Anchor", asked(crashed=["check failed: division by zero"]) is None)
     check("nor is a policy that cannot be read", asked(rejected_at="describe") is None)
+
+    # NOR A MODULE THAT COMPILED AND THEN DIED EVALUATING. Almost always the tagging discipline --
+    # `x = 1` against a `Num(1)` -- which is a fault in the drafter's TLA+ that no restatement of a
+    # requirement in English can reach. A live run asked somebody to say their requirement again,
+    # right after they had answered it well, for a fault their words had nothing to do with. The
+    # cause was upstream: `author.assess` reported every no-verdict as "did not compile", so the
+    # two were indistinguishable here.
+    check("nor a module that compiled but could not be evaluated",
+          asked(rejected_at="score",
+                complaints=["the module compiled but could not be evaluated, so nothing was "
+                            "checked:\nError: Attempted to check equality of integer 1 with "
+                            "non-integer"]) is None)
+    # ...and the one it IS still asked about, so the two are not collapsed again.
+    failed_parse = asked(rejected_at="score",
+                         complaints=["the module did not compile, so nothing was checked:\n"
+                                     "Parse Error at line 12"])
+    check("...but a module that did not COMPILE still asks for the requirement again",
+          failed_parse is not None and failed_parse.gate == "drafting",
+          str(failed_parse))
 
     # And the loop STOPS on those rather than going round again spending a model call per attempt.
     with tempfile.TemporaryDirectory(prefix="anchor-hitl-") as tmp:

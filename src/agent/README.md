@@ -237,14 +237,24 @@ appended to the brief before the graph runs again.
 |---|---|
 | the decision never varies | *what has to have happened BEFORE the request you care about?* |
 | the claim cannot fail | *which exact values should this be checked at?* |
-| it catches no mutant | *name one thing this policy must never allow* |
+| it catches no mutant | *name one thing it must never allow, **and one it must allow*** |
 | the reviewer disagrees | both texts, side by side — and `keep` **overrules** it |
 | the allowance ran out | say it again, with the policy's own vocabulary shown |
 
 The order is the diagnosis: a policy that refuses everything the property names *also* fails
 mutation scoring, and "what would a broken policy do" is unanswerable while the real answer is a
 missing prior approval. What no clarification can fix — an unreachable model, an unparseable
-policy, a bug in Anchor — is **not** put to a person; the loop stops and says so.
+policy, a bug in Anchor, a module that compiled and then died on the tagging discipline — is
+**not** put to a person; the loop stops and says so.
+
+**The mutation question asks for both directions, and that was learned the hard way.** It used to
+ask only *"name one thing this policy must never allow"* — and a drafter answering that faithfully
+writes claims that all say something must be REFUSED. Every mutation tried removes or narrows a
+permission (a rule deleted, a permit typed as a forbid, a condition dropped), so a policy that
+refuses *more* still refuses everything such a property demanded be refused: it survives all of
+them and is rejected for constraining nothing. **The question produced the property the gate then
+turned away**, and three live sessions went round that loop before it was spotted. The property
+that eventually passed differed from the ones that did not by exactly one claim — a positive one.
 
 **One extra node, `confirm`, between `review` and `check`.** The person is shown, in plain English,
 what the claim forbids, *before* any TLC runs — the one step that can catch a property which is

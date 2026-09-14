@@ -965,35 +965,54 @@ def mutants(policies: list[dict]) -> list[tuple[str, list[dict]]]:
     Three kinds, chosen because each is a mistake somebody actually makes rather than a random
     perturbation -- a rule deleted in a refactor, an effect typed wrong, a condition dropped while
     rewriting one. A property worth having notices at least one of them.
+
+    ORDERED BREADTH FIRST -- every rule's deletion, then every rule's inversion, then the dropped
+    conditions -- because the caller takes a PREFIX of this list (`all_mutants[:cap]`) and the
+    default cap is 8. Grouped by rule, as this was, a 7-rule policy spent all 8 on rules 1 to 3 and
+    NEVER BROKE rules 4 to 7. A property about a later rule then survived every mutant tried and
+    was rejected for "not constraining this policy at all" -- which was false, and is the worst
+    thing this gate can say, because the whole point of it is to catch a property that constrains
+    nothing.
+
+    IT WAS FOUND IN A LIVE SESSION and it is not hypothetical. A property about
+    `initiate_transfer` (rules 4 and 5 of `examples/aws2/agent-policy.dw`) caught 0 of the first 8
+    mutants and 4 of all 21 -- every one of the four on rules 4 and 5, exactly the rules it was
+    about. It cost three drafting attempts and two sessions before the gate, rather than the
+    drafts, was suspected.
     """
-    out: list[tuple[str, list[dict]]] = []
+    deleted: list[tuple[str, list[dict]]] = []
+    inverted: list[tuple[str, list[dict]]] = []
+    dropped: list[tuple[str, list[dict]]] = []
 
     for i, rule in enumerate(policies):
         # Deleted. The commonest edit there is, and the one a property most obviously should catch.
-        out.append((f"rule {i + 1} ({rule['effect']}) deleted",
-                    [p for j, p in enumerate(policies) if j != i]))
+        deleted.append((f"rule {i + 1} ({rule['effect']}) deleted",
+                        [p for j, p in enumerate(policies) if j != i]))
 
         # Inverted. A permit typed as a forbid is a one-word mistake with the largest possible
         # consequence, and it is what the AgentCore trust-decay policy turns out to be.
         flipped = "forbid" if rule["effect"] == "permit" else "permit"
-        out.append((f"rule {i + 1} turned into a {flipped}",
-                    [{**p, "effect": flipped} if j == i else p for j, p in enumerate(policies)]))
+        inverted.append((f"rule {i + 1} turned into a {flipped}",
+                         [{**p, "effect": flipped} if j == i else p
+                          for j, p in enumerate(policies)]))
 
         # Each condition dropped in turn: the rule now applies more widely than it was written to.
         terms = conjuncts(rule.get("cond"))
         if len(terms) > 1:
             for k in range(len(terms)):
                 kept = [t for m, t in enumerate(terms) if m != k]
-                out.append((
+                dropped.append((
                     f"rule {i + 1} lost a condition: {describe_term(terms[k])}",
                     [{**p, "cond": rebuild(kept)} if j == i else p
                      for j, p in enumerate(policies)]))
         elif terms:
-            out.append((f"rule {i + 1} lost its only condition",
-                        [{**p, "cond": rebuild([])} if j == i else p
-                         for j, p in enumerate(policies)]))
+            dropped.append((f"rule {i + 1} lost its only condition",
+                            [{**p, "cond": rebuild([])} if j == i else p
+                             for j, p in enumerate(policies)]))
 
-    return out
+    # Deletion first because it is the damage every property should notice, and one per rule before
+    # any rule's second mutant -- so the cheapest cap still touches every rule in the policy.
+    return deleted + inverted + dropped
 
 
 def mutation_report(args, policies: list[dict], vocab: dict, keys, held: bool) -> int:

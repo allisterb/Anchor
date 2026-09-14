@@ -28,8 +28,8 @@ Milestone 1 — confirm the Dafny and TLA+ toolchains work end to end — is com
 | **Dafny** | in-process | in-process | in-process | in-process | Python, in-process |
 | **TLA+** | in-process (SANY) | — | out-of-process (TLC) | — | — |
 
-Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 53 tests, all
-green, on Windows and Linux.
+Milestone 2 — TLA+ models of real Strands workflows — is most of the way there. 79 tests, all
+green. CI runs them on Linux; Windows is covered by running the suite locally.
 
 **A live Strands `Graph` is translated into a model, rather than described by one.** `GraphBuilder`
 is a construction API, so the object *is* the workflow and the runtime executes that same object;

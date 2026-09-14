@@ -223,10 +223,24 @@ def assess(result: dict, config: str) -> list[str]:
         # what follows is a residual stack and the checker's own explanation. Both halves are kept
         # so a drafter gets the location it needs to fix and the reason it was not scored.
         out = result.get("output", "").splitlines()
-        start = next((i for i, line in enumerate(out) if "DOES NOT COMPILE" in line), None)
+        start = next((i for i, line in enumerate(out)
+                      if "DOES NOT COMPILE" in line or "DID NOT EVALUATE" in line), None)
         said = out[start:start + 14] if start is not None else out[-14:]
-        complaints.append("the module did not compile, so nothing was checked:\n"
-                          + "\n".join(said))
+
+        # WHICH OF THE TWO IT WAS, because they want opposite responses and this said "did not
+        # compile" for both. A module that will not PARSE is a syntax error the drafter can be
+        # pointed at; one that compiles and then dies evaluating is almost always the tagging
+        # discipline -- `x = 1` against a `Num(1)` -- and is a different piece of advice.
+        #
+        # It mattered beyond wording. `hitl` reads this complaint to decide what to ask a PERSON,
+        # mapped "did not compile" to "the draft was not well-formed", and asked somebody to state
+        # their requirement again -- for a fault in the drafter's TLA+ that no rephrasing of a
+        # requirement could touch.
+        evaluated = any("DID NOT EVALUATE" in line for line in out)
+        complaints.append(
+            ("the module compiled but could not be evaluated, so nothing was checked:\n"
+             if evaluated else "the module did not compile, so nothing was checked:\n")
+            + "\n".join(said))
         return complaints
 
     if not INVARIANT_LINE.search(config):
@@ -241,7 +255,22 @@ def assess(result: dict, config: str) -> list[str]:
             "was tried -- rules deleted, permits turned into forbids, conditions dropped. So it "
             "is not constraining this policy at all. It is probably ranging over requests the "
             "policy never sees, or asserting something trivially true. State the claim about "
-            "concrete actions and values the policy actually names.")
+            "concrete actions and values the policy actually names.\n\n"
+            # THE COMMONEST REASON, and it is a property of the MUTANTS rather than of any
+            # particular draft, so it can be said without inspecting one. Every kind of damage
+            # here removes or narrows a permission: a rule deleted, a permit typed as a forbid, a
+            # condition dropped so a forbid matches more. A policy that refuses MORE still refuses
+            # everything a refusal-only property said must be refused -- so such a property
+            # survives all of them, however carefully it names its values.
+            #
+            # Three live sessions were lost to this before it was said out loud. The property that
+            # eventually passed differed from the ones that did not by exactly one claim: a
+            # positive one.
+            "IF EVERY CLAIM YOU WROTE SAYS SOMETHING MUST BE REFUSED, THAT IS WHY. Every mutation "
+            "tried removes or narrows a permission, and a policy that refuses more still refuses "
+            "everything you said must be refused. Add at least one claim saying what the policy "
+            "MUST ALLOW -- the request that has met every condition and has to go through. That "
+            "is the claim a deleted or inverted permit breaks.")
 
     return complaints
 

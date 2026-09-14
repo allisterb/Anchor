@@ -112,8 +112,13 @@ class Terminal(Console):
                 out.append(line if line.strip() else "")
             else:
                 indent = " " * (len(line) - len(line.lstrip()))
+                # NEITHER HYPHENS NOR LONG WORDS ARE BREAK POINTS. Both defaults are wrong for what
+                # this prints: a findings.md path wrapped as `...anchor\hitl-` / `identity\...` is
+                # no longer a path anybody can copy, and `hitl-identity` is one word to a reader
+                # even though textwrap sees two.
                 out.append(textwrap.fill(line, self.width, initial_indent=indent,
-                                         subsequent_indent=indent + "  "))
+                                         subsequent_indent=indent + "  ",
+                                         break_on_hyphens=False, break_long_words=False))
         # `newline=False` leaves the cursor on the line, so the next call can overwrite it with a
         # leading `\r` -- which is how a stage says it has STARTED and then says how long it took,
         # on one line instead of two.
@@ -236,7 +241,7 @@ def readable(explained: str) -> str:
 
 def untag(value: str) -> str:
     """`Num(22)` -> `22`, `Str("local")` -> `local`. Anything else unchanged."""
-    for prefix in ("Num(", "Str("):
+    for prefix in ("Num(", "Str(", "Bool("):
         if value.startswith(prefix) and value.endswith(")"):
             value = value[len(prefix):-1]
             break
@@ -279,16 +284,36 @@ def ask_about(run: Run) -> Ask | None:
 
     # --- a broken policy passes too ------------------------------------------------------------
     if run.rejected_at == "score":
+        # NOT A QUESTION FOR A PERSON. A module that compiles and then dies evaluating has almost
+        # always broken the tagging discipline -- `x = 1` against a `Num(1)` -- which is a fault in
+        # the drafter's TLA+, and no restatement of a requirement in English can reach it. This
+        # asked somebody to say their requirement again, after they had already answered it well,
+        # for a fault their words had nothing to do with.
+        if any("could not be evaluated" in c for c in run.complaints):
+            return None
         if any("did not compile" in c for c in run.complaints):
             return restate(run, "The draft did not compile, so nothing was checked.")
+        # ASKS FOR BOTH DIRECTIONS, and the second half is the one that matters. Every mutation
+        # tried removes or narrows a permission -- a rule deleted, a permit typed as a forbid, a
+        # condition dropped -- so a policy that refuses MORE still refuses everything a
+        # refusal-only property said must be refused, and such a property survives all of them.
+        #
+        # THE OLD QUESTION CAUSED THAT. "Name one thing this policy must NEVER allow" is a request
+        # for a refusal, a drafter answering it faithfully writes refusal-only claims, and this
+        # gate then rejects them -- so the question sent the person round a loop it had built. It
+        # cost three live sessions. The property that eventually passed differed from the ones that
+        # did not by exactly one claim: a positive one.
         return Ask(
             "discrimination",
             "The claim holds -- but it also holds of every deliberately broken version of this "
             "policy that was tried: rules deleted, permits turned into forbids, conditions "
-            "dropped. So it is not constraining this policy at all.",
-            "Name one thing this policy must NEVER allow. If somebody broke it, what would you "
-            "see go wrong?",
-            "a concrete action, and the values it must be refused at")
+            "dropped. So it is not constraining this policy at all.\n\n"
+            "Breaking a policy mostly takes permissions AWAY, and a claim that something must be "
+            "refused survives that. What catches it is a claim about something that must go "
+            "THROUGH.",
+            "Name two things: one this policy must NEVER allow, and one it MUST allow -- a request "
+            "that has met every condition and has to succeed.",
+            "a concrete action and values for each")
 
     # --- the claim cannot fail -----------------------------------------------------------------
     if run.rejected_at == "preflight":
@@ -635,6 +660,12 @@ DOING = {
 }
 
 
+# How wide the overwrite has to be: the longest "  stage      note ..." line any of them produces,
+# plus the `\r` that does not occupy a column. Derived rather than chosen, so adding a longer note
+# cannot leave its tail on screen.
+WIDEST = max(len(f"  {stage:<10} {note} ...") for stage, note in DOING.items()) + 1
+
+
 def progress(console: Console):
     """Say what is happening, because otherwise nothing does until the first question.
 
@@ -648,8 +679,10 @@ def progress(console: Console):
         if seconds is None:
             console.say(f"  {stage:<10} {DOING.get(stage, '')} ...", newline=False)
         else:
-            # Overwrite the line it just wrote, padded past whatever the note was.
-            console.say(f"\r  {stage:<10} {seconds:6.1f}s{' ' * 60}")
+            # PADDED PAST THE LONGEST NOTE THERE IS, not past a guess. A fixed 60 was shorter than
+            # `score`'s line and left "ong one ..." sitting after the elapsed time -- the tail of
+            # the sentence it was supposed to paint over.
+            console.say(f"\r  {stage:<10} {seconds:6.1f}s".ljust(WIDEST))
     return announce
 
 

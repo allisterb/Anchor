@@ -76,6 +76,23 @@ STAGES = ("describe", "draft", "preflight", "score", "review", "check", "answer"
 # re-proved over it.
 HITL_STAGES = STAGES[:5] + ("confirm",) + STAGES[5:]
 
+# WHAT A MODULE THAT COMPILED AND THEN DIED IS ALMOST ALWAYS DOING, and there are TWO ways to get
+# it wrong that are exact opposites -- which is why this said only half of it and the half it said
+# was the wrong half for the failure it was attached to. It told a drafter to add tags, three live
+# sessions running, while the fault was tags in the one place they must not appear.
+TAGGING = (
+    "Two ways to get this wrong, and they are opposites.\n\n"
+    "INSIDE a field record a value must be TAGGED: write `x <= Num(22)` and `s = Str(\"a1\")`, "
+    "never `x <= 22`.\n\n"
+    "But a VARIABLE must range over PLAIN values, and you tag it where you USE it:\n"
+    "    VARIABLES verified, account\n"
+    "    Init == verified \\in {TRUE, FALSE} /\\ account \\in {1, 2}\n"
+    "    ... [account |-> Num(account)], [verified |-> Bool(verified)]\n"
+    "Never `verified \\in {Bool(TRUE), Bool(FALSE)}`. Tagged values in an `Init` domain are what "
+    "produces `Attempted to check equality of integer 1 with non-integer` -- a message that names "
+    "neither your variables nor the tagging, and looks like an arithmetic bug rather than a typing "
+    "one.")
+
 REVIEWER_PROMPT = (
     "You are given a REQUIREMENT in plain English, and a plain-English reading of a formal claim "
     "somebody wrote to capture it. Your only job is to say whether the second says what the first "
@@ -462,8 +479,7 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
             # difference between one round of feedback and the whole allowance spent producing a
             # diagnostic nobody read.
             feedback = ("Your module compiled but could not be evaluated:\n\n" + why[-1500:]
-                        + "\n\nA tagged value is a RECORD, not a bare one: write `x <= Num(22)` "
-                          "and `s = Str(\"a1\")`, never `x <= 22`.")
+                        + "\n\n" + TAGGING)
             continue
 
         # AND DO THE CLAIMS THEMSELVES EVALUATE? The probe only exercises the decision term, and
@@ -475,8 +491,7 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
         if once.get("_failed"):
             feedback = ("Your module compiled, but checking it produced no verdict:\n\n"
                         + str(once.get("_why"))[-1500:]
-                        + "\n\nA tagged value is a RECORD, not a bare one: write `x <= Num(22)` "
-                          "and `s = Str(\"a1\")`, never `x <= 22`.")
+                        + "\n\n" + TAGGING)
             continue
 
         if verdict == "constant":

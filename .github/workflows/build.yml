@@ -22,8 +22,8 @@
 #
 # THE MAJORS are the latest of each, not the minimum that works. Node 20 was deprecated on the
 # runners (2025-09-19) and every v4-era action was being forced onto Node 24 with a warning; these
-# target it natively. Checked before bumping, because a breaking change here fails both legs at
-# once with nothing to bisect: checkout v5-v7 harden `pull_request_target` defaults, which this
+# target it natively. Checked before bumping, because a breaking change here takes the whole
+# run out with nothing to bisect: checkout v5-v7 harden `pull_request_target` defaults, which this
 # workflow does not use; setup-java v6 removes the legacy `adopt` distributions, and this asks for
 # `temurin`; setup-python v7 removes a `pip-install` input this never set; setup-dotnet's wildcard
 # restriction applies only alongside `rollForward`, which is likewise unused. They require runner
@@ -44,13 +44,26 @@ jobs:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # Report both legs. A Windows-only failure is usually a path or line-ending problem and a
-      # Linux-only one usually a solver or JVM problem, so cancelling the other leg hides the
-      # comparison that identifies which.
+      # LINUX ONLY, and this is a BILLING decision rather than a technical one. GitHub bills
+      # Windows runners at twice the rate of Linux ones against a limited monthly allowance, and
+      # this suite is not short: the corpus tests dominate it and they are the same work on either
+      # OS. The Windows half is run BY HAND on the maintainer's machine, which is a Windows
+      # machine, so the coverage is not gone -- it is no longer automatic.
+      #
+      # WHAT THAT COSTS, stated because it is a real cost and this repo has already paid it once.
+      # A Windows-only failure is usually a path or line-ending problem, and `.gitattributes`
+      # exists precisely because CRLF on a shebang line got past a Windows developer and failed on
+      # a Linux runner -- the same class of bug, caught in the other direction by having both legs.
+      # `PythonHarnessAttribute.RequiresExecutable` carries a comment about the same hazard. So a
+      # Windows regression will now be found by somebody running the suite rather than by a push.
+      #
+      # TO PUT IT BACK, uncomment the one line. The Windows-conditional steps below are KEPT for
+      # that reason rather than deleted: dead while the matrix has one entry, correct the moment it
+      # has two, and a deleted step is a thing somebody has to rewrite from memory.
       fail-fast: false
       matrix:
         os:
-          - windows-latest
+          # - windows-latest
           # Pinned to 22.04 to match the solver-builds asset the scripts fetch. The runner version
           # does not change which asset is downloaded, but it does decide what the binary runs on.
           - ubuntu-22.04
@@ -192,7 +205,9 @@ jobs:
       #
       # Expect this to be slow on a cold cache: IKVM cross-compiles tla2tools.jar into an assembly,
       # which dominates a first build.
-      # Each OS runs its own script, so both get real execution coverage rather than a lint.
+      # Each OS runs its own script, so whichever legs are enabled get real execution coverage
+      # rather than a lint. With the matrix at Linux only, `build.ps1` is exercised by hand and not
+      # by a push -- see the note on the matrix above.
       #
       # Two steps rather than one parameterised by the matrix. A step's `shell:` does not accept the
       # `matrix` context — GitHub validates which contexts each key may use, separately from YAML

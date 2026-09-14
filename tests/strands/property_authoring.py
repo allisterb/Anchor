@@ -110,6 +110,39 @@ def scripted(*pairs):
     return propose
 
 
+
+def mutant_order() -> None:
+    """The cap takes a PREFIX, so the order decides which rules ever get broken.
+
+    `--mutants N` is `all_mutants[:N]` and defaults to 8. Grouped by rule, as this was, a 7-rule
+    policy spent all 8 on rules 1 to 3 and never broke rules 4 to 7 -- so a property about a later
+    rule survived every mutant tried and was rejected for "not constraining this policy at all",
+    which is both false and the worst thing this gate can say.
+
+    Measured on `examples/aws2/agent-policy.dw`: a property about `initiate_transfer` (rules 4 and
+    5) caught 0 of the first 8 and 4 of all 21, every one of the four on rules 4 and 5. It cost
+    three drafting attempts across two live sessions before the gate rather than the drafts was
+    suspected.
+    """
+    from checker.properties import mutants                          # noqa: PLC0415
+
+    rules = [{"index": i + 1, "effect": "permit" if i < 4 else "forbid",
+              "actions": [f"act{i + 1}"], "cond": None} for i in range(7)]
+    order = [what for what, _ in mutants(rules)]
+
+    def rule_of(what: str) -> int:
+        return int(re.match(r"rule (\d+)", what).group(1))
+
+    first8 = {rule_of(w) for w in order[:8]}
+    check("a cap of 8 breaks EVERY rule of a 7-rule policy, not just the first few",
+          first8 == set(range(1, 8)), f"touched rules {sorted(first8)}")
+    check("...and deletion comes first, being the damage any property should notice",
+          all("deleted" in w for w in order[:7]), str(order[:7]))
+    check("every rule is still mutated every way",
+          len(order) == len({w for w in order}) and
+          {rule_of(w) for w in order} == set(range(1, 8)), str(len(order)))
+
+
 def main() -> int:
     # --- assess(): the gate's own logic ----------------------------------------------------------
     check("a module that did not run is rejected",
@@ -300,6 +333,8 @@ def main() -> int:
     # refused outside it. An evaluator that returns the wrong answer is worse than one that fails.
     check("...and returns the right values either side of the window",
           "<<TRUE, FALSE>>" in said, said[-300:])
+
+    mutant_order()
 
     print()
     if failures:
