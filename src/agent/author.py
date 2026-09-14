@@ -343,6 +343,27 @@ def draft_prompt(vocab: dict, intent: str, feedback: str = "") -> str:
     return prompt
 
 
+def retry_prompt(feedback: str) -> str:
+    """What to ask for round 2 and after, when the drafter still has round 1 in its context.
+
+    THE MANUAL IS 15 KB AND THE VOCABULARY IS ANOTHER 8, and `draft_prompt` sends both. A Strands
+    `Agent` keeps its conversation, and the drafting loop reuses ONE agent across rounds -- so a
+    second round built from `draft_prompt` sends the whole first exchange AND a fresh copy of the
+    manual, the vocabulary and the intent on top of it.
+
+    Measured on a live run, twice, and the arithmetic is exact: round 1 was 6,399 in / 6,580 out,
+    and round 2's input was 19,501 = 12,979 + 6,522. That 6,522 is `draft_prompt` again, charged a
+    second time for text the model is already looking at.
+
+    So later rounds send the feedback and nothing else. The model keeps everything it needs --
+    including its own previous module, which is what "return the whole module again" refers to and
+    the reason the history is worth keeping at all.
+    """
+    return (f"Your previous attempt was rejected:\n\n{feedback}\n\n"
+            f"Return the two files again, between the same ===MODULE=== and ===CONFIG=== markers, "
+            f"with the same module name. Everything you were told before still applies.")
+
+
 def parse_draft(text: str) -> tuple[str, str]:
     """The two files out of one reply. A missing marker is a failed draft, not a crash."""
     module, _, config = text.partition("===CONFIG===")

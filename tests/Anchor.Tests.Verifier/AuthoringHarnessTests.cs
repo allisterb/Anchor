@@ -248,6 +248,15 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("ok    it took a second round", run.Output);
         Assert.Contains("ok    ...and where SANY choked", run.Output);
 
+        // AND THE ROUND IS NOT PAID FOR TWICE. One Agent drafts every round, so its conversation
+        // already holds round 1 — prompt, 15 KB of manual, 8 KB of vocabulary and all. Building a
+        // later round from `draft_prompt` sent a second copy on top of that history. Found in a
+        // live run's own cost table, and the arithmetic was exact: round 1 was 6,399 in / 6,580
+        // out, and round 2's input was 19,501 = 12,979 + 6,522, that last figure being
+        // `draft_prompt` charged again for text already in front of the model.
+        Assert.Contains("ok    ...and the manual was not sent a second time", run.Output);
+        Assert.Contains("ok    ...nor the vocabulary", run.Output);
+
         // AND THAT IT IS NOT A CYCLE. A retry edge in the graph would put this shape outside what
         // either model can express — `oracle` is fixed per behaviour, so a retry edge cannot say
         // "again, then stop", and StartBatch increments `runs` with no guard. If `draft` ever runs
@@ -382,6 +391,15 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("ok    the person was shown what the claim forbids", run.Output);
         Assert.Contains("ok    the person's `no` stops the run", run.Output);
         Assert.Contains("ok    findings.md says the gate was the PERSON'S, not a criterion in code", run.Output);
+
+        // EVERY STAGE ANNOUNCES ITSELF. Found by running the mode for real: on a six-field policy
+        // the wait between the command and the first question is minutes of model calls and TLC
+        // runs, and it printed nothing at all — indistinguishable from a hang. `auto` reports each
+        // policy as it lands for exactly this reason; the interactive mode, where somebody is
+        // actually sitting there waiting, did not.
+        Assert.Contains("ok    `draft` says it has started", run.Output);
+        Assert.Contains("ok    `score` says it has started", run.Output);
+        Assert.Contains("ok    ...and says how long it took", run.Output);
 
         // Every exit reports, and a person who leaves is not kept in a loop. Saying no at the
         // checkpoint and then declining to explain leaves the brief unchanged — so a further

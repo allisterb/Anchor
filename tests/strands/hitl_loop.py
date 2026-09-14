@@ -126,6 +126,21 @@ def never_tla() -> None:
 
         check("the person was asked something", len(person.asked) >= 1, str(person.asked))
         formal(seen, "when a gate rejects the draft")
+
+        # EVERY STAGE ANNOUNCES ITSELF, because otherwise nothing does until the first question.
+        # Found by running it for real: on a six-field policy the wait between the command and the
+        # first prompt is minutes of model calls and TLC runs, and it printed nothing at all --
+        # indistinguishable from a hang. `auto` reports each policy as it lands for exactly this
+        # reason; the interactive mode, where somebody is actually sitting there, did not.
+        # `score` and beyond are not reached here — this draft is turned away at preflight, so
+        # they are checked in `the_checkpoint`, which gets that far.
+        for stage in ("describe", "draft", "preflight"):
+            check(f"`{stage}` says it has started",
+                  any(f"  {stage:<10}" in t and "..." in t for t in person.shown),
+                  str([t for t in person.shown if stage in t][:2]))
+        check("...and says how long it took",
+              any(t.startswith("\r  describe") and "s" in t for t in person.shown),
+              str([t for t in person.shown if "describe" in t][:2]))
         check("and the session still ended with a report", s.runs != [], str(s.stopped))
 
 
@@ -225,6 +240,13 @@ def nothing_to_ask() -> None:
         check("...and says why it stopped rather than that it failed",
               "nothing a clarification can fix" in s.stopped, s.stopped)
 
+        # NO QUESTIONS IS NOT A PASS, and reading one as the other is what the first live run
+        # produced: "the first attempt passed every gate", directly above a table saying no
+        # property was produced. Nobody was asked because there was nothing a person could answer.
+        report = hitl.transcript(s)
+        check("...and the session report does NOT call that passing",
+              "passed every gate" not in report and "did not pass" in report, report[:600])
+
 
 def answers_reach_the_drafter() -> None:
     """Appended to the brief, never substituted for it."""
@@ -300,6 +322,13 @@ def the_checkpoint():
         missing = [line for line in hitl.readable(s.runs[-1].explained).splitlines()
                    if line.strip() and line.strip() not in shown]
         check("every line of the reading reached the person", missing == [], str(missing[:2]))
+
+        # The two long stages announce themselves too. `score` is most of the wait on a real
+        # policy — one TLC run per mutant — and is the one most easily mistaken for a hang.
+        for stage in ("score", "review", "confirm"):
+            check(f"`{stage}` says it has started",
+                  any(f"  {stage:<10}" in t and "..." in t for t in person.shown),
+                  str([t for t in person.shown if stage in t][:2]))
 
         text = s.runs[-1].findings.read_text(encoding="utf-8")
         check("findings.md records the confirmation",

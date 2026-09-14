@@ -218,6 +218,18 @@ def retries() -> None:
               "Parse Error" in second and re.search(r"at line \d+, column \d+", second) is not None,
               second[-400:])
 
+        # AND IT DID NOT PAY FOR THE MANUAL TWICE. One Agent runs every round, so its conversation
+        # already holds round 1 — prompt, manual, vocabulary and all. Building round 2 from
+        # `draft_prompt` sent a second copy of 15 KB of manual plus 8 KB of vocabulary on top of
+        # that history: measured on a live run, round 2's input was 19,501 tokens of which 6,522
+        # was exactly this. `prompts[1]` is the whole conversation as the model saw it, so the
+        # count is over both rounds together.
+        check("...and the manual was not sent a second time",
+              second.count("title: Writing a property module") == 1,
+              f"the manual appears {second.count('title: Writing a property module')} time(s)")
+        check("...nor the vocabulary", second.count('"requiredModuleName"') == 1,
+              f"the vocabulary appears {second.count('\"requiredModuleName\"')} time(s)")
+
         # THE RETRY IS INSIDE ONE NODE, which is why the graph is still acyclic and still the
         # shape the models checked. If `draft` ever starts appearing twice, a cycle has been
         # introduced and neither model can express it -- see stage_draft's docstring.

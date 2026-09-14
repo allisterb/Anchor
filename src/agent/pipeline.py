@@ -123,8 +123,12 @@ class Computed(Model):
     It costs nothing and reports nothing: zero tokens, no network, no credentials.
     """
 
-    def __init__(self, run, fn, name: str = "") -> None:
+    def __init__(self, run, fn, name: str = "", announce=None) -> None:
         self.run, self.fn, self.name = run, fn, name
+        # `announce(stage, seconds)` -- seconds is None when the stage STARTS. Optional and unused
+        # by `auto`, which reports when it lands; `hitl` has somebody sitting there, and the wait
+        # between `draft` and the first question is minutes of model calls and TLC runs.
+        self.announce = announce
 
     def get_config(self) -> Any:
         return {}
@@ -155,11 +159,18 @@ class Computed(Model):
         # no shape satisfies it. The obligation is therefore discharged HERE, by leaving the
         # executor no exception to see, and what remains is an assumption named in the report: a
         # stage that crashes is a rejection, not an abort.
+        started = time.monotonic()
+        if self.announce:
+            self.announce(self.name, None)
         try:
             text = self.fn(self.run, incoming(messages))
         except Exception as e:                              # noqa: BLE001 - reported, not raised
             self.run.crashed.append(f"{self.name or 'a stage'} failed: {e}")
             text = gate(False, f"{self.name or 'this stage'} could not run: {e}")
+        if self.announce:
+            # AFTER the except, so a stage that failed is still reported as having finished. A
+            # progress line left hanging on the stage that broke reads as "still working".
+            self.announce(self.name, time.monotonic() - started)
 
         yield {"messageStart": {"role": "assistant"}}
         yield {"contentBlockStart": {"start": {}}}
@@ -373,7 +384,14 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
         # BUILT FROM THE VOCABULARY, never from what the parent node said. `describe` emits a
         # verdict now, and a prompt assembled out of another node's framed output would carry that
         # marker into the model's instructions.
-        prompt = author.draft_prompt(run.vocab, run.intent, feedback)
+        #
+        # AND ONLY ONCE. The manual is 15 KB and the vocabulary another 8, and the SAME agent runs
+        # every round -- so a later round built from `draft_prompt` pays for the whole first
+        # exchange and then for a second copy of text already in front of the model. Measured on a
+        # live run: round 2's input was 19,501 tokens, of which 6,522 was exactly that. Later
+        # rounds send the feedback alone and let the conversation carry the rest.
+        prompt = (author.draft_prompt(run.vocab, run.intent, feedback) if attempt == 1
+                  else author.retry_prompt(feedback))
         text, cut = ask(drafter, prompt, run, f"draft round {attempt}")
         module, config = author.parse_draft(text)
         run.attempts.append(text)
@@ -798,14 +816,14 @@ def append_usage(run: Run, result) -> None:
 
 
 # ------------------------------------------------------------------------------------------------
-def computed(run: Run, fn, name: str) -> Agent:
-    return Agent(model=Computed(run, fn, name), callback_handler=None, name=name)
+def computed(run: Run, fn, name: str, announce=None) -> Agent:
+    return Agent(model=Computed(run, fn, name, announce), callback_handler=None, name=name)
 
 
 def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
           reviewer: Agent | None = None, *, provider: str = "auto", model: str | None = None,
           max_node_executions: int | None = None, node_timeout: float | None = None,
-          confirm=None):
+          confirm=None, announce=None):
     """The graph. `gated` from tests/strands/anchor_workflow.py, wired to the real stages.
 
     The two agents are injected so the pipeline can be exercised without a provider -- and so that
@@ -861,14 +879,14 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     if node_timeout is not None:
         b.set_node_timeout(node_timeout)
 
-    b.add_node(computed(run, stage_describe, "describe"), "describe")
-    b.add_node(computed(run, lambda r, t: stage_draft(r, t, drafter), "draft"), "draft")
-    b.add_node(computed(run, stage_preflight, "preflight"), "preflight")
-    b.add_node(computed(run, stage_score, "score"), "score")
-    b.add_node(computed(run, lambda r, t: stage_review(r, t, reviewer), "review"), "review")
-    b.add_node(computed(run, stage_check, "check"), "check")
-    b.add_node(computed(run, lambda r, t: stage_answer(r, t, answerer), "answer"), "answer")
-    b.add_node(computed(run, stage_report, "report"), "report")
+    b.add_node(computed(run, stage_describe, "describe", announce), "describe")
+    b.add_node(computed(run, lambda r, t: stage_draft(r, t, drafter), "draft", announce), "draft")
+    b.add_node(computed(run, stage_preflight, "preflight", announce), "preflight")
+    b.add_node(computed(run, stage_score, "score", announce), "score")
+    b.add_node(computed(run, lambda r, t: stage_review(r, t, reviewer), "review", announce), "review")
+    b.add_node(computed(run, stage_check, "check", announce), "check")
+    b.add_node(computed(run, lambda r, t: stage_answer(r, t, answerer), "answer", announce), "answer")
+    b.add_node(computed(run, stage_report, "report", announce), "report")
 
     b.add_edge("describe", "draft", condition=describe_ok)
     b.add_edge("describe", "report", condition=describe_no)
@@ -885,7 +903,7 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
         # `verdict()` pair like the other four, one arm to the work and one arm to the report, and
         # no new edge into anything that did not already have one.
         confirm_ok, confirm_no = verdict("confirm")
-        b.add_node(computed(run, confirm, "confirm"), "confirm")
+        b.add_node(computed(run, confirm, "confirm", announce), "confirm")
         b.add_edge("review", "confirm", condition=review_ok)
         b.add_edge("confirm", "check", condition=confirm_ok)
         b.add_edge("confirm", "report", condition=confirm_no)

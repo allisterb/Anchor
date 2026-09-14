@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 import textwrap
 from dataclasses import dataclass, field
@@ -71,7 +72,7 @@ class Console:
     is the implementation that has to keep working, because it is the one the tests use.
     """
 
-    def say(self, text: str = "") -> None:
+    def say(self, text: str = "", *, newline: bool = True) -> None:
         raise NotImplementedError
 
     def ask(self, question: str, *, hint: str = "") -> str:
@@ -97,19 +98,26 @@ class Terminal(Console):
     def __init__(self, width: int = 92, stream=None) -> None:
         self.width, self.stream = width, stream or sys.stderr
 
-    def say(self, text: str = "") -> None:
+    def say(self, text: str = "", *, newline: bool = True) -> None:
         # WRAPS ONLY WHAT IS TOO LONG, and keeps the indent. The reading of a claim arrives already
         # laid out -- a claim name, then `says` / `forbids` / `applies` lines indented under it --
         # and re-flowing every line to the width turned that into a paragraph of run-on prose.
+        out = []
         for line in str(text).split("\n"):
-            if not line.strip():
-                print(file=self.stream)
-            elif len(line) <= self.width:
-                print(line, file=self.stream)
+            if not line.strip() or len(line) <= self.width:
+                # NOT rstripped. A progress line overwrites a longer one by returning to column 0
+                # and painting over it, and the trailing spaces that do the painting are exactly
+                # what a tidy-up would remove -- leaving the tail of "asking the model ..." sitting
+                # after the elapsed time.
+                out.append(line if line.strip() else "")
             else:
                 indent = " " * (len(line) - len(line.lstrip()))
-                print(textwrap.fill(line, self.width, initial_indent=indent,
-                                    subsequent_indent=indent + "  "), file=self.stream)
+                out.append(textwrap.fill(line, self.width, initial_indent=indent,
+                                         subsequent_indent=indent + "  "))
+        # `newline=False` leaves the cursor on the line, so the next call can overwrite it with a
+        # leading `\r` -- which is how a stage says it has STARTED and then says how long it took,
+        # on one line instead of two.
+        print("\n".join(out), file=self.stream, end="\n" if newline else "")
         self.stream.flush()
 
     def ask(self, question: str, *, hint: str = "") -> str:
@@ -144,7 +152,7 @@ class Scripted(Console):
         self.shown: list[str] = []
         self.asked: list[str] = []
 
-    def say(self, text: str = "") -> None:
+    def say(self, text: str = "", *, newline: bool = True) -> None:
         self.shown.append(str(text))
 
     def ask(self, question: str, *, hint: str = "") -> str:
@@ -446,8 +454,26 @@ def refine(policy: Path, brief: str, console: Console, *, out: Path | None = Non
     times and here is what each attempt found" is a useful document even when the answer is that no
     property was kept.
     """
+    # ITS OWN DIRECTORY, because `anchor/` already belongs to the sweep -- one directory per swept
+    # requirement, checked in. A session writing `attempt-1/` and `session.md` beside those mixes
+    # two kinds of artifact in one place, and makes the sweep's output look like it grew a stray run.
     session = Session(brief=brief, policy=policy,
-                      out=out or policy.parent / "anchor", refinements=refinements)
+                      out=out or policy.parent / "anchor" / "hitl", refinements=refinements)
+
+    # A PREVIOUS SESSION'S ATTEMPTS ARE NOT THIS ONE'S. `session.md` is the index of what happened,
+    # and a run that needed one attempt left `attempt-2/` sitting beside it from the run before --
+    # a findings.md about a different draft, in this session's directory, named in nothing. Stale
+    # and indistinguishable from current is the worst state for a verification artifact to be in.
+    #
+    # Only `attempt-<digits>` directories, only under the session's own output directory, and it
+    # says what it removed.
+    stale = sorted(p for p in session.out.glob("attempt-*") if p.is_dir()
+                   and p.name.removeprefix("attempt-").isdigit())
+    if stale:
+        console.say(f"clearing {len(stale)} attempt directory/ies from a previous session: "
+                    + ", ".join(p.name for p in stale))
+        for p in stale:
+            shutil.rmtree(p, ignore_errors=True)
 
     for attempt in range(1, max(1, refinements) + 1):
         said_so_far = len(session.clarifications)
@@ -543,8 +569,18 @@ def transcript(session: Session) -> str:
         lines += ["**What the person was asked, and what they said.**", ""]
         for question, answer in session.clarifications:
             lines += [f"- *{question}*", f"  > {answer}", ""]
-    else:
+    elif session.passed:
         lines += ["The person was asked nothing: the first attempt passed every gate.", ""]
+    elif session.stopped.startswith("the person"):
+        # ASKED AND DECLINED, which is not the same as never asked. The first version of this file
+        # said "the first attempt passed every gate" whenever nobody had answered; the second said
+        # "asked nothing" for a session where a gate DID put a question to them and they chose to
+        # stop. Three outcomes, three sentences -- an empty clarification list is the one thing all
+        # three have in common and it distinguishes none of them.
+        lines += ["The person was asked, and ended the session without answering.", ""]
+    else:
+        lines += ["The person was asked nothing, and the session did not pass: it stopped at "
+                  "something no clarification could fix.", ""]
 
     lines += ["| attempt | outcome | rounds | tokens | findings |", "|---:|---|---:|---:|---|"]
     for i, run in enumerate(session.runs, 1):
@@ -577,15 +613,50 @@ def transcript(session: Session) -> str:
               "evidence than an unattended run and is still not a person having written the "
               "property.*" if confirmed else
               "*Nothing here was confirmed by the person: no draft reached the checkpoint where "
-              "they are shown what it would forbid. The requirement below is theirs; every verdict "
+              "they are shown what it would forbid. The requirement above is theirs; every verdict "
               "is Anchor's, under the same gates as an unattended run.*", ""]
     return "\n".join(lines)
 
 
 # ------------------------------------------------------------------------------------------------
+# What each stage is doing, for somebody watching it happen. The two that matter are `draft` and
+# `score`: between them they are almost the whole wait, and neither looks any different from a hung
+# process while it is working.
+DOING = {
+    "describe": "reading the policy's vocabulary",
+    "draft": "asking the model for a property module -- the long one",
+    "preflight": "reading the draft",
+    "score": "breaking the policy on purpose, one check per mutant -- the other long one",
+    "review": "asking a second model whether it says what you asked for",
+    "confirm": "over to you",
+    "check": "running the checks",
+    "answer": "writing it up",
+    "report": "writing findings.md",
+}
+
+
+def progress(console: Console):
+    """Say what is happening, because otherwise nothing does until the first question.
+
+    THE DEFECT THIS FIXES WAS FOUND BY RUNNING IT. `auto` reports each policy as it lands, for
+    exactly this reason -- "is it stuck or working?" is what a long run should answer -- and the
+    interactive mode, where somebody is actually sitting there, printed nothing at all between the
+    command and the first prompt. On a six-field policy that is several minutes of model calls and
+    TLC runs looking identical to a hang.
+    """
+    def announce(stage: str, seconds: float | None) -> None:
+        if seconds is None:
+            console.say(f"  {stage:<10} {DOING.get(stage, '')} ...", newline=False)
+        else:
+            # Overwrite the line it just wrote, padded past whatever the note was.
+            console.say(f"\r  {stage:<10} {seconds:6.1f}s{' ' * 60}")
+    return announce
+
+
 def build_hitl(run: Run, console: Console, **kw):
     """`pipeline.build`, with the person's checkpoint between `review` and `check`."""
-    return pipeline.build(run, confirm=lambda r, t: stage_confirm(r, t, console), **kw)
+    return pipeline.build(run, confirm=lambda r, t: stage_confirm(r, t, console),
+                          announce=progress(console), **kw)
 
 
 def main() -> int:
