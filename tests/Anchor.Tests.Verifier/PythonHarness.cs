@@ -15,6 +15,26 @@ using System.Diagnostics;
 // The floor is the longest single test, so a new harness that dwarfs the others should be weighed
 // against the class it joins rather than dropped into the smallest one.
 //
+// BUT REBALANCING IS NO LONGER THE LEVER, and the per-class shares below are kept for orientation
+// rather than as a budget to optimise against. Measured on this machine: the suite does 1880s of
+// serial work in 487s, a 3.86x speedup — and a standalone probe puts TLC's own ceiling at about
+// 3x, reached by six concurrent runs and flat after eight. The machine is SATURATED. Splitting a
+// class further moves the floor from 487s towards 1880/4 ≈ 470s and no lower, so it buys about 3%.
+//
+// WHAT THE TIME ACTUALLY IS: about 1.6s of every ~2.0s TLC run is starting a JVM, measured on a
+// one-state model, so a check costs almost the same whatever it checks. ~80% of the suite's serial
+// time is JVM startup. AppCDS was tried against it and rejected — 6% single-threaded, nothing at
+// all under concurrency, for a 22 MB archive that would have to be regenerated per JDK.
+//
+// So the only lever is FEWER INVOCATIONS, which is what `src/agent/invoke.py` is: a content-keyed
+// memo over the checker, because the pipeline asks identical questions several times per run. It
+// deletes no check — see tests/strands/checker_memo.py for the proof that the answers are the same
+// ones — and it is why several figures below now read high.
+//
+// FOR A DEVELOPMENT LOOP, `python tests/strands/run.py` runs the 22 harnesses directly in about
+// 5m30s without building four projects first. It is not a replacement: these tests assert the
+// FINDING each harness pins, and a bare exit code does not.
+//
 //     TranslationHarnessTests    our reading agrees with somebody else's implementation
 //     VocabularyHarnessTests     what a policy's values and scope become in the model
 //     VacuityHarnessTests        the derived checks — inert rules, and why

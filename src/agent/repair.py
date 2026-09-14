@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -39,7 +38,9 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
-CHECKER = REPO / "src" / "checker" / "properties.py"
+from agent import invoke                               # noqa: E402
+
+CHECKER = invoke.CHECKER          # kept importable; the path now lives in `invoke`
 
 # Verdicts that mean the edit allows something the baseline did not. Widening is not wrong by
 # itself -- "also open the RDP port" is a request to widen -- so it is a failure only when the
@@ -90,7 +91,7 @@ def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path
     disliking something, so "this policy uses a construct outside the modelled subset" has to
     arrive as a complaint the next round can act on rather than as a crash.
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--json"]
+    args = [str(policy), "--json"]
     if against is not None:
         args += ["--against", str(against)]
     if event_schema is not None:
@@ -98,7 +99,7 @@ def run_checker(policy: Path, *, against: Path | None = None, event_schema: Path
     if attempts is not None:
         args += ["--attempts", str(attempts)]
 
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    proc = invoke.checker(args, timeout=timeout)
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
@@ -120,13 +121,13 @@ def check_property(policy: Path, module: Path, *, event_schema: Path | None = No
     could not produce a verdict" and rejected every candidate, including the ones that satisfied
     the property. A gate that says no whatever happens is not a gate.
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module)]
+    args = [str(policy), "--property", str(module)]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
     if max_fields is not None:
         args += ["--max-fields", str(max_fields)]
 
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    proc = invoke.checker(args, timeout=timeout)
     out = (proc.stdout + proc.stderr).strip()
 
     # 0 holds, 1 broken. Anything else is the checker declining to answer, which is neither.

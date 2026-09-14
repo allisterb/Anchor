@@ -14,8 +14,10 @@ namespace Anchor.Tests.TLAPlus;
 /// split is balanced by measured duration, not by count, and the floor is the longest single test.
 /// </para>
 /// <para>
-/// This class holds 92s of the 508s. Its slowest test is
-/// <c>TheAwsExampleFindsWhatOnlyIntentCanFind</c>, at 40s.
+/// This class measured <b>186s</b> in the last full run, its slowest test being
+/// <c>TheAwsExampleFindsWhatOnlyIntentCanFind</c> at 81s. Those are wall clock UNDER
+/// CONTENTION — five other classes are running — so they are 2-3x what the same test
+/// takes alone, and they predate the checker memo. The 508s split above is older still.
 /// </para>
 ///
 /// See <see cref="PythonHarnessAttribute"/> for why any of these may report as skipped.

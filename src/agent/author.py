@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,7 +43,9 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
-CHECKER = REPO / "src" / "checker" / "properties.py"
+from agent import invoke                               # noqa: E402
+
+CHECKER = invoke.CHECKER          # kept importable; the path now lives in `invoke`
 
 WEAK_PROPERTY = 4   # properties.py: holds, but catches no mutant
 
@@ -82,12 +83,12 @@ def describe(policy: Path, event_schema: Path | None = None,
     the policy's own text, and a module naming anything else does not compile. Handing the model
     the real vocabulary is the difference between drafting and inventing.
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--describe"]
+    args = [str(policy), "--describe"]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
     if max_fields is not None:
         args += ["--max-fields", str(max_fields)]
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=300)
+    proc = invoke.checker(args, timeout=300)
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
@@ -105,12 +106,12 @@ def compiles(policy: Path, module: Path, *, event_schema: Path | None = None,
     The output is the drafter's feedback when this fails, so it is returned whole -- SANY names the
     line, the column and the token, and a complaint without those is one no next round can act on.
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module), "--parse"]
+    args = [str(policy), "--property", str(module), "--parse"]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
     if max_fields is not None:
         args += ["--max-fields", str(max_fields)]
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    proc = invoke.checker(args, timeout=timeout)
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
 
 
@@ -128,13 +129,13 @@ def decides(policy: Path, module: Path, *, event_schema: Path | None = None,
     Returns (verdict, what the checker said). `skipped` when no decision term could be found, and
     the caller must treat that as "learned nothing" rather than as a pass or a failure.
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module),
+    args = [str(policy), "--property", str(module),
             "--decision-probe"]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
     if max_fields is not None:
         args += ["--max-fields", str(max_fields)]
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    proc = invoke.checker(args, timeout=timeout)
     out = (proc.stdout + proc.stderr).strip()
 
     m = re.search(r"decision over this module's states: (\w+)", out)
@@ -148,13 +149,13 @@ def score(policy: Path, module: Path, *, event_schema: Path | None = None,
     One invocation, because the two answers belong together: "it holds" is only reassuring
     alongside "and it would not have held of something broken".
     """
-    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module),
+    args = [str(policy), "--property", str(module),
             "--mutation-score", "--mutants", str(mutants)]
     if event_schema is not None:
         args += ["--event-schema", str(event_schema)]
     if max_fields is not None:
         args += ["--max-fields", str(max_fields)]
-    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    proc = invoke.checker(args, timeout=timeout)
     out = proc.stdout + proc.stderr
 
     caught = None
