@@ -488,9 +488,16 @@ def stage_check(run: Run, _: str) -> str:
                   "subset they can range over.", f"  {str(run.rules.get('_why'))[-300:]}",
                   "That is a limit of those questions, not a verdict about the policy."]
     else:
-        findings = [f for f in (run.rules.get("rules") or []) if f.get("finding")]
-        lines += ["", f"Derived findings: {len(findings)}"]
-        lines += [f"  {f.get('rule')}: {f.get('finding')}" for f in findings]
+        # THE FIELDS ARE `verdict` AND `defects`. This read `finding` and `rule`, neither of which
+        # the checker emits, so every report said "Derived findings: 0" whatever was found -- a
+        # silent zero, which is the worst possible way for a verification tool to be wrong.
+        defects = set(run.rules.get("defects") or [])
+        found = [r for r in (run.rules.get("rules") or []) if r.get("index") in defects]
+        lines += ["", f"Derived findings: {len(found)}"]
+        lines += [f"  rule {r.get('index')} ({r.get('effect')}): {r.get('verdict')}"
+                  f" -- {r.get('note')}" for r in found]
+        if run.rules.get("unknown"):
+            lines.append(f"  {len(run.rules['unknown'])} rule(s) returned no verdict")
     run.checked = "\n".join(lines)
     return run.checked
 

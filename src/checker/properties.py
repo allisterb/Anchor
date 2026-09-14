@@ -1357,6 +1357,14 @@ def main() -> int:
                          "`Session(960)` or `TradeAllowed(960)` can be asked directly. Seconds, and "
                          "it checks nothing -- it answers what a value IS, which is the question "
                          "you otherwise have to write an invariant and run a check to find out")
+    ap.add_argument("--pinned", action="store_true",
+                    help="check under DOGWOOD'S OWN DEFAULT reading: callerPrincipal pinned on "
+                         "every event kind, so a temporal predicate sees only its own principal's "
+                         "events. Anchor's no-schema default is the opposite (global trace), so "
+                         "this is the flag that answers 'does this finding survive deployment?'")
+    ap.add_argument("--unpinned", action="store_true",
+                    help="check under global-trace semantics, stated explicitly. Same as giving "
+                         "no schema, and worth passing when the reading matters to the reader")
     ap.add_argument("--decision-probe", action="store_true",
                     help="with --property: ask whether the policy's answer VARIES over the states "
                          "this module ranges over, and stop. Two TLC runs, seconds. A property "
@@ -1428,9 +1436,17 @@ def main() -> int:
         # The event schema, which decides what the policy MEANS before anything is checked about
         # what it says. Both halves, and they are different jobs: a partial pin becomes an
         # ordinary conjunct, a universal one a partition key stamped onto every term.
-        schema = ({"keys": [], "partial": {}, "max_window": DEFAULT_MAX_WINDOW}
-                  if args.event_schema is None
-                  else parse_schema(args.event_schema.read_text(encoding="utf-8")))
+        # `--pinned` / `--unpinned` build the dict rather than reading Dogwood's shipped schemas,
+        # so trying the other reading needs neither a file nor the submodule checked out. The
+        # values are what `parse_schema` returns for `configuration/event-schemas/{pinned,
+        # unpinned}.dwschema`, which is checked by tests/strands/event_schema_readings.py.
+        if args.pinned or args.unpinned:
+            schema = {"keys": ["principal"] if args.pinned else [], "partial": {}, "paths": {},
+                      "max_window": DEFAULT_MAX_WINDOW}
+        else:
+            schema = ({"keys": [], "partial": {}, "max_window": DEFAULT_MAX_WINDOW}
+                      if args.event_schema is None
+                      else parse_schema(args.event_schema.read_text(encoding="utf-8")))
         for rules in (policies, other):
             if rules is not None:
                 apply_pins(rules, schema)
@@ -1457,15 +1473,20 @@ def main() -> int:
 
     # Say which reading produced the answers. Leaving it implicit is how a verdict computed for
     # `unpinned` gets read as one for the deployed configuration.
+    where = args.event_schema.name if args.event_schema is not None else (
+        "--pinned" if args.pinned else "--unpinned")
     if schema["keys"]:
-        reading = (f"under {args.event_schema.name}: partitioned by "
+        reading = (f"under {where}: partitioned by "
                    f"{', '.join(schema['keys'])} -- a temporal predicate sees only its own partition")
-    elif args.event_schema is not None:
-        reading = f"under {args.event_schema.name}: no universal pin, so global-trace semantics"
+    elif args.event_schema is not None or args.unpinned:
+        reading = f"under {where}: no universal pin, so global-trace semantics"
     else:
+        # THE DEFAULTS DIFFER, and saying only what ours is leaves the reader to assume they agree.
         reading = ("no --event-schema given, so every answer below assumes the UNPINNED reading\n"
-                   "  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n"
-                   "  reported live here may never fire.")
+                   "  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n"
+                   "  on every kind, so a deployed rule sees only its own principal's events and one\n"
+                   "  reported live here may never fire. Pass --pinned to check that reading, or\n"
+                   "  --event-schema for a real one.")
 
     # Before the preamble is printed, because the description is JSON and a prose line above it
     # would make the whole document unparseable.

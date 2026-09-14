@@ -158,6 +158,41 @@ public class TranslationHarnessTests : TestsRuntime
     }
 
     /// <summary>
+    /// Every checked-in property under both event-schema readings — global-trace, and the
+    /// per-principal partitioning Dogwood applies by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two things are at stake. Every finding we publish is scoped to a reading, and one that
+    /// holds under only one of them is a weaker claim than it looks. And Anchor's own default with
+    /// no schema is the <b>opposite</b> of Dogwood's — a verification tool whose default differs
+    /// from the deployed default can report something that does not reproduce.
+    /// </para>
+    /// <para>
+    /// Runs <c>--quick</c>: the full sweep is 48 checker runs and about three and a half minutes,
+    /// which is not worth paying per CI run while the answer keeps coming back the same. Drop the
+    /// flag for the whole corpus.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("event_schema_readings.py", "strands")]
+    public async Task FindingsDoNotDependOnTheEventSchemaReading()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/event_schema_readings.py", "--quick");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("all checks passed", run.Output);
+        Assert.DoesNotContain("DIFFERS", run.Output);
+
+        // The equivalence that lets --pinned exist without the submodule checked out.
+        Assert.Contains("ok    --pinned agrees with the shipped pinned.dwschema", run.Output);
+        Assert.Contains("ok    Anchor's no-schema default agrees with the shipped UNPINNED", run.Output);
+
+        // The derived half must be MEASURED, not merely equal: a column of zeroes would agree for
+        // the wrong reason, so at least one policy compared here carries a known defect.
+        Assert.Contains("1:VACUOUS", run.Output);
+    }
+
+    /// <summary>
     /// An edge condition's TLA+ predicate has to mean what its Python does, or the annotation is the
     /// same silent-disagreement trap as a hand-written translator. The mutation matters most: a
     /// harness that cannot catch a deliberate mistranslation is checking nothing.
