@@ -288,3 +288,31 @@ nothing, and it is rejected however well-formed it is. The mutants are taken bre
 the policy's rules rather than in file order, because a prefix of a grouped list leaves most of a
 multi-rule policy untouched — measured as 0 of 8 mutants caught versus 4 of 21 before that was
 fixed.
+
+## What's next for Anchor
+
+### Verifying the workflow, not just the policy. 
+Anchor already [models](https://github.com/allisterb/Anchor/tree/master/specs/strands/StrandsGraph) Amazon Strands graphs in TLA+, and the model is translated from a live `Graph` object rather than written by reading one. `GraphBuilder` is the construction API, so the graph verified and the graph that runs cannot drift apart. Three specifications exist: the dependency DAG, the Strands executor as it actually runs, and a rate limit under the default *concurrent* tool executor. The hard part is that an edge condition is an opaque Python callable: Anchor makes its meaning **declared rather than guessed**, and an undeclared one is emitted as a hole listed in the generated module's header rather than quietly assumed. Anchor's own drafting pipeline is the first graph put through it. 
+
+Three specifications exist today under `specs/strands/`:
+
+* **`DependencyDAG`** — a multi-agent workflow graph. Does a task ever start before its dependencies finish, and does the graph always terminate?
+* **`StrandsGraph`** — the Strands executor *as it actually runs*, rather than the orchestrator a paper would specify.
+* **`ToolExecutor`** — a rate limit enforced in `before_tool_call` under Strands' default **concurrent** tool executor. The shipped limiter is correct, for a reason nobody wrote down and no test covers.
+
+
+Anchor's own property-drafting pipeline is the first thing put through this — the graph in `src/agent/pipeline.py` is translated and checked, so the separation it exists to express (the agent that *drafts* a property is not the agent that *answers* with it) is a proved property of the running system rather than a claim in a README.
+
+
+### Dafny for workflows that must be *correct*, not merely checked
+
+TLA+ answers questions about a model. Dafny proves things about code that then **runs**. Anchor hosts the Dafny pipeline in-process (`ParseAsync`, `ResolveAsync`, `VerifyAsync`, `AuditAsync`), and the intended shape is: write an agent workflow in Dafny, prove its safety and termination, and compile it to Python against the Strands SDK — so the deployed artifact is the proved one.
+
+One subject is already modelled **both** ways, so the two tools can be compared on the same problem. `specs/BoundedRetry` is an agent retrying against a model that may never produce an acceptable answer, and two things must hold whatever the model does: it never exceeds its budget, and it always stops.
+
+| | TLA+ | Dafny |
+|---|---|---|
+| never overspends | `BudgetSafe` invariant | loop invariant + `ensures spent <= budget` |
+| always stops | `EventuallyTerminates` | `decreases budget - spent` |
+
+Two deliberately broken variants are kept beside it: a wrong affordability check that violates the **safety** property, and an uncharged retry path that violates the **liveness** one — and the Dafny version of the same bug fails its `decreases` clause. Same defect, two tools, two different alarms.

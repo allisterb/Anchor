@@ -1,20 +1,16 @@
-# agent-policy.dw: a session
+# 03-cumulative-cap.dw: a session
 
 **What was first asked for.**
 
-> A refund over $500 requires a supervisor approval for that charge within the previous 30 minutes.
+> Block a transfer if the total amount transferred in the past 12 hours would exceed $50,000.
 
-**What the person was asked, and what they said.**
-
-- *Name one thing this policy must NEVER allow. If somebody broke it, what would you see go wrong?*
-  > An issue_refund of 2500 on charge_id 1 must be refused when there is no approved request_approval for that same charge_id in the previous 30 minutes. It must still be refused if the approval was for a different charge_id, or if it happened more than 30 minutes before the refund.
+The person was asked nothing: the first attempt passed every gate.
 
 | attempt | outcome | rounds | tokens | findings |
 |---:|---|---:|---:|---|
-| 1 | no property (rejected at score) | 2 | 29,788 | `attempt-1/findings.md` |
-| 2 | property holds | 1 | 17,349 | `attempt-2/findings.md` |
+| 1 | property holds | 3 | 119,198 | `attempt-1/findings.md` |
 
-**47,137 tokens** over 5 model call(s) in 2 attempt(s).
+**119,198 tokens** over 5 model call(s) in 1 attempt(s).
 
 The last attempt passed every gate, and the person confirmed the plain-English reading of the claim before anything was checked.
 

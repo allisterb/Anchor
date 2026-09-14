@@ -190,6 +190,10 @@ COPY specs/policy/TemporalPolicy /app/specs/policy/TemporalPolicy
 # tests/policies/firewall.dw` answers without a checkout on the host, which is the first thing
 # somebody who just pulled it will try.
 COPY tests/policies              /app/tests/policies
+# The aws1 and aws2 worked examples: the policies, the hand-written property modules and the
+# intents.md briefs. 2.3 MB against a 370 MB image, and it is the difference between somebody
+# evaluating this image and somebody having to clone a repository first.
+COPY examples                    /app/examples
 
 # ANCHOR_ROOT is how the Python half and PythonProcess find the tree when there is no Anchor.sln to
 # walk up to, which is exactly the case in an image. The other three name things whose in-checkout

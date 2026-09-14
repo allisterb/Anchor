@@ -33,8 +33,40 @@ the policy, a knowledge article on how to write a properties module, and the bri
 
 ## Getting started
 
-### Prerequisites
+### Using Docker
 
+
+Anchor needs four runtimes — .NET, a JVM, CPython and a Rust binary — so there is a container that
+carries all of them. Nothing is installed on your machine and nothing is cloned.
+
+```bash
+docker pull allisterb/anchor:latest
+docker run --rm allisterb/anchor:latest version
+```
+
+
+On Apple Silicon, add `--platform linux/amd64` to the `pull` and to every `run`; it works under
+emulation and is slower.
+
+The entry point is the `anchor` launcher, so arguments after the image name are the verb and its
+options — the container behaves like the command.
+
+```bash
+docker run --rm allisterb/anchor:latest help
+```
+
+
+
+```bash
+docker run --rm -v "$PWD:/work" allisterb/anchor:latest check my-policy.dw
+```
+
+Your working directory is mounted at `/work`, which is the container's working directory, so paths
+read the way they do on your machine and output lands back on it. On Linux add
+`--user "$(id -u):$(id -g)"` so files come back owned by you.
+
+### Building Prerequisites
+If you want to build from source, you need:
 - **.NET 10 SDK.** The projects target `net10.0` and uses C# 14.
 - **A JDK, Java 11 or later**, on `JAVA_HOME` or `PATH`. TLC is run out-of-process on a real JVM, so
   a JVM has to be there. **The build scripts do not install this** — they check for it and stop if
@@ -109,10 +141,16 @@ all look for an interpreter, so a venv made somewhere else has to be named with 
 Use the launcher scripts in the repo root:
 
 ```
-./anchor <verb> [args...]       # Linux, macOS, or git bash on Windows
+./anchor <verb> [args...]       # Linux, macOS
 ./anchor.ps1 <verb> [args...]   # PowerShell
 ```
 
+or from a container:
+```bash
+docker run --rm -v "$PWD:/work" allisterb/anchor:latest check my-policy.dw
+```
+
+```
 | verb | action| 
 |---|---|
 | `check` | check a policy against a property module you wrote, or audit a directory of them |
