@@ -114,14 +114,17 @@ FALSE
 Error: TLC was unable to fingerprint.
 ```
 
-`Num(1)` is `[v |-> 1, k |-> "n"]` and `Bool(FALSE)` is `[v |-> FALSE, k |-> "b"]`, so comparing
-them compares `1` with `FALSE`. **The message names neither your variables nor the tagging**, which
-is why this is worth memorising rather than deriving: it looks like an arithmetic bug and is a
-typing one.
+`Num(1)` is `[v |-> 1, k |-> "n"]` and `Bool(FALSE)` is `[v |-> FALSE, k |-> "b"]`, so somewhere
+below this an integer is being compared with a boolean. **The message names neither your variables
+nor the tagging**, which is why this is worth memorising rather than deriving: it looks like an
+arithmetic bug and is a typing one.
 
 *Reproduced three times in live sessions on the same requirement, and fixed each time by moving the
-tags from the `Init` domains to the point of use, changing nothing else. The exact mechanism inside
-TLC is not established here; the reproduction and the fix are.*
+tags from the `Init` domains to the point of use, changing nothing else.* **The mechanism is NOT
+established.** A minimal reconstruction — two variables, one `Num` domain and one `Bool` domain —
+evaluates perfectly well, so the obvious explanation is not the whole of it. What is pinned is the
+behaviour: `tests/policies/tagged_session.tla` is the real module, kept because a theory of it did
+not reproduce.
 
 Your claims then read more naturally too — `verified /\ account = 2` rather than
 `verified = Bool(TRUE) /\ account = Num(2)`.

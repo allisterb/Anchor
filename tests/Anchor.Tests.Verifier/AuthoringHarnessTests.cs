@@ -433,5 +433,67 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("ok    ...and does not credit the person with confirming anything", run.Output);
     }
 
+    /// <summary>
+    /// The drafter's own tools — the mechanical checks it may run on itself, and the gates it
+    /// deliberately cannot see.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It was writing TLA+ blind: a bare <c>Agent</c> with a system prompt, one prompt in and a
+    /// module out, learning what was wrong a whole graph round-trip later from feedback assembled
+    /// by <c>stage_draft</c> — and sent on a conversation that had grown by the previous attempt.
+    /// Three live sessions in a row died on one typing rule. It now has <c>check_module</c>,
+    /// <c>what_it_forbids</c> and <c>evaluate</c>, and the harness drives the exact module those
+    /// sessions died on: <c>check_module</c> reports it in one call, with the rule TLC's own
+    /// message does not mention.
+    /// </para>
+    /// <para>
+    /// <b>The boundary is what this test is really for.</b> There is no mutation scoring here and
+    /// there never should be: <c>score</c> asks whether the property notices the policy breaking,
+    /// and a model that can run it will tune the property until it catches a mutant — optimising
+    /// against the gate rather than stating the requirement, which is the most-reported pathology
+    /// in this field and the thing the whole pipeline shape exists to prevent. The reviewing model
+    /// is absent for the same reason. Asserted by name <i>and</i> by inspecting every tool's actual
+    /// output, because a tool that merely shelled out with <c>--mutation-score</c> would pass a
+    /// name check and hand the model the gate anyway.
+    /// </para>
+    /// <para>
+    /// Also pinned: the tools take no policy or bound argument — a drafter that picks its own
+    /// <c>--max-fields</c> can widen the check until something passes — and a scripted model that
+    /// emits no tool calls is unaffected, since every other harness drives this pipeline that way.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("drafting_tools.py", "strands")]
+    public async Task TheDrafterChecksItsOwnWorkButCannotSeeTheGates()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/drafting_tools.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("all checks passed", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+
+        // THE BOUNDARY — by name, and by what the tools actually return.
+        Assert.Contains("ok    exactly the three mechanical checks, and no others", run.Output);
+        Assert.Contains("ok    nothing named `mutation`", run.Output);
+        Assert.Contains("ok    ...and no tool's ANSWER mentions `mutant`", run.Output);
+        Assert.Contains("ok    the drafter cannot consult the reviewer", run.Output);
+
+        // The failure that cost three live sessions, caught in one call.
+        Assert.Contains("ok    it compiles, and is reported as NOT evaluating", run.Output);
+        Assert.Contains("ok    ...and attaching the rule that message does not mention", run.Output);
+
+        // A property that FAILS is an acceptable answer. A drafter told only "it does not hold"
+        // weakens the claim until it does — the pathology the separation exists to prevent.
+        Assert.Contains("ok    ...and it is told never to weaken a claim to make it hold", run.Output);
+        Assert.Contains("ok    ...and not to weaken a claim to make it hold", run.Output);
+
+        // It cannot choose its own terms, and it is actually told to use what it has.
+        Assert.Contains("ok    `check_module` takes no policy argument", run.Output);
+        Assert.Contains("ok    ...and says to call it BEFORE answering", run.Output);
+
+        // And nothing that drives this with a scripted model has to know tools exist.
+        Assert.Contains("ok    an injected drafter is used as given, tools or not", run.Output);
+    }
+
     #endregion
 }

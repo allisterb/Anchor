@@ -5,7 +5,7 @@ spec — that is the point of the word *informal*. The verified artefacts live i
 [`specs/`](../../specs).
 
 **They are no longer hand-run only.** The six `*HarnessTests.cs` classes in the test project run
-**21 of the 22** as part of the suite, each asserting the finding it exists to pin, **on CI as well
+**22 of the 23** as part of the suite, each asserting the finding it exists to pin, **on CI as well
 as locally** — the workflow creates the repo venv and installs the hash-locked requirements before
 the tests run. They still **skip** rather than fail when what they need is absent: the venv, and the
 two Dogwood inputs that live under the gitignored `reference/` tree — the corpus for
@@ -27,15 +27,15 @@ no network call, no credentials, and no AWS.
 ## Running all of them
 
 ```bash
-python tests/strands/run.py                 # all 22, six at a time
+python tests/strands/run.py                 # all 23, six at a time
 python tests/strands/run.py pipeline hitl   # the ones whose name contains either
 ```
 
 **The xunit suite stays the gate**; this is the development loop. `dotnet test` builds four
 projects and runs the Dafny and spec tests too — eight minutes to learn that one harness is still
 green — and each C# test asserts the *finding* its harness pins rather than merely that it exited
-zero, which is a discipline a bare exit code cannot replace. Measured: 22 harnesses in **~5m30s**,
-1500s of serial work at 4.5x.
+zero, which is a discipline a bare exit code cannot replace. Measured: 23 harnesses in **~5m**,
+1340s of serial work at 4.5x.
 
 Two things `run.py` gets right that running a harness by hand does not:
 
@@ -58,6 +58,7 @@ is stable. To time one harness, run it alone.
 | `pipeline_run.py` | [`src/agent/pipeline.py`](../../src/agent/pipeline.py) end to end with scripted agents — a rejected draft reports without costing a TLC run or a second model call, an accepted one goes the whole way, and the answerer is shown the verdicts rather than the drafter's module. Re-proves `AlwaysReports` over the graph `build()` actually returns, so the checked shape and the running object cannot drift. ~23s. |
 | `hitl_loop.py` | [`src/agent/hitl.py`](../../src/agent/hitl.py) — the loop that puts a person at the one boundary with no oracle. Driven end to end by a SCRIPTED person, which is the design constraint the file exists to hold onto. Scans what actually reached them for TLA+ (two tokens were leaking on the first run, straight out of a gate complaint written for the drafter), checks that the question matches the gate that fired and that the most upstream cause wins, and re-proves `AlwaysReports` over the hitl graph — five exclusive decisions, not four. ~103s. |
 | `checker_memo.py` | [`src/agent/invoke.py`](../../src/agent/invoke.py) — the memo under every verdict. A cache in a verification tool is a liability unless it is exact, so nothing here measures speed: determinism is established rather than assumed (the same call twice with the memo off), every hit is compared against what the checker says with it off, the key is the file's CONTENT because a drafted module is rewritten to the same path each round, and `--keep` — which makes the checker write files a caller reads — is never cached. ~74s. |
+| `drafting_tools.py` | [`src/agent/drafting.py`](../../src/agent/drafting.py) — the three mechanical checks the DRAFTER may run on itself, and the gates it deliberately cannot see. The boundary is the point: `score` is absent because a model that can run mutation scoring will tune the property until it catches a mutant, which is optimising against the gate rather than stating the requirement. Asserted by name AND by inspecting every tool's output, since a tool that merely shelled out with `--mutation-score` would pass a name check. Drives the exact module three live sessions died on. ~45s. |
 | `anchor_workflow.py` | **Anchor's own property-authoring pipeline as a `Graph`, checked by Anchor.** `describe → draft → preflight → score → check → answer → report`, wired three ways. Every other graph here is a shape chosen to isolate a failure class; this one is the pipeline `src/agent/author.py` already runs. |
 | `event_schema_readings.py` | every checked-in property and a set of derived findings, under **both event-schema readings** — global-trace, and the per-principal partitioning Dogwood applies by default. Uses the two schemas Dogwood ships, read from the submodule rather than copied. `--quick` in CI (~99s); the full sweep is 48 checker runs. |
 | `cedar_differential.py` | the Cedar model against the real engine. See [`specs/policy/cedar/`](../../specs/policy/cedar). |

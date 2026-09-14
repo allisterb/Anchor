@@ -11,13 +11,13 @@
 
 | attempt | outcome | rounds | tokens | findings |
 |---:|---|---:|---:|---|
-| 1 | no property (rejected at score) | 1 | 9,943 | `attempt-1/findings.md` |
-| 2 | no property (rejected at score) | 3 | 88,598 | `attempt-2/findings.md` |
+| 1 | no property (rejected at score) | 2 | 144,939 | `attempt-1/findings.md` |
+| 2 | property holds | 2 | 106,052 | `attempt-2/findings.md` |
 
-**98,541 tokens** over 4 model call(s) in 2 attempt(s).
+**250,991 tokens** over 6 model call(s) in 2 attempt(s).
 
-**The session did not end by passing:** nothing a clarification can fix: no property (rejected at score).
+The last attempt passed every gate, and the person confirmed the plain-English reading of the claim before anything was checked.
 
 ---
 
-*Nothing here was confirmed by the person: no draft reached the checkpoint where they are shown what it would forbid. The requirement above is theirs; every verdict is Anchor's, under the same gates as an unattended run.*
+*The property was drafted by a model and gated by Anchor. A person stated the requirement and confirmed a plain-English reading of the claim, which is better evidence than an unattended run and is still not a person having written the property.*

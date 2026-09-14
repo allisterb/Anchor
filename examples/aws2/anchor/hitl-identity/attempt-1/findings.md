@@ -2,6 +2,14 @@
 
 **Stated intention.** Do not initiate a transfer unless the caller's identity has been verified for that same account within the previous 15 minutes.
 
+> **A budget cap fired during this run.**
+>
+> - draft round 1 was cut off by the limit_turns cap
+>
+> Raise `--turns` / `--total-tokens` / `--output-tokens`, or narrow the intention, and run it again.
+
+*Drafted in 2 of 3 attempt(s).*
+
 ## No property was checked: the draft was rejected at `score`
 
 The gate below is a criterion in code, not a judgement a model was asked to make. Nothing downstream ran, and nothing here was verified.
@@ -18,20 +26,19 @@ IF EVERY CLAIM YOU WROTE SAYS SOMETHING MUST BE REFUSED, THAT IS WHY. Every muta
 
 | | tokens in | of which cached | out | total | seconds |
 |---|---:|---:|---:|---:|---:|
-| draft round 1 | 6,405 | 0 | 3,538 | 9,943 | 30.0 |
-| **1 model call(s)** | **6,405** | **0** | **3,538** | **9,943** | **30.0** |
-
-*None of that input was served from a prompt cache.* A retry re-sends the whole prior exchange, so whether that is billed in full is the difference between a cheap round and an expensive one. Gemini caches implicitly on a matching PREFIX; Strands cannot place an explicit cache point there, because its Gemini provider skips `cachePoint` blocks (models/gemini.py:251).
+| draft round 1 (cut off) | 72,007 | 31,713 | 1,980 | 73,987 | 52.8 |
+| draft round 2 | 68,133 | 47,451 | 2,819 | 70,952 | 35.8 |
+| **2 model call(s)** | **140,140** | **79,164** | **4,799** | **144,939** | **88.6** |
 
 Time per stage, model calls and verification together:
 
 ```
   describe          0.2s
-  draft            38.6s
+  draft            96.7s
   preflight         0.0s
-  score            20.6s
+  score            19.5s
   report            0.0s
-  total            59.5s
+  total           116.4s
 ```
 
-Of which 30.0s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 88.6s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

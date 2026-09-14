@@ -427,7 +427,20 @@ DRAFTER_PROMPT = (
         "The module must be named as instructed, EXTEND PolicyUnderTest, and state the claim as "
         "one or more named invariants. State the claim about concrete actions and values the "
         "policy actually names: a claim that ranges over nothing passes without checking "
-        "anything, which is worse than failing.")
+        "anything, which is worse than failing.\n\n"
+        # CHECK YOUR OWN WORK. Without this the tools are present and unused: a model asked for two
+        # files returns two files. The instruction is specific about WHEN, because a check run
+        # after the answer has been given is a check nobody acts on.
+        "YOU HAVE TOOLS, AND YOU ARE EXPECTED TO USE THEM BEFORE YOU ANSWER.\n\n"
+        "  check_module(module, config)      does it compile, and does it evaluate\n"
+        "  what_it_forbids(module, config)   what each claim forbids, and over how many states\n"
+        "  evaluate(expr, module, config)    the value of one expression, to settle a question\n\n"
+        "Call `check_module` on every draft and fix what it reports, then call it again. Only "
+        "return the two files once it reports no problem -- or, if you cannot get there, return "
+        "your best attempt anyway rather than nothing.\n\n"
+        "`check_module` will sometimes say the property does NOT hold on the policy. That is an "
+        "acceptable answer and often the right one: a property that fails has already shown it can "
+        "tell one policy from another. NEVER weaken a claim to make it hold.")
 
 
 def model_author(model=None):

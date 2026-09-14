@@ -113,6 +113,19 @@ and neither sees the other's context. Only `draft` and `answer` are models. The 
 `Computed` — ordinary Python behind the `Model` interface, so the graph is uniform while the
 criteria stay in code.
 
+**The drafter has tools; nothing else does.** It was writing TLA+ blind — one prompt in, a module
+out, and it found out what was wrong a whole round-trip later. It now holds three
+[mechanical checks](drafting.py): `check_module` (does it compile, does it evaluate),
+`what_it_forbids` (the plain-English reading and the state counts) and `evaluate` (the value of one
+expression). Local `@tool` functions calling the same Python the gates call — not MCP, which would
+add a server process and break the hermetic harness.
+
+**What it deliberately cannot reach is `score`.** A model that can run mutation scoring will tune
+the property until it catches a mutant — optimising against the gate instead of stating the
+requirement, which is the most-reported pathology in this field. The reviewer is absent for the same
+reason. So nothing new is checked before `score`; what changes is who drives the loop and how fast
+the answer arrives. `check_module` reports in one call the failure that ended three live sessions.
+
 **A gate that rejects is not a failed node.** It completes, writes its verdict into its own result,
 and a [`verdict()`](../annotations) pair routes on it — declared as *one* decision, so exactly one
 arm fires. A rejection costs nothing downstream (no TLC, no second model call) and still reports.

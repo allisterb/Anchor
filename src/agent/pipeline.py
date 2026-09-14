@@ -883,8 +883,15 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
 
         # TWO models, deliberately built twice. Sharing one object would share whatever state it
         # carries, and the separation this graph exists for is about what the answerer has seen.
+        # THE DRAFTER IS THE ONLY ONE WITH TOOLS, and they are the mechanical checks only --
+        # compile, evaluate, read back, evaluate an expression. Not mutation scoring, and not the
+        # reviewer: a model that can see the gate that judges it will tune the property until it
+        # passes, which is the pathology the whole shape exists to prevent. See `agent.drafting`.
+        from agent.drafting import tools as drafting_tools               # noqa: PLC0415
+
         drafter = drafter or Agent(model=build_model(), callback_handler=None,
-                                   system_prompt=author.DRAFTER_PROMPT, name="draft")
+                                   system_prompt=author.DRAFTER_PROMPT, name="draft",
+                                   tools=drafting_tools(run))
         answerer = answerer or Agent(model=build_model(), callback_handler=None,
                                      system_prompt=ANSWERER_PROMPT, name="answer")
         reviewer = reviewer or Agent(model=build_model(), callback_handler=None,
