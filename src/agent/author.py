@@ -114,6 +114,33 @@ def compiles(policy: Path, module: Path, *, event_schema: Path | None = None,
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
 
 
+def decides(policy: Path, module: Path, *, event_schema: Path | None = None,
+            max_fields: int | None = None, timeout: int = 900) -> tuple[str, str]:
+    """Does the policy's answer VARY over the states this module ranges over? Seconds, two TLC runs.
+
+    THE GATE BETWEEN `preflight` AND `score`, and it earns its place: preflight asks whether a
+    claim's CONDITION can be satisfied, and mutation scoring asks whether the property notices the
+    policy breaking. Neither asks whether the policy's DECISION ever changes across the states the
+    property names -- and when it does not, every claim about a refusal holds without testing
+    anything. Mutation catches it eventually, at one TLC run per mutant, and reports the symptom
+    ("it survived every mutant") rather than the cause.
+
+    Returns (verdict, what the checker said). `skipped` when no decision term could be found, and
+    the caller must treat that as "learned nothing" rather than as a pass or a failure.
+    """
+    args = [sys.executable, str(CHECKER), str(policy), "--property", str(module),
+            "--decision-probe"]
+    if event_schema is not None:
+        args += ["--event-schema", str(event_schema)]
+    if max_fields is not None:
+        args += ["--max-fields", str(max_fields)]
+    proc = subprocess.run(args, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+    out = (proc.stdout + proc.stderr).strip()
+
+    m = re.search(r"decision over this module's states: (\w+)", out)
+    return (m.group(1).lower() if m else "skipped"), out
+
+
 def score(policy: Path, module: Path, *, event_schema: Path | None = None,
           max_fields: int | None = None, mutants: int = 8, timeout: int = 3600) -> dict:
     """Check a property AND ask whether it would notice the policy breaking.

@@ -15,7 +15,7 @@ agent-policy.dw against BusinessHours.tla: 7 rule(s)
 
   BusinessHours.tla COMPILED BUT DID NOT EVALUATE. TLC says:
 
-      Error: The first argument of >= should be an integer, but instead it is:
+      Error: The first argument of <= should be an integer, but instead it is:
       Error: The error occurred when TLC was evaluating the nested
 
 Nothing was checked. No claim was decided either way, so there is no verdict
@@ -29,18 +29,18 @@ about the policy here -- the module needs fixing first.
 
 | | tokens in | out | total | seconds |
 |---|---:|---:|---:|---:|
-| draft round 1 | 5,554 | 4,585 | 10,139 | 30.2 |
-| **1 model call(s)** | **5,554** | **4,585** | **10,139** | **30.2** |
+| draft round 1 | 5,909 | 5,178 | 11,087 | 32.7 |
+| **1 model call(s)** | **5,909** | **5,178** | **11,087** | **32.7** |
 
 Time per stage, model calls and verification together:
 
 ```
-  describe          0.1s
-  draft            31.0s
+  describe          0.2s
+  draft            37.5s
   preflight         0.0s
-  score             2.7s
+  score             3.3s
   report            0.0s
-  total            33.8s
+  total            41.0s
 ```
 
-Of which 30.2s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 32.7s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

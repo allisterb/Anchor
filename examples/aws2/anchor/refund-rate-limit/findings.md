@@ -6,7 +6,20 @@
 
 The gate below is a criterion in code, not a judgement a model was asked to make. Nothing downstream ran, and nothing here was verified.
 
-- the property HOLDS, but it also holds of every broken version of this policy that was tried -- rules deleted, permits turned into forbids, conditions dropped. So it is not constraining this policy at all. It is probably ranging over requests the policy never sees, or asserting something trivially true. State the claim about concrete actions and values the policy actually names.
+- the module did not compile, so nothing was checked:
+no --event-schema given, so every answer below assumes the UNPINNED reading
+  (global trace). The shipped DEFAULT partitions by principal, under which a rule
+  reported live here may never fire.
+
+agent-policy.dw against RefundRateLimit.tla: 7 rule(s)
+
+  RefundRateLimit.tla COMPILED BUT DID NOT EVALUATE. TLC says:
+
+      Error: The first argument of <= should be an integer, but instead it is:
+      Error: The error occurred when TLC was evaluating the nested
+
+Nothing was checked. No claim was decided either way, so there is no verdict
+about the policy here -- the module needs fixing first.
 
 ---
 
@@ -16,18 +29,18 @@ The gate below is a criterion in code, not a judgement a model was asked to make
 
 | | tokens in | out | total | seconds |
 |---|---:|---:|---:|---:|
-| draft round 1 | 5,534 | 3,399 | 8,933 | 26.3 |
-| **1 model call(s)** | **5,534** | **3,399** | **8,933** | **26.3** |
+| draft round 1 | 5,889 | 5,272 | 11,161 | 25.4 |
+| **1 model call(s)** | **5,889** | **5,272** | **11,161** | **25.4** |
 
 Time per stage, model calls and verification together:
 
 ```
-  describe          0.2s
-  draft            27.1s
+  describe          0.1s
+  draft            30.4s
   preflight         0.0s
-  score            19.1s
+  score             2.6s
   report            0.0s
-  total            46.3s
+  total            33.2s
 ```
 
-Of which 26.3s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 25.4s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

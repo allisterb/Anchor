@@ -29,6 +29,7 @@ last costs minutes, so reaching for it first is the expensive mistake.
 | does it compile? | **`CheckPropertyModule`** | SANY against that policy's generated vocabulary. ~1s. A misspelled operator gets you a line and a column instead of a failed model-checking run |
 | **what IS this value?** | **`EvaluateExpression`** | evaluates a TLA+ expression in the policy's own semantics. ~2s |
 | does it say what I meant? | **`ExplainPropertyModule`** | what each claim FORBIDS, in English, and how many of its states its condition applies to. Milliseconds |
+| **can it fail at all?** | `--decision-probe` | does the policy ever ANSWER differently over these states? Seconds. A policy that refuses everything the property names makes every refusal claim hold having tested nothing |
 | do the claims hold? | **`CheckPolicy`** with `property` | the actual check. Minutes |
 
 **`EvaluateExpression` is the one to reach for when something is behaving oddly**, because most of
@@ -58,7 +59,21 @@ domains differ per policy and cannot be guessed.
 `DescribePolicyModule` returns all of it, plus a skeleton module that already elaborates and runs.
 Edit the skeleton's claim rather than starting from a blank file.
 
-## Scalars are tagged
+## Scalars are tagged, and this is the mistake that wastes the most runs
+
+**A tagged value is a RECORD, not the thing inside it.** `Num(22)` is `[k |-> "n", v |-> 22]`. So:
+
+```tla
+input.amount <= 2500            \* WRONG. Dies at run time: "The first argument of <= should
+                                \*        be an integer, but instead it is: [k |-> ...]"
+input.amount <= Num(2500)       \* right
+req.origin = "external"         \* WRONG
+req.origin = Str("external")    \* right
+```
+
+It compiles either way — SANY resolves names, not record fields — so the module passes every cheap
+check and then dies during evaluation, having established nothing. **This is the single commonest
+reason a drafted module produces no verdict**: five drafts out of five, in one real run.
 
 Write `Num(22)`, never `22`. Every value carries its kind so that TLC refuses a cross-kind
 comparison instead of quietly answering one.
@@ -69,6 +84,27 @@ comparison instead of quietly answering one.
 | `Num(x)` | an integer |
 | `Bool(x)` | `TRUE` / `FALSE` |
 | `Addr(a, b, c, d)` | an address — **four octets**, because TLC cannot hold one as a 32-bit number |
+
+**The exception, and it is not optional either:** `Ev` takes PLAIN values for its action, kind and
+time — `Ev("execute_trade", "request", NoFields, NoFields, 900)`. The constructors are for field
+values *inside* the input and output records, and nowhere else.
+
+## Three rules that stop the usual syntax failures
+
+- **Bound every quantifier.** `\A x \in Requests : P(x)`, never `\A x : P(x)` — TLC cannot
+  enumerate an unbounded one.
+- **`\A` pairs with `=>`, `\E` pairs with `/\`.** A `\A` over a conjunction is almost always meant
+  as an implication, and asserts something far stronger than intended.
+- **Write the helper predicate first, then wrap it.** Not one long formula:
+
+  ```tla
+  IsExternalGrant(r) == r.origin = Str("external") /\ Grants(r)
+  OutsideIsRefused   == ~IsExternalGrant(req)
+  ```
+
+**Do not `EXTENDS TLC`.** It breaks evaluation of the policy semantics on any policy that both joins
+across value kinds and carries an aggregate — the module compiles and then fails with
+"Attempted to check equality of string ... with non-string". Nothing in a property module needs it.
 
 ## The trap: there is deliberately no `Inputs`
 
@@ -215,6 +251,35 @@ What it will **not** catch is a tautology about the decision itself — `Grants(
 holds whatever the policy says, and the explainer does not evaluate `Decide`, deliberately. That
 one is caught by `--mutation-score`, which breaks the policy and checks that the property notices.
 The two are complementary; neither replaces the other.
+
+## Then ask whether the policy ever ANSWERS differently
+
+```bash
+anchor check policy.dw --property Intent.tla --decision-probe
+```
+
+```
+  decision over this module's states: CONSTANT
+      the policy REFUSES every request this property names: `Grants(req)` is false in
+      every state the module ranges over ...
+```
+
+**This is the commonest way a drafted property comes back worthless, and the hardest to see by
+reading.** The claims are well formed, their conditions match states, the module compiles — and the
+policy refuses every single request the property names, so every claim about a refusal holds without
+testing anything. Five drafted properties out of five failed this way on one real policy set.
+
+The usual cause is a **missing prerequisite**. A policy set that requires `verify_identity` before
+`initiate_transfer` denies every transfer in a session that has no verification in it — so the rule
+your property is actually about is never reached. Put the prerequisite event in the session:
+
+```tla
+Session(gap) == << Verify(1), Transfer(1 + gap) >>     \* not just << Transfer(t) >>
+```
+
+Two TLC runs, seconds. `VARIES` is a precondition for checking the claims, not a verdict on them;
+`CONSTANT` exits 4, the same code as a property that catches no mutant, because it is the same
+defect found earlier and more cheaply.
 
 ## Reading the result
 

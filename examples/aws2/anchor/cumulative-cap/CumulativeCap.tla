@@ -1,93 +1,65 @@
 ---------------------------- MODULE CumulativeCap ----------------------------
-\* What the policy is SUPPOSED to mean, stated by its author. The three built-in findings
-\* (VACUOUS, REDUNDANT/DEAD, diff) are the claims statable WITHOUT knowing intent; this is the
-\* other kind, and only the author can write it.
 EXTENDS Integers, Sequences, FiniteSets, PolicyUnderTest
 
 D == INSTANCE DogwoodSemantics WITH Cases <- << >>
 
-\* Constants for the policy logic
-TwelveHours == 12 * 60 * 60  \* 12 hours in seconds
-CapAmount   == 50000         \* The cumulative cap amount in dollars
+(* Constants for time and amount *)
+OneHour == 3600 (* seconds *)
+TwelveHours == 12 * OneHour (* 43200 seconds *)
+CapAmount == Num(50000) (* $50,000, using Num constructor *)
 
-\* Helper function to create an initiate_transfer event
-\* time_val, amount_val, and acc_val are plain integers for calculation and Ev() function
-\* arguments; they are wrapped in Num() for the input record fields.
-TransferEvent(time_val, amount_val, acc_val) ==
-  Ev("initiate_transfer", "request",
-     [amount |-> Num(amount_val),
-      account |-> Num(acc_val),
-      charge_id |-> Num(1), \* Fixed charge_id, as it's not relevant to this property
-      systemNowTime |-> Num(time_val)],
-     NoFields,
-     time_val)
+(* Helper to create an initiate_transfer event with dummy values for other required input fields *)
+Transfer(amount_val, time_val) ==
+    Ev("initiate_transfer", "request",
+       [account |-> Num(1), amount |-> amount_val, charge_id |-> Num(1), systemNowTime |-> Num(32400000)],
+       NoFields, time_val)
 
-\* A session with two transfers for the same account: a previous one and a current one.
-\* p_a: amount of the previous transfer (plain integer)
-\* c_a: amount of the current transfer (plain integer)
-\* g:   time gap in seconds between the two transfers (plain integer)
-\* acc: account ID (plain integer)
-Session(p_a, c_a, g, acc) ==
-  <<TransferEvent(1, p_a, acc),           \* Previous transfer at time 1
-    TransferEvent(1 + g, c_a, acc)>>      \* Current transfer at time (1 + gap)
+(* Session definition: two transfers, separated by time_delta *)
+Session(amt1, amt2, td) ==
+    << Transfer(amt1, 1), Transfer(amt2, 1 + td) >>
 
-\* The verdict for the final transfer in the session
-GrantsFinalTransfer(p_a, c_a, g, acc) ==
-  D!Decide(Session(p_a, c_a, g, acc), Policies, 2, AllValues) \* Check decision for the 2nd event
+(* Function to calculate cumulative amount of 'initiate_transfer' events
+   within the 12-hour window *before* the event at 'idx'.
+   Amounts are tagged with Num(). SUM operator works with sets of numbers. *)
+CumulativeAmountBeforeEvent(trace, idx) ==
+    LET current_event == trace[idx]
+        current_time == current_event.time
+        relevant_transfers_amounts == { e.input.amount : e \in {trace[j] : j \in 1..idx-1} :
+                                (e.action = "initiate_transfer") /\
+                                (current_time - e.time < TwelveHours) /\ (* Event must be within the past 12 hours *)
+                                (e.time < current_time) }                 (* Event must have occurred before current_time *)
+    IN IF relevant_transfers_amounts = {} THEN Num(0)
+       ELSE SUM relevant_transfers_amounts
 
-(***************************************************************************)
-(* THE REQUESTS THIS CLAIM IS ABOUT.                                       *)
-(*                                                                         *)
-(* Written out rather than derived from InputDomain, and that is the       *)
-(* point. A space derived from the policy's own literals cannot test a     *)
-(* claim about a value the policy never mentions: delete the rule that     *)
-(* names a value and it vanishes from the vocabulary, so the claim ranges  *)
-(* over nothing and PASSES having looked at nothing.                       *)
-(*                                                                         *)
-(* Add the values your claim is about, including ones this policy never    *)
-(* mentions.                                                               *)
-(***************************************************************************)
+(* Policy decision for a specific event in a session *)
+PolicyDecision(session, event_idx) ==
+    D!Decide(session, Policies, event_idx, AllValues)
 
-\* Define relevant amounts that can make the cumulative sum exceed the cap.
-\* These are plain integers, as used in the `TransferEvent` helper.
-PrevAmounts == {1000, 20000, 30000, 49000, 49999}
-CurrAmounts == {1000, 20000, 30000, 49000, 49999}
+(* State space for testing:
+   TestAmounts includes values that can cross the cap when combined.
+   TimeGaps includes values within and outside the 12-hour window. *)
+TestAmounts == {Num(1), Num(25000), Num(25001), Num(49999), Num(50000), Num(50001)}
+TimeGaps == {1, OneHour, TwelveHours - 1, TwelveHours, TwelveHours + 1, (2 * 24 * OneHour)} (* 1s, 1h, 11h59m59s, 12h, 12h0m1s, 2 days *)
 
-\* Define time gaps to test scenarios both within and outside the 12-hour window.
-\* Gaps are plain integers (seconds).
-Gaps == {1,              \* Almost immediate (within window)
-        TwelveHours - 1, \* Just under 12 hours (within window)
-        TwelveHours + 1, \* Just over 12 hours (outside window)
-        2 * TwelveHours  \* Well over 12 hours (outside window)
-       }
+VARIABLE first_amount, second_amount, time_delta
+Init ==
+    first_amount \in TestAmounts /\
+    second_amount \in TestAmounts /\
+    time_delta \in TimeGaps
 
-\* Define account IDs. Using plain integers here.
-AccountValues == {1, 2} \* As per the input domain in the vocabulary
+Next ==
+    UNCHANGED <<first_amount, second_amount, time_delta>>
 
-\* One specific scenario, chosen nondeterministically, to check the property.
-\* The variables hold plain integer values.
-VARIABLE prev_a, curr_a, gap, account_id
-Init == prev_a \in PrevAmounts /\
-        curr_a \in CurrAmounts /\
-        gap \in Gaps /\
-        account_id \in AccountValues
-Next == UNCHANGED <<prev_a, curr_a, gap, account_id>>
-Spec == Init /\ [][Next]_<<prev_a, curr_a, gap, account_id>>
+Spec == Init /\ [][Next]_<<first_amount, second_amount, time_delta>>
 
-(***************************************************************************)
-(* THE CLAIM: Block a transfer if the total amount transferred in the      *)
-(* past 12 hours (including the current transfer) would exceed $50,000.   *)
-(***************************************************************************)
-
-\* Calculate the total amount that would be considered for the cap.
-\* This includes the previous transfer only if it falls within the 12-hour window.
-TotalAmountForCap(p_a_val, c_a_val, g_val) ==
-  LET prev_amount_in_window == IF g_val < TwelveHours THEN p_a_val ELSE 0 IN
-  prev_amount_in_window + c_a_val
-
-\* The main property: If the total amount exceeds the cap, the policy must refuse the transfer.
-BlockIfCumulativeCapExceeded ==
-  (TotalAmountForCap(prev_a, curr_a, gap) > CapAmount)
-  => ~GrantsFinalTransfer(prev_a, curr_a, gap, account_id)
+(* The claim: A transfer should be refused if, including its own amount,
+   the cumulative total within the past 12 hours would exceed CapAmount ($50,000). *)
+CumulativeCapExceededIsRefused ==
+    LET session_trace == Session(first_amount, second_amount, time_delta)
+        current_event_idx == 2 (* We are checking the second transfer in our two-event session *)
+        amount_current_transfer == session_trace[current_event_idx].input.amount
+        cumulative_before == CumulativeAmountBeforeEvent(session_trace, current_event_idx)
+        total_if_granted == cumulative_before + amount_current_transfer
+    IN (total_if_granted > CapAmount) => ~PolicyDecision(session_trace, current_event_idx)
 
 =============================================================================

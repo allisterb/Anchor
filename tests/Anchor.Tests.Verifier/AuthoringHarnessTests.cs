@@ -63,6 +63,26 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("and NOTHING was written", run.Output);
         Assert.Contains("a tautology about the decision is rejected by MUTATION", run.Output);
         Assert.Contains("and the existing module is restored, not clobbered", run.Output);
+
+        // A module that will not COMPILE, and one that compiles and then dies while evaluating,
+        // are both "no verdict" rather than a broken policy. The second survived the first fix
+        // because SANY resolves names and not record fields.
+        Assert.Contains("...and the checker says NO VERDICT rather than BROKEN", run.Output);
+        Assert.Contains("...and gets NO VERDICT rather than BROKEN", run.Output);
+
+        // THE DECISION PROBE. Between the static gate and the mutation gate: does the policy's
+        // answer VARY over the states this property names? Five drafted properties out of five
+        // failed exactly this way on one real policy set, and only mutation scoring caught them —
+        // a TLC run per mutant, to report the symptom rather than the cause.
+        Assert.Contains("a property whose policy answers differently VARIES", run.Output);
+        Assert.Contains("a policy that refuses everything the property names is CONSTANT", run.Output);
+        Assert.Contains("...and the diagnosis names the decision term and the likely cause", run.Output);
+        // A gate that cannot read a module must not reject it.
+        Assert.Contains("a module with no decision term is SKIPPED, not rejected", run.Output);
+
+        // The evaluator, on the shape that silently broke it: a cross-kind join plus an aggregate.
+        Assert.Contains("...and returns the right values either side of the window", run.Output);
+
         Assert.DoesNotContain("FAIL", run.Output);
     }
 

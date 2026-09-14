@@ -27,7 +27,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.author import assess, author, preflight, score  # noqa: E402
+from agent.author import assess, author, decides, preflight, score  # noqa: E402
 
 POLICIES = REPO / "tests" / "policies"
 
@@ -253,6 +253,32 @@ def main() -> int:
           crashed["output"][-300:])
     check("...and names the field TLC choked on",
           "nonexistent field" in crashed["output"], crashed["output"][-300:])
+
+    # --- THE DECISION PROBE: does the policy ever ANSWER differently? ------------------------------
+    # The gate between the two above, and the one the aws2 sweep argued for. `preflight` asks
+    # whether a claim's CONDITION can be satisfied; mutation asks whether the property notices the
+    # policy breaking. Neither asks whether the policy's DECISION varies over the states the
+    # property names -- and when it does not, every claim about a refusal holds having tested
+    # nothing. Five drafted properties out of five failed exactly that way.
+    varies, _ = decides(POLICIES / "firewall.dw", POLICIES / "firewall.tla")
+    check("a property whose policy answers differently VARIES", varies == "varies", varies)
+
+    # The same property, against the same policy with its PERMIT removed -- default-deny, so every
+    # request it names is refused and `OutsideIsRefused` cannot fail.
+    constant, why = decides(POLICIES / "firewall_noperm.dw", POLICIES / "firewall.tla")
+    check("a policy that refuses everything the property names is CONSTANT",
+          constant == "constant", constant)
+    check("...and the diagnosis names the decision term and the likely cause",
+          "Grants(req)" in why and "prerequisite" in why, why[-200:])
+
+    # A gate that cannot read a module must not reject it: `skipped` is neither pass nor fail.
+    # TRIVIAL calls no `D!Decide` at all, so there is no decision term to vary.
+    with tempfile.TemporaryDirectory(prefix="anchor-probe-") as tmp:
+        bare = Path(tmp) / "Trivial.tla"
+        bare.write_text(TRIVIAL, encoding="utf-8")
+        bare.with_suffix(".cfg").write_text(TRIVIAL_CFG, encoding="utf-8")
+        nothing, _ = decides(POLICIES / "firewall.dw", bare)
+    check("a module with no decision term is SKIPPED, not rejected", nothing == "skipped", nothing)
 
     # --- AND THE EVALUATOR, on the policy shape that broke it --------------------------------------
     # `--eval` answers "what IS this value" in a couple of seconds, and it silently stopped being

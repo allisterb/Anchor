@@ -1,0 +1,14 @@
+// firewall.dw with the PERMIT removed -- the forbid alone, which is how three of the five policies
+// in examples/aws2 are written as individual files.
+//
+// Cedar is default-deny, so on its own this grants nothing at all: every request `firewall.tla`
+// names is refused, and `OutsideIsRefused` holds without testing anything. That is what
+// `--decision-probe` exists to catch, and it is not hypothetical -- five drafted properties out of
+// five failed exactly this way on a real policy set, and only mutation scoring noticed, one TLC
+// run per mutant, to conclude "it survived every mutant".
+forbid (
+    principal,
+    action == Anchor::Action::"Connect",
+    resource
+)
+when { context.input.origin == "external" };

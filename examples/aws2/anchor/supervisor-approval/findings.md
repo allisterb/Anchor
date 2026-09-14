@@ -2,6 +2,8 @@
 
 **Stated intention.** A refund over $500 requires a supervisor approval for that charge within the previous 30 minutes.
 
+*Drafted in 3 of 3 attempt(s), and the allowance ran out -- what follows is the last attempt, judged by the same gates as any other.*
+
 ## No property was checked: the draft was rejected at `score`
 
 The gate below is a criterion in code, not a judgement a model was asked to make. Nothing downstream ran, and nothing here was verified.
@@ -29,18 +31,20 @@ about the policy here -- the module needs fixing first.
 
 | | tokens in | out | total | seconds |
 |---|---:|---:|---:|---:|
-| draft round 1 | 5,536 | 5,228 | 10,764 | 41.1 |
-| **1 model call(s)** | **5,536** | **5,228** | **10,764** | **41.1** |
+| draft round 1 | 5,891 | 5,892 | 11,783 | 44.1 |
+| draft round 2 | 13,358 | 1,433 | 14,791 | 9.0 |
+| draft round 3 | 20,521 | 5,029 | 25,550 | 23.7 |
+| **3 model call(s)** | **39,770** | **12,354** | **52,124** | **76.7** |
 
 Time per stage, model calls and verification together:
 
 ```
   describe          0.1s
-  draft            41.8s
+  draft            88.9s
   preflight         0.0s
-  score             2.6s
+  score             3.1s
   report            0.0s
-  total            44.5s
+  total            92.2s
 ```
 
-Of which 41.1s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 76.7s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

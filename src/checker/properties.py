@@ -507,6 +507,30 @@ def prove(args, policies: list[dict], vocab: dict, keys: list[str] | None = None
                   "name it uses, and is ready to be run -- nothing about whether its claims hold.")
             return 0
 
+        if args.decision_probe:
+            cfg = args.property_module.with_suffix(".cfg")
+            shutil.copyfile(cfg, work / cfg.name)
+            verdict, why = probe_decision(work, args.property_module,
+                                          cfg.read_text(encoding="utf-8"))
+            print(f"  decision over this module's states: {verdict.upper()}\n")
+            print(f"      {why}")
+            if verdict == "error":
+                print("\nNothing was checked, and this is a defect in the module rather than a "
+                      "verdict about\nthe policy. The commonest cause is comparing a TAGGED value "
+                      "against a bare one --\n`Num(22)` is a record, not the integer 22, so "
+                      "`x <= 22` fails where `x <= Num(22)` works.")
+                return 2
+            if verdict == "constant":
+                print("\nNOTHING THIS PROPERTY SAYS CAN BE TESTED against this policy. Give the "
+                      "module\nstates the policy answers differently, or the claims below it are "
+                      "true of a\ndecision that never changes.")
+                return WeakProperty
+            if verdict == "varies":
+                print("\nThe policy answers differently across the states this module ranges "
+                      "over, so its\nclaims are about something that can go either way. That is "
+                      "a precondition for\nchecking them, not a verdict on them.")
+            return 0
+
         held, out = check_property(work, args.property_module)
 
         # The property module brings its own correctly-named .cfg, which `check_property` has
@@ -732,6 +756,136 @@ def compare(args, policies: list[dict], other: list[dict], vocab: dict,
 
 
 # ---------------------------------------------------------------------------- custom properties
+def decision_call(source: str) -> str | None:
+    """The module's own decision term -- `Grants(req)`, `Allowed(s)`, `TradeAllowed(gap)`.
+
+    Found rather than configured, because every property module names it something different. The
+    DEFINITION is whichever one calls `D!Decide`; the TERM is how a claim applies it, and it is the
+    application we want -- its arguments are the module's variables, so evaluating it over the
+    module's own states is exactly the question.
+
+    Returns None when it cannot be found, and the caller must then SKIP rather than reject: a gate
+    that cannot read a module has learned nothing about it.
+    """
+    # COMMENTS OUT FIRST. `Grants` appears in the prose above its own definition at least as often
+    # as in a claim, and a bare name matched there yields an operator used without its arguments --
+    # a probe module that will not parse, reported as "the module did not evaluate", which is true
+    # of the probe and false of the module.
+    source = re.sub(r"\(\*.*?\*\)", " ", source, flags=re.DOTALL)
+    source = re.sub(r"\\\*[^\n]*", "", source)
+
+    lines = source.splitlines()
+    name, takes_args = None, False
+    for i, line in enumerate(lines):
+        if (m := re.match(r"^(\w+)\s*(\([^)]*\))?\s*==", line)):
+            body = [line]
+            for nxt in lines[i + 1:]:
+                if re.match(r"^\w+\s*(?:\([^)]*\))?\s*==|^=====", nxt):
+                    break
+                body.append(nxt)
+            if "D!Decide" in "\n".join(body):
+                name, takes_args = m.group(1), bool(m.group(2))
+                break
+    if name is None:
+        return None
+
+    # How a CLAIM applies it. The parentheses are BALANCED rather than matched to the first `)` --
+    # `Grants([port |-> Num(22)])` closes twice -- and a definition is told from an application by
+    # what FOLLOWS it, not by what precedes it: `Claim == Allowed(s)` has `==` on its left and is
+    # an application, which an earlier version of this skipped and then reported "skipped" on the
+    # one module that had already found a real violation.
+    for m in re.finditer(rf"\b{re.escape(name)}\b\s*(\()?", source):
+        end = m.end()
+        if takes_args and not m.group(1):
+            continue                                    # a mention, not an application
+        if m.group(1):
+            depth, i = 1, m.end()
+            while i < len(source) and depth:
+                depth += (source[i] == "(") - (source[i] == ")")
+                i += 1
+            if depth:
+                continue
+            end = i
+        # `==` and not `====...`: the module TERMINATOR also begins with two equals signs, so the
+        # last claim in a file -- which is exactly where the decision term usually is -- read as a
+        # definition and the probe reported "skipped" on every module.
+        if re.match(r"==(?!=)", source[end:end + 40].lstrip()):
+            continue                                    # a definition of it, not a use
+        return source[m.start():end]
+    return None
+
+
+PROBE = """---------------------------- MODULE DecisionProbe ----------------------------
+EXTENDS {module}
+
+\\* Does the policy's answer VARY over the states this property ranges over? Each of these is
+\\* checked on its own; a violation means the decision was not constant in that direction.
+NotAlwaysRefused == {call}
+NotAlwaysGranted == ~({call})
+============================================================================
+"""
+
+
+def probe_decision(work: Path, module: Path, cfg_text: str) -> tuple[str, str]:
+    """Is the policy's decision CONSTANT over every state this property ranges over?
+
+    THE DEFECT THIS CATCHES, and it is the commonest way an agent-authored property comes back
+    worthless: the claims are well formed, their conditions match states, the module compiles --
+    and the policy refuses every single request the property names, so every refusal claim holds
+    without testing anything. Five drafted properties out of five failed this way on one real
+    policy set, and the only thing that caught them was mutation scoring: a TLC run per mutant, to
+    conclude "it survived every mutant", which is a symptom rather than the cause.
+
+    Two invariant runs over the module's own Init answer it directly, in seconds. Checking the
+    module's states rather than a request set we invent is the point -- the question is about the
+    property as written.
+    """
+    call = decision_call(module.read_text(encoding="utf-8", errors="replace"))
+    if call is None:
+        return "skipped", ("no definition in this module calls D!Decide, so there is no decision "
+                           "term to vary. Nothing was concluded.")
+
+    (work / "DecisionProbe.tla").write_text(
+        PROBE.format(module=module.stem, call=call), encoding="utf-8")
+
+    # The module's own CONSTANTS and SPECIFICATION, with its invariants replaced by ours.
+    kept = [ln for ln in cfg_text.splitlines() if not ln.strip().startswith(("INVARIANT", "PROPERTY"))]
+    verdicts = {}
+    for which in ("NotAlwaysRefused", "NotAlwaysGranted"):
+        (work / "DecisionProbe.cfg").write_text(
+            "\n".join(kept + [f"INVARIANT {which}", ""]), encoding="utf-8")
+        held, out = run_tlc("DecisionProbe", work, work)
+
+        # AN EVALUATION ERROR IS NOT A VERDICT, and it looks exactly like one here: TLC exits
+        # non-zero whether the invariant was violated or the module died computing it, so both
+        # probes coming back "not held" would read as "varies" -- the healthiest answer there is,
+        # reported for a module that cannot be evaluated at all. Distinguished by whether a
+        # violation was actually named.
+        if not held and not violated_by(out):
+            errors = [ln for ln in out.splitlines() if ln.startswith("Error:")][:4]
+            return "error", ("the module compiled but did not evaluate, so nothing about the "
+                             "policy's decision could be established. TLC says:\n        "
+                             + "\n        ".join(errors))
+        verdicts[which] = held
+
+    # HELD means the invariant was never violated -- so the decision never went the other way.
+    if verdicts["NotAlwaysRefused"] and verdicts["NotAlwaysGranted"]:
+        return "unknown", f"`{call}` could not be evaluated over this module's states"
+    if verdicts["NotAlwaysRefused"]:
+        return "constant", (
+            f"the policy GRANTS every request this property names: `{call}` is true in every "
+            f"state the module ranges over. A claim about what is refused therefore cannot fail, "
+            f"whatever it says")
+    if verdicts["NotAlwaysGranted"]:
+        return "constant", (
+            f"the policy REFUSES every request this property names: `{call}` is false in every "
+            f"state the module ranges over. A claim about what is refused therefore holds without "
+            f"testing anything. The usual cause is a session that omits a prerequisite the policy "
+            f"set requires -- a verification, an approval, a prior read -- so the request is "
+            f"denied before the rule this property is about is ever reached")
+    return "varies", f"`{call}` is true in some of this module's states and false in others"
+
+
 def check_property(work: Path, module: Path) -> tuple[bool, str]:
     """Run the author's own property module against the generated policy records.
 
@@ -1203,6 +1357,12 @@ def main() -> int:
                          "`Session(960)` or `TradeAllowed(960)` can be asked directly. Seconds, and "
                          "it checks nothing -- it answers what a value IS, which is the question "
                          "you otherwise have to write an invariant and run a check to find out")
+    ap.add_argument("--decision-probe", action="store_true",
+                    help="with --property: ask whether the policy's answer VARIES over the states "
+                         "this module ranges over, and stop. Two TLC runs, seconds. A property "
+                         "whose policy refuses everything it names holds without testing "
+                         "anything, and mutation scoring can only report that afterwards, as a "
+                         "symptom. Exit 4 when the decision is constant")
     ap.add_argument("--parse", action="store_true",
                     help="with --property: check that the module COMPILES against this policy's "
                          "generated vocabulary, and stop. SANY only, no TLC -- about a second "

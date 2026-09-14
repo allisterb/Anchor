@@ -194,6 +194,7 @@ class Run:
     round: int = 0
     attempts: list[str] = field(default_factory=list)
     exhausted: bool = False
+    decision: str = ""           # varies / constant / skipped, from the decision probe
 
     # Per-invocation caps on the agent loop: turns / total_tokens / output_tokens. Empty means no
     # cap. NOT cumulative across calls -- `rounds` rounds of `turns` turns is the product, which is
@@ -356,6 +357,43 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
             continue
         if said:
             feedback = "Your draft was rejected:\n\n" + "\n".join(said) + "\n\nTry again."
+            continue
+
+        # AND DOES THE POLICY EVER ANSWER DIFFERENTLY? Seconds, and it is the defect the whole
+        # aws2 sweep produced: five properties whose claims were well formed and whose policy
+        # refused every request they named, so each held without testing anything. Caught here it
+        # is a round of feedback; caught by mutation scoring it is a TLC run per mutant and a
+        # complaint that describes the symptom.
+        verdict, why = author.decides(run.policy, scratch, event_schema=run.event_schema,
+                                      max_fields=run.max_fields)
+        run.decision = verdict
+        if verdict == "error":
+            # The module compiled and then died computing a decision. Cheap to find here, and the
+            # difference between one round of feedback and the whole allowance spent producing a
+            # diagnostic nobody read.
+            feedback = ("Your module compiled but could not be evaluated:\n\n" + why[-1500:]
+                        + "\n\nA tagged value is a RECORD, not a bare one: write `x <= Num(22)` "
+                          "and `s = Str(\"a1\")`, never `x <= 22`.")
+            continue
+
+        # AND DO THE CLAIMS THEMSELVES EVALUATE? The probe only exercises the decision term, and
+        # an arithmetic comparison inside a claim -- `amount <= 2500` where amount is `Num(...)` --
+        # dies somewhere the probe never reaches. ONE TLC run, against the nine that `score` would
+        # spend to report the same thing as "the module produced no verdict".
+        once = repair.check_property(run.policy, scratch, event_schema=run.event_schema,
+                                     max_fields=run.max_fields)
+        if once.get("_failed"):
+            feedback = ("Your module compiled, but checking it produced no verdict:\n\n"
+                        + str(once.get("_why"))[-1500:]
+                        + "\n\nA tagged value is a RECORD, not a bare one: write `x <= Num(22)` "
+                          "and `s = Str(\"a1\")`, never `x <= 22`.")
+            continue
+
+        if verdict == "constant":
+            feedback = ("Your property cannot be tested against this policy:\n\n"
+                        + why[-1500:] + "\n\nGive the module states the policy answers "
+                        "differently -- if a request needs a prior verification, approval or "
+                        "read, put that event in the session before the one you are deciding.")
             continue
 
         return text                                          # the gate nodes still judge it
