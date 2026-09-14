@@ -30,6 +30,8 @@ the policy, a knowledge article on how to write a properties module, and the bri
 
 * `hitl` Similar to auto mode but with one additional step: when a gate rejects a properties module draft, it asks the person about the problem *requirement*, (never about TLA+), folds the answer into the brief and tries drafting the properties module again. Before the properties module is used, it reads the claim back in plain English for the user to confirm the intent is accurate. Needs no formal methods knowledge on the user's part.
 
+## Architecture diagram
+[Anchor architecture](docs/images/architecture.svg)
 
 ## Getting started
 
@@ -39,11 +41,13 @@ the policy, a knowledge article on how to write a properties module, and the bri
 Anchor needs four runtimes — .NET, a JVM, CPython and a Rust binary — so there is a container that
 carries all of them. Nothing is installed on your machine and nothing is cloned.
 
+Linux:
 ```bash
 docker pull allisterb/anchor:latest
 docker run --rm allisterb/anchor:latest version
 ```
-
+ or Windows:
+ `docker run --rm -v ".:/work" allisterb/anchor:latest check my-policy.dw`
 
 On Apple Silicon, add `--platform linux/amd64` to the `pull` and to every `run`; it works under
 emulation and is slower.
