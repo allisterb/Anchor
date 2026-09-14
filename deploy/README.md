@@ -3,6 +3,13 @@
 The agent packaged as a container and run by AWS. [`Dockerfile`](Dockerfile) is the image,
 [`iam/`](iam) is the execution role, [`render.py`](render.py) fills in the account-specific parts.
 
+**There are two images and this page is about one of them.** [`Dockerfile`](Dockerfile) is a
+SERVICE: it answers `POST /invocations` on 8080 and its entry point is `src/agent/server.py`.
+[`Dockerfile.cli`](Dockerfile.cli) is a COMMAND — its entry point is the `anchor` launcher, so
+`docker run anchor check policy.dw` works and nothing is installed on the host. They are separate
+rather than one image with two entry points because a CLI image wants a small surface and a service
+image wants a fixed one. See the repository README for the CLI one.
+
 Everything below uses `<account-id>`, `<region>`, `<ecr-repo>` and `<agent-name>` rather than real
 values. Substitute your own, or let `render.py` read the account from your current credentials.
 
@@ -22,9 +29,18 @@ export AGENT=<agent-name>
 | `tla2tools.jar` | the TLA+ tools; architecture-neutral bytecode |
 | CPython | the translator, the checker, and the agent itself |
 
-**Not** in it: Rust and the Dogwood binary. The runtime path references Dogwood only in comments —
-it is the differential *test* oracle, and tests do not ship. That removed the slowest and least
-predictable part of an emulated arm64 build.
+**Not** in it: Rust and the Dogwood binary — and the reason recorded here previously was wrong.
+Dogwood is not only the differential *test* oracle. `src/checker/engine.py` is a runtime module and
+shells out to `dogwood` for two things a verdict can turn on: whether a policy this checker refused
+is outside our modelled subset or simply broken, and — through `witness.py` — what the real engine
+says about a counterexample we produced.
+
+So what this image actually gives up is those two answers. `engine.available()` is false in it,
+both paths degrade to "not available" and say so, and nothing reports a wrong verdict as a result.
+That is a real trade rather than a free one: it buys not running an emulated Rust build, which was
+measured as the slowest and least predictable part of the arm64 image. `Dockerfile.cli` does carry
+Dogwood, cross-linked on the build host instead of emulated, so the same trade is available here if
+the missing answers turn out to matter — **not yet decided**.
 
 Two things in the Dockerfile look like overhead and are not. `libicu72` is required: a slim Python
 image has no ICU and the self-contained binary dies at startup without it. The alternative,

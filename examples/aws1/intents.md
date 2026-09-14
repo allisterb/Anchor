@@ -11,7 +11,7 @@ and each is repeated verbatim in its policy file's header comment so the provena
 against the transcription. **The drafter never sees either.** `describe` hands it the generated
 vocabulary and nothing else; the intent reaches it only through `--intent`.
 
-Consumed by `python src/agent/pipeline.py examples/aws1 --intents examples/aws1/intents.md`.
+Consumed by `anchor auto examples/aws1 --intents examples/aws1/intents.md`.
 
 ## 01-workflow-sequencing.dw
 

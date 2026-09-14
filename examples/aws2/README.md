@@ -22,13 +22,6 @@ policy that parses, validates, and passes every check that does not know what it
 | The set is **at the edge of exhaustive search** | six input/output fields, so the request space is the product of six domains. `--max-fields 8` is required and the derived run is slow; this is where `--smoke` earns its place |
 | One policy cannot be checked **at all**, correctly | policy 5 calls a Bedrock Guardrails information provider — a sandboxed script. A verdict about it would not be a function of the policy and the trace |
 
-**It also found a bug in Anchor**, which is the more useful half of running real policies: an
-aggregate binder ranged over the generated value domain only, so a hand-built session carrying a
-value the policy never names had that value silently dropped from a `sum`. The total came out
-*smaller* rather than unknown. See `TraceScalars` in
-[`DogwoodSemantics.tla`](../../specs/policy/TemporalPolicy/DogwoodSemantics.tla) and the fixture at
-[`tests/policies/aggregate_cap.dw`](../../tests/policies/aggregate_cap.dw). Our model said ALLOW
-where the engine said DENY; the disagreement is what surfaced it.
 
 ## The finding: attempts are not transfers
 

@@ -226,17 +226,6 @@ none of the cost, and the part that belongs in CI. `--output-dir findings` write
 supposed to mean is not, and a directory with no `.tla` modules gets a report that says so in those
 words rather than one that looks like a pass.
 
-### Why every trace directory carries its own copy of the evaluator
-
-Each one repeats `DogwoodSemantics.tla`, which looks wasteful and costs almost nothing: git is
-content-addressed, so eight identical files are **one blob**. Measured — every copy hashes to
-`612975b…`, and the repository stores 8 KB compressed where the working tree shows 224 KB.
-
-Symlinking them would save that 8 KB and cost the thing the directories exist for. Git symlinks
-need `core.symlinks` plus Developer Mode on Windows, and a clone without it materialises the link
-as a text file containing a path — leaving a directory that no longer re-runs, failing in a way
-that looks like a broken spec. **Self-contained is the feature.**
-
 ## Reproducing
 
 Each directory under `traces/` holds the generated `PolicyUnderTest.tla`, the evaluator, the config

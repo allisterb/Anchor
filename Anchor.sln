@@ -15,6 +15,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Docs", "Docs", "{02EA681E-C
 		src\checker\README.md = src\checker\README.md
 		src\annotations\README.md = src\annotations\README.md
 		src\agent\README.md = src\agent\README.md
+		README.md = README.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{8C1EB6B3-A40E-4964-8913-154B82B68535}"
@@ -69,6 +70,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "aws1", "aws1", "{EEEAAF25-0
 		examples\aws1\03-data-freshness.dw = examples\aws1\03-data-freshness.dw
 		examples\aws1\07-trust-decay.dw = examples\aws1\07-trust-decay.dw
 		examples\aws1\findings.md = examples\aws1\findings.md
+		examples\aws1\intents.md = examples\aws1\intents.md
 		examples\aws1\questions.md = examples\aws1\questions.md
 		examples\aws1\README.md = examples\aws1\README.md
 		examples\aws1\results.json = examples\aws1\results.json
@@ -79,6 +81,23 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "aws1", "aws1", "{EEEAAF25-0
 		examples\aws1\TrustDecay.tla = examples\aws1\TrustDecay.tla
 		examples\aws1\TrustDecay10.cfg = examples\aws1\TrustDecay10.cfg
 		examples\aws1\TrustDecay10.tla = examples\aws1\TrustDecay10.tla
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "aws2", "aws2", "{3482C1EF-68EF-4399-A161-3DA74CC62ACC}"
+	ProjectSection(SolutionItems) = preProject
+		examples\aws2\01-business-hours.dw = examples\aws2\01-business-hours.dw
+		examples\aws2\02-identity-verification.dw = examples\aws2\02-identity-verification.dw
+		examples\aws2\03-cumulative-cap.dw = examples\aws2\03-cumulative-cap.dw
+		examples\aws2\04-refund-rate-limit.dw = examples\aws2\04-refund-rate-limit.dw
+		examples\aws2\06-supervisor-approval.dw = examples\aws2\06-supervisor-approval.dw
+		examples\aws2\agent-policy.dw = examples\aws2\agent-policy.dw
+		examples\aws2\CumulativeCap.cfg = examples\aws2\CumulativeCap.cfg
+		examples\aws2\CumulativeCap.tla = examples\aws2\CumulativeCap.tla
+		examples\aws2\findings.md = examples\aws2\findings.md
+		examples\aws2\intents.md = examples\aws2\intents.md
+		examples\aws2\README.md = examples\aws2\README.md
+		examples\aws2\requirements.md = examples\aws2\requirements.md
+		examples\aws2\results.json = examples\aws2\results.json
 	EndProjectSection
 EndProject
 Global
@@ -242,6 +261,7 @@ Global
 		{AF7713A6-C0BE-409D-83BC-7DB0B708B211} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
 		{4C9A2E15-7B83-4D26-8E0F-5A1C3D7B92E6} = {F0069B9E-0A21-44CA-BC3F-81B77885FD03}
 		{EEEAAF25-06EC-4DFA-BA18-3E18D1EC3F3F} = {FC91202A-F219-4D48-BA09-B73BB4B43485}
+		{3482C1EF-68EF-4399-A161-3DA74CC62ACC} = {FC91202A-F219-4D48-BA09-B73BB4B43485}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {F5715F99-B6C8-47A8-8813-968B2AEF6BB2}

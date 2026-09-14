@@ -35,7 +35,9 @@ minimum_java_version=11
 #              checksum for the v1.7.4 release. Verified.
 #   z3       - one hash PER PLATFORM: solver-builds ships a different binary for each OS, so a
 #              single pin cannot cover them all. Only the platforms recorded below can be verified,
-#              and the script refuses to install an unverifiable binary rather than trusting it.
+#              and the script declines to install an unverifiable binary rather than trusting it --
+#              warning and carrying on, because z3 is Dafny's solver and the policy path has no
+#              use for it.
 #              solver-builds publishes no checksums of its own, so these pins are ours, not
 #              upstream: each is recorded from a clean download confirmed byte-identical to an
 #              independently obtained copy. To add a platform, download the asset by hand, satisfy
@@ -221,18 +223,29 @@ install_z3() {
     fi
 
     if [ -z "$expected" ]; then
+        # NOT FATAL, and that is a judgement about what z3 is FOR. It is the solver Dafny shells
+        # out to over SMT-LIB2; nothing on the Dogwood policy path -- the translator, the checker,
+        # TLC -- touches it. So an unpinned platform costs the Dafny verifier and not the build,
+        # and the one thing that stays non-negotiable is that an UNVERIFIABLE binary is not
+        # installed. A present file with a mismatched hash is still fatal, above.
+        local pinned=""
+        [ -n "$z3_sha256_windows" ] && pinned="windows"
+        [ -n "$z3_sha256_linux" ] && pinned="${pinned:+$pinned, }linux"
+        [ -n "$z3_sha256_macos" ] && pinned="${pinned:+$pinned, }macos"
         cat >&2 <<EOF
-No z3 sha256 is recorded for $platform, so $asset cannot be verified.
+warning: no z3 sha256 is recorded for $platform, so $asset cannot be verified. NOT INSTALLING IT.
 
-Rather than install an unchecked solver binary, this script stops here. To proceed,
-download the asset from
+The build carries on. What this costs is the Dafny verifier, which shells out to z3; the
+Dogwood policy path does not use it, so \`anchor check\`, \`auto\` and \`hitl\` are unaffected.
+
+To install it anyway, download the asset from
   $solver_builds/$asset
 satisfy yourself it is what it claims to be, then record the sha256 of the extracted
 z3-$z3_version binary as z3_sha256_$platform in this script and in build.ps1.
 
-Only $([ -n "$z3_sha256_windows" ] && printf windows) is pinned today.
+Pinned today: ${pinned:-none}.
 EOF
-        exit 1
+        return
     fi
 
     local scratch

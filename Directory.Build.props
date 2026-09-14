@@ -20,9 +20,11 @@
     <DafnyVersion>4.11.0</DafnyVersion>
   </PropertyGroup>
 
-  <!-- The deployment target. Bedrock AgentCore requires linux/arm64, and publishing the CLI for it
-       adds a `net10.0/linux-arm64` section to the lock file — IKVM and System.Data.Odbc resolve
-       per-RID. Declared repository-wide rather than on Anchor.CLI alone because the RID propagates
+  <!-- The deployment targets. Bedrock AgentCore requires linux/arm64 and the CLI container image
+       is built for both, and publishing for a RID adds a `net10.0/<rid>` section to the lock file
+       — IKVM and System.Data.Odbc resolve per-RID. BOTH ARE LISTED because a publish for one RID
+       still unions it with whatever is declared here, so an x64 publish against an arm64-only lock
+       fails with NU1004 naming every project in the graph. Declared repository-wide rather than on Anchor.CLI alone because the RID propagates
        through every ProjectReference: setting it only on the CLI failed a locked publish with
        NU1004 naming Anchor.Runtime, Anchor.Verifiers.TLAPlus and Anchor.MCPServer, none of which
        mention a RID themselves.
@@ -31,7 +33,7 @@
        in locked mode like everything else. Costs a few lines per lock; buys a container build that
        cannot silently re-resolve. -->
   <PropertyGroup Label="Deployment">
-    <RuntimeIdentifiers>linux-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers>linux-arm64;linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <!-- Shared assembly version. Projects opt in by mapping their AssemblyVersion /

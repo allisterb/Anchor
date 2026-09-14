@@ -23,6 +23,7 @@ already failed, and 35ms is nothing against telling somebody the wrong thing abo
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +33,13 @@ REPO = Path(__file__).resolve().parents[2]
 # Not in the repo -- it is built from the pinned submodule. Absence is an ordinary state here, not
 # an error, because every caller has something useful to do without it.
 #     cargo build --release --locked --manifest-path ext/dogwood/Cargo.toml
-DOGWOOD = (REPO / "ext" / "dogwood" / "target" / "release"
+#
+# ANCHOR_DOGWOOD names it somewhere else, which is how the container image says where it put the
+# binary. An image has no submodule and no cargo target directory, and recreating that path inside
+# one purely so this constant resolves would be a lie the next reader has to decode. Same reason
+# ANCHOR_ROOT and ANCHOR_CLI exist.
+DOGWOOD = (Path(os.environ["ANCHOR_DOGWOOD"]) if os.environ.get("ANCHOR_DOGWOOD") else
+           REPO / "ext" / "dogwood" / "target" / "release"
            / ("dogwood.exe" if sys.platform == "win32" else "dogwood"))
 
 BUILD_IT = ("build it with:\n"

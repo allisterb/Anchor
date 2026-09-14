@@ -83,6 +83,58 @@ class Console:
         raise NotImplementedError
 
 
+def at_a_terminal() -> bool:
+    """Is there a person on the other end of stdin? NOT what `isatty` answers on Windows.
+
+    CPython's `isatty` is the CRT's `_isatty` there, and `_isatty` is true for any CHARACTER
+    DEVICE. `NUL` is a character device. So `anchor hitl policy.dw < NUL` -- which is how a
+    service, a scheduled task or a CI step launches a process it does not intend to talk to --
+    passed the guard below, drafted, scored, reviewed, and then read EOF as the answer to the
+    confirm question. 30,893 tokens, to nobody.
+
+    `GetConsoleMode` is the question actually worth asking: it succeeds on a console handle and
+    fails on every other kind, NUL included. Asked only after `isatty` has said yes, because a pipe
+    and a redirected file are reported correctly by `isatty` on both platforms and there is nothing
+    for this to add there.
+
+    CHECKED IN BOTH DIRECTIONS, on a real console handle rather than by reading the documentation:
+    `GetConsoleMode` answers true for `CONIN$` (mode 503) and false for `NUL`. It is also the test
+    CPython itself uses to decide whether a stream is a Windows console, in `_io._WindowsConsoleIO`.
+    `GetConsoleWindow` is NOT usable for this and was tried: it answers false under a ConPTY that
+    has a perfectly good console.
+
+    WHAT STILL REFUSES, and did before this too: an interactive mintty -- git bash -- where stdin
+    is a pipe to the pty and `isatty` is already false. Run the mode from a console host.
+
+    The fallback on a missing `ctypes` or `kernel32` is to believe `isatty`. That is the behaviour
+    this replaced, so a Python without ctypes is no worse off than before rather than unable to run
+    the mode at all.
+    """
+    if not sys.stdin.isatty():
+        return False
+    if sys.platform != "win32":
+        return True
+
+    try:
+        import ctypes                                                   # noqa: PLC0415
+        from ctypes import wintypes                                     # noqa: PLC0415
+
+        kernel32 = ctypes.windll.kernel32
+        # DECLARED, not left to default. ctypes assumes c_int, and a HANDLE is pointer-sized -- an
+        # undeclared GetStdHandle truncates on 64-bit and the truncated value is then asked about.
+        kernel32.GetStdHandle.restype = wintypes.HANDLE
+        kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel32.GetConsoleMode.restype = wintypes.BOOL
+        kernel32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+
+        mode = wintypes.DWORD()
+        # -10 is STD_INPUT_HANDLE: the process's own, which is what a redirect replaces, rather
+        # than anything derived from `sys.stdin`.
+        return bool(kernel32.GetConsoleMode(kernel32.GetStdHandle(-10), ctypes.byref(mode)))
+    except (AttributeError, OSError, ValueError):
+        return True
+
+
 class Terminal(Console):
     """stdlib `print` and `input`, wrapped to the width of a paragraph.
 
@@ -789,7 +841,7 @@ def main() -> int:
     # forever under a runner, or -- worse, on a pipe -- reads EOF as an answer and spends a model
     # call per attempt talking to nobody. `auto` is the mode for an unattended run, and it is one
     # word away.
-    if not sys.stdin.isatty():
+    if not at_a_terminal():
         print("hitl needs a terminal: it asks questions and waits for answers. For an unattended "
               "run use `anchor auto` (src/agent/pipeline.py), which reports rather than asks.",
               file=sys.stderr)

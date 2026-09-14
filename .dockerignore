@@ -12,10 +12,18 @@
 .env
 .env.*
 
-# Third-party trees. `reference/` is gitignored and machine-specific; `ext/dogwood` is 58 MB of Rust
-# the runtime path never touches -- the checker needs only the translator, the JVM and the jar.
+# Third-party trees. `reference/` is gitignored and machine-specific.
+#
+# `ext/dogwood` IS in the context now, and the comment that used to sit here saying the runtime path
+# never touches it was wrong: src/checker/engine.py shells out to `dogwood` to tell a policy that is
+# outside our subset from one that is simply broken, and witness.py replays a counterexample against
+# the real engine. deploy/Dockerfile.cli builds it. What stays out is its cargo output -- a local
+# build for the wrong platform -- and its git metadata.
 reference/
-ext/
+ext/**
+!ext/dogwood/**
+ext/dogwood/target/**
+ext/dogwood/.git**
 
 # Local build output and environments. `python/` is a Windows venv and would be useless and wrong in
 # a linux/arm64 image; requirements.txt is installed fresh inside it instead.

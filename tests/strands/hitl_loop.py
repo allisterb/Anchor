@@ -1,6 +1,6 @@
 """`src/agent/hitl.py`: the loop that puts a person at the one boundary with no oracle.
 
-Eight scenarios, and every one of them runs with a SCRIPTED person. That is the design decision
+Nine scenarios, and every one of them runs with a SCRIPTED person. That is the design decision
 this file exists to hold onto: a loop that can only be driven by somebody sitting at a terminal is
 a loop nothing can test, and this one has branches -- a gate that fires, an answer that gives up,
 an allowance that runs out, a person who overrules a model -- that would otherwise have to be
@@ -32,6 +32,8 @@ reproduced by hand every time anything changed.
      `intents.md` beside a policy SET states one requirement per heading and none of them names
      the file; taking the first would spend a session -- model calls, TLC, a person's attention --
      on a requirement nobody chose.
+  9. AND IT REFUSES TO RUN WITHOUT A PERSON, which `isatty` alone does not achieve on Windows.
+     Answered in a subprocess, because the answer depends on what stdin IS.
 
 No provider and no credentials.
 
@@ -40,6 +42,8 @@ No provider and no credentials.
 
 from __future__ import annotations
 
+import inspect
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -459,6 +463,38 @@ def every_exit_reports(passing) -> None:
           and "verified by a human" not in report, report[-500:])
 
 
+def refuses_without_a_person() -> None:
+    """The guard that makes `hitl` a mode and not an expensive way to talk to nobody.
+
+    IT FAILED ONCE, MEASURABLY. `isatty` is the CRT's `_isatty` on Windows and `_isatty` is true
+    for any CHARACTER DEVICE -- `NUL` is one -- so `hitl policy.dw < NUL` passed the guard, called
+    three models, ran TLC, and then read EOF as the answer to the confirm question. 30,893 tokens.
+    `at_a_terminal` asks `GetConsoleMode` instead, which is the test CPython itself uses.
+
+    A SUBPROCESS, because this cannot be faked from inside the process asking: the answer is a
+    property of the stdin handle the OS gave us. The positive direction -- a real console answering
+    true -- is not reachable from a test runner, which never has one; it was checked by hand by
+    installing a `CONIN$` handle as stdin, and `GetConsoleMode` answering true for `CONIN$` and
+    false for `NUL` is what the function rests on.
+    """
+    print("\nRefusing to run without a person")
+    print("-" * 78)
+
+    probe = (f"import sys; sys.path.insert(0, {str(REPO / 'src')!r}); "
+             "from agent.hitl import at_a_terminal; print(at_a_terminal())")
+
+    for label, kw in (("redirected from NUL", {"stdin": subprocess.DEVNULL}),
+                      ("a pipe", {"input": ""})):
+        done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, **kw)
+        check(f"stdin {label}: no person here", done.stdout.strip() == "False",
+              done.stdout.strip() + done.stderr[-200:])
+
+    # And that the guard is WIRED, which the function being right does not establish.
+    source = inspect.getsource(hitl.main)
+    check("main asks at_a_terminal", "at_a_terminal()" in source)
+    check("and not isatty directly", "sys.stdin.isatty()" not in source, source[:200])
+
+
 def where_the_requirement_comes_from() -> None:
     """The brief can come out of the file `auto` already sweeps, and nothing may be guessed.
 
@@ -565,6 +601,7 @@ def main() -> int:
     passing = the_checkpoint()
     every_exit_reports(passing)
     where_the_requirement_comes_from()
+    refuses_without_a_person()
     hitl_is_not_auto()
 
     print()

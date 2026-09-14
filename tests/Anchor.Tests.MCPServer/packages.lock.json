@@ -609,6 +609,38 @@
           "System.Text.Json": "8.0.5"
         }
       }
+    },
+    "net10.0/linux-x64": {
+      "System.Data.Odbc": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "c+GfnZt2/HyU+voKw2fctLZClcNjPZPWS+mnIhGvDknRMqL/fwWlREWPgA4csbp9ZkQIgB4qkufgdh/oh5Ubow==",
+        "dependencies": {
+          "System.Text.Encoding.CodePages": "8.0.0"
+        }
+      },
+      "System.Text.Encoding.CodePages": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "OZIsVplFGaVY90G2SbpgU7EnCoOO5pw1t4ic21dBF3/1omrJFpAGoNAVpPyMVOC90/hvgkGG3VFqR13YgZMQfg=="
+      },
+      "IKVM": {
+        "type": "CentralTransitive",
+        "requested": "[8.15.0, )",
+        "resolved": "8.15.0",
+        "contentHash": "d3B8xx1VA6bgQQH8dCrzQgmBNipjLMuqHjEq7sILcWz241ZPjjC6ZBQ0n/KkP0foHhc4Lyl53UbJepyLRfk0kg==",
+        "dependencies": {
+          "IKVM.ByteCode": "9.3.4",
+          "IKVM.Image": "8.15.0",
+          "IKVM.MSBuild": "8.15.0",
+          "Microsoft.Extensions.DependencyModel": "8.0.2",
+          "System.Collections.Immutable": "8.0.0",
+          "System.Data.Odbc": "8.0.0",
+          "System.Memory": "4.5.5",
+          "System.Reflection.Metadata": "8.0.1",
+          "System.Text.Json": "8.0.5"
+        }
+      }
     }
   }
 }

@@ -29,16 +29,18 @@ As agents become part of mission-critical distributed systems and as more softwa
 
 
 
-### Agentic formal verification as a defensive measure
-Formal verification provides a mathematically grounded proof that a software policy or workflow strictly satisfies a formal specification across *all* possible inputs, not only a single or subset of inputs as with traditional testing and runtime verification. However, traditional formal methods have historically suffered from prohibitive engineering overhead: authoring formal specifications required scarce technical expertise. The emerging paradigm of *agentic formal verification* resolves this bottleneck by connecting generative foundation models with automated formal tools such as model checkers, which allow agent-driven  loops for formal verification, from natural language human prompts. In such frameworks, generative models propose code, specifications, and intermediate proof steps, while deterministic verification backends mechanically validate candidate outputs, providing structured diagnostic signals and counterexamples that can guide iterative policy investigation and repair.
+### Agentic formal verification as a defensive measure againt AI-driven explots
+[Formal verification](en.wikipedia.org/wiki/Formal_verification) provides a mathematically grounded proof that a software policy or workflow strictly satisfies a formal specification across *all* possible inputs, not only a single or subset of inputs as with traditional testing and runtime verification. However, traditional formal methods have historically suffered from prohibitive engineering overhead: authoring formal specifications required scarce technical expertise. The emerging paradigm of *agentic formal verification* resolves this bottleneck by connecting generative models with automated formal tools such as model checkers, which allow agent-driven  loops for formal verification from natural language human prompts. In such frameworks, generative models propose code, specifications, and intermediate proof steps, while deterministic verification backends mechanically validate candidate outputs, providing structured diagnostic signals and counterexamples that can guide iterative policy investigation and repair.
 
-Agentic formal verification provides one answer to the velocity of AI-driven autonomous compromises, AI-agents becoming part of mission-critical distributed systems and AI-agent developed code being used to implement the components and security policies that govern these systems. Agents can autonomously write core specification modules and properties modules that model both the logic and the intent of policies and then use model checkers to check if these properties are satisfied and produce counter-examples showing where they fail to hold. However such systems have numerous failings and require a careful design and gating to produce useful, valid results.
+Agentic formal verification provides one answer to the velocity of AI-driven autonomous compromises, AI-agents becoming part of mission-critical distributed systems and AI-agent developed code being used to implement the components and security policies that govern these systems. Agents can autonomously write core specification modules and properties modules that model both the logic and the intent of policies and then use model checkers to check if these properties are satisfied and produce counter-examples showing where they fail to hold. 
 
-An agentic formal verification system built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of policy languages like Dogwood.
+However agentic formal verification systems also have numerous failings and sources of incorrectness. Melding the inherently probalistic and improvisational and goal-driven nature of AI agents with the rigidity and critical correctness requirements of formal verification  require a careful design and gating to produce useful, valid results. A flawed formal verification result is worse than no result at all as it inspires a high-level of confidence in a policy where no such justification or even the inverse may exist.
+
+An agentic formal verification system built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of policy languages like Dogwood, and a valuable toolkit in the defensive arsenal of modern distributed systems against AI-driven attacks.
 
 
 ## What it does
-Anchor is a agentic formal verification framework that uses the [TLA+](https://lamport.azurewebsites.net/tla/tla.html) formal specification language and model checker to formally verify Amazon Dogwood temporal policies and Strands SDK agent graph workflows, and provides a Strands agent that allows humans to perform formal verification of these policies and code using natural language questions and prompts, without knowing the technical details of the formal verification framework or tools or theory.
+Anchor is a agentic formal verification framework that uses the [TLA+](https://lamport.azurewebsites.net/tla/tla.html) formal specification language and model checker to formally verify Amazon Dogwood temporal policies, and provides a Strands SDK agent that allows humans to perform formal verification of these policies and code using natural language questions and prompts, without knowing the technical details of the formal verification framework or tools or theory.
 
 Anchor allows developers and engineers and administrators to use the benefits of formal verification without requiring the specialized knowledge and skills formal methods typically demands. It uses a graph-based Strands multi-agent workflow to try to address the [known issues](https://arxiv.org/html/2606.05792v1) in agentic formal verification.
 
@@ -49,23 +51,23 @@ Anchor provides:
 * A [specification](https://github.com/allisterb/Anchor/tree/master/specs/strands) and [Python annotations](https://github.com/allisterb/Anchor/tree/master/src/annotations) that allow Strands SDK users to model multi-agent Strands graph workflows 
 * A [model property checker](https://github.com/allisterb/Anchor/tree/master/src/checker) that checks:
      * *derivable* property checks, which can be mechanically derived from all policies e.g. "is this policy vacuous or redundant?"
-     * *intentional* property checks where a human or agent authors a check to explicitly capture the intent of a policy or workflow e.g. "Does this firewall policy intentionally block all inbound connections from external addresses?"
+     * *intentional* property checks where a human or agent authors a check to explicitly capture the intent or requirements of a policy or workflow e.g. "Does this firewall policy block all inbound connections from external addresses?"
 * An [MCP server](https://github.com/allisterb/Anchor/tree/master/src/Anchor.MCPServer) that provides the following tools to agents:
     * The TLA+ SANY parser and a TLA+ evaluator to assist in code generation
     * The Dogwood translator and model property checker 
-    * Knowledge resources that an agent can use to author TLA+ specifications and properties modules and verify Dogwood policies
+    * Knowledge resources that an agent can use to author TLA+ specifications and properties modules.
 * A Strands [agentic workflow](https://github.com/allisterb/Anchor/tree/master/src/agent) for autonomous and HITL formal verification of Dogwood policies.
 * A [CLI](https://github.com/allisterb/Anchor/tree/master/src/Anchor.CLI) that provides command-line access to the framework tools and MCP server and agent workflow launcher .
 
 Anchor's formal verification can proceed in three modes. 
 
 * `check` Mechanically checks a Dogwood policy against a mechanically translated base policy specification and an existing TLA+ properties module that captures the intent of the policy. The most precise
-mode but it requires an existing TLA+ properties module and the knowledge to author one accurately. 
+mode but to verify intentional properties it requires an existing TLA+ properties module and the knowledge to author one accurately. 
 * `auto` This is the autoformalization mode. The only artifact a human supplies is a natural language brief that describes the intent of the policy. The agent is handed a vocabulary derived mechanically from
-the policy, a knowledge article on how to write a properties module, and the brief - and it writes the TLA+. It never sees the policy's rule conditions, so what it drafts cannot be a restatement of the policy. Three models and four gates stand between a draft and a verdict.
+the policy, a knowledge article on how to write a properties module, and the brief, and it writes the TLA+ module. It never sees the policy's rule conditions, so what it drafts cannot be a restatement of the policy. Three models and four gates stand between a properties module draft and a acceptance verdict. Needs no formal methods knowledge on the user's part.
 
 
-* `hitl` Similar to auto mode but with one node added: when a gate turns a draft away it asks the person about the problem *requirement*, never about TLA, folds the answer into the brief and tries drafting the properties module again. Before the properties module is used, it reads the claim back in plain English for the user to confirm. Needs no formal methods knowledge on the user's part.
+* `hitl` Similar to auto mode but with one additional step: when a gate rejects a properties module draft, it asks the person about the problem *requirement*, (never about TLA+), folds the answer into the brief and tries drafting the properties module again. Before the properties module is used, it reads the claim back in plain English for the user to confirm the intent is accurate. Needs no formal methods knowledge on the user's part.
 
 ### Advantages of agentic formal verification
 Integrating autonomous agents into formal verification infrastructure fundamentally alters the economics and operational guarantees of high-assurance software systems.
@@ -102,17 +104,27 @@ The Dogwood temporal policy formal verification in Anchor makes use of two main 
 * The TLA+ language [tools](https://github.com/tlaplus/tlaplus)
 * The Dogwood language [tools](https://github.com/dogwood-policy/dogwood)
 
-The first step in Anchor formal verification is to mechanically [translate](https://github.com/allisterb/Anchor/blob/master/src/translator/dw_to_tla.py) a Dogwood policy to a TLA+ spec using the Anchor Dogwood policy parser and semantics specs. With a TLA+ specification module that models the *logic* of the policy, the next step is to obtain a properties module. A properties module extends the core policy specification and defines the *intent* of the policy that you want the TLC model checker to verify.
+The first step in Anchor formal verification is to mechanically [translate](https://github.com/allisterb/Anchor/blob/master/src/translator/dw_to_tla.py) a Dogwood policy to a TLA+ spec using the Anchor Dogwood policy parser and semantics specs. With a TLA+ specification module that models the *logic* of the policy, the next step is to obtain a properties module. A properties module extends the core policy specification and defines the *intent* and *requirements* of the policy that you want the TLC model checker to verify.
 
-Anchor modes differ essentially on one thing: how much of the policy properties module
-formalization the user needs to write.
+Anchor modes differ essentially on one thing: how much of the policy properties module formalization the user needs to write.
 
 | | TLA+ properties module author | launched as |
 |---|---|---|
+| `check` | not required | `anchor check policy.dw` |
 | `check` | the user | `anchor check policy.dw --property claim.tla` |
 | `auto` | the agent, unattended | `anchor auto policy.dw --intent "..."` |
-| `hitl` | the agent, with user feedback | `anchor hitl policy.dw` |
+| `hitl` | the agent, with user feedback | `anchor hitl policy.dw --intent "..."`|
 
+The first `check` mode mechanically translates the Dogwood policy to TLA+ then runs 3 derived property checks which hold for all policies regardless of intent. The checks answer three questions about a Dogwood policy set, each answered with a **witness session** or a bounded no, with no properties module or intent brief needed. Note that this mode is the equivalent of the AR SMT-powered checker that ships with the Dogwood tools:
+
+| Question | Verdicts |
+|---|---|
+| Can this permit ever grant anything? | live / **VACUOUS** |
+| Is this rule effective, or can it be deleted? | live / **REDUNDANT** / **DEAD** |
+| `--against other.dw`: Does the difference between two policies cause a difference in policy decisions? | **THEY DIFFER** / no difference |
+
+### Agentic Workflow
+(* Describe the agentic workflow and gates for auto and hitl mode *)
 
 ## How we built it
 Anchor is written in C# and Python. 
@@ -124,22 +136,16 @@ Anchor is written in C# and Python.
 | `Anchor.MCPServer` |C#| MCP server implementation providing agents access to the framework tools and verifiers, tools for writing TLA+ specs and knowledge resources.|
 | `translator` |Python| Mechanically translate Dogwood policies to TLA+ specifications.|
 | `check` | Python|Uses the TLC bounded model property checker for verifyng derived and intentional properties from an input TLA+ policy spec and properties module|
-| `annotations` |Python| Provides annotations to assist in creating TLA+ specs from Strands SDK graph builder workdlows|
 | `agent` | Python | Strands SDK agent orchestrator for HITL and autonomous formal verification|
 
-The SANY parser the MCP tools use is an IKVM .NET [port](https://github.com/allisterb/Anchor/blob/master/src/Anchor.Verifiers.TLAPlus/Anchor.Verifiers.TLAPlus.csproj) of the Java tlatools library. This allows the parser to be used as an ordinary in-process .NET library this is repeatedly called by the MCP tool used by the agent for TLA+ code generation without having to launch an external JVM process everytime.
+### `Anchor.Verifiers.TLAPlus`
+Anchor uses .NET to host the TLA+ language tools which are written in Java. The SANY parser the MCP tools use is an IKVM .NET [port](https://github.com/allisterb/Anchor/blob/master/src/Anchor.Verifiers.TLAPlus/Anchor.Verifiers.TLAPlus.csproj) of the Java tlatools library. This allows the parser to be used as an ordinary in-process .NET library this is repeatedly called by the MCP tool used by the agent for TLA+ code generation without having to launch an external JVM process everytime. The TLC model checker isn't compatible with IKVM however and must still be launched as a command-line subprocesses.
 
-Given a directory instead of a file it audits
-every policy in it against the modules already beside them.
-**Measured on the five requirements of `examples/aws2/agent-policy.dw`**, taken verbatim from the
-AWS article: `auto` accepted **1 of 5** on its first sweep, and every failure was a property that was
-well-formed and said something the brief did not quite mean. Of the four it failed, two have since
-been closed by `hitl` and one more by `auto` after the gates themselves were corrected. That is the
-user-intent formalization gap described below, measured rather than asserted.
+### `translator`
+(* Describe implementation details of the translator module* )
 
+### `check`
+(* Describe implementation details of the check module* )
 
-
-`anchor` is one launcher over two runtimes: `./anchor` on Linux and macOS, `./anchor.ps1` under
-PowerShell. `check`, `explain` and `server` are the .NET CLI; `auto` and `hitl` are Python entry
-points, reachable directly as `python src/agent/pipeline.py` and `python src/agent/hitl.py`.
-Agentic formal verification is an active [research program](https://arxiv.org/html/2511.17330v1).
+### `agent`
+(* Describe implementation details of the agent module.* Pay attention to how Strands SDK is used to implement the graph workflow and gates for the auto and hitl modes )

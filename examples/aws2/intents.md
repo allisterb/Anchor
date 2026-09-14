@@ -14,7 +14,7 @@ sums `::request`, so it caps *attempts* rather than *transfers*. Policy 4 is the
 correct, because its requirement says "attempt". A drafted property that catches the first and
 clears the second is the outcome to look for.
 
-Consumed by `python src/agent/pipeline.py examples/aws2 --intents examples/aws2/intents.md`.
+Consumed by `anchor auto examples/aws2 --intents examples/aws2/intents.md`.
 
 ## 01-business-hours.dw
 
