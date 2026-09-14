@@ -16,21 +16,21 @@ The gate below is a criterion in code, not a judgement a model was asked to make
 
 ## What this run cost
 
-| | tokens in | out | total | seconds |
-|---|---:|---:|---:|---:|
-| draft round 1 | 6,399 | 6,580 | 12,979 | 38.2 |
-| draft round 2 | 19,501 | 12,878 | 32,379 | 75.0 |
-| **2 model call(s)** | **25,900** | **19,458** | **45,358** | **113.3** |
+| | tokens in | of which cached | out | total | seconds |
+|---|---:|---:|---:|---:|---:|
+| draft round 1 | 6,399 | 0 | 5,456 | 11,855 | 46.4 |
+| draft round 2 | 12,189 | 4,077 | 5,744 | 17,933 | 48.0 |
+| **2 model call(s)** | **18,588** | **4,077** | **11,200** | **29,788** | **94.4** |
 
 Time per stage, model calls and verification together:
 
 ```
   describe          0.2s
-  draft           125.0s
+  draft           106.1s
   preflight         0.0s
-  score            19.0s
+  score            19.5s
   report            0.0s
-  total           144.2s
+  total           125.8s
 ```
 
-Of which 113.3s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 94.4s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

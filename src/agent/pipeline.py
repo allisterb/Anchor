@@ -279,11 +279,16 @@ class Call:
     input: int = 0
     output: int = 0
     total: int = 0
+    # HOW MUCH OF `input` THE PROVIDER SERVED FROM ITS PROMPT CACHE. Kept because without it the
+    # table cannot tell an expensive round from a cheap one: a retry re-sends the whole prior
+    # exchange, and whether that is billed in full or at a cache discount is the difference between
+    # those two readings of the same `input` figure.
+    cached: int = 0
     seconds: float = 0.0
     capped: bool = False
 
 
-def spent(result) -> tuple[int, int, int]:
+def spent(result) -> tuple[int, int, int, int]:
     """This call's tokens -- NOT the agent's running total.
 
     `metrics.accumulated_usage` is cumulative across every invocation of the same Agent object, so
@@ -296,8 +301,14 @@ def spent(result) -> tuple[int, int, int]:
     invocations = getattr(m, "agent_invocations", None) if m else None
     usage = invocations[-1].usage if invocations else getattr(m, "accumulated_usage", None)
     if not usage:
-        return 0, 0, 0
-    return (usage.get("inputTokens", 0), usage.get("outputTokens", 0), usage.get("totalTokens", 0))
+        return 0, 0, 0, 0
+    # `cacheReadInputTokens` is how many of the input tokens the provider served from its prompt
+    # cache. Strands maps it from Gemini's `cached_content_token_count` (models/gemini.py:504) and
+    # from the equivalent on Bedrock and Anthropic; a provider that reports nothing leaves it absent
+    # rather than zero, which is a different statement and is why the default is used rather than
+    # assumed.
+    return (usage.get("inputTokens", 0), usage.get("outputTokens", 0),
+            usage.get("totalTokens", 0), usage.get("cacheReadInputTokens", 0))
 
 
 def ask(agent, prompt: str, run: Run, who: str) -> tuple[str, bool]:
@@ -777,18 +788,30 @@ def usage(run: Run, result) -> str:
     INSIDE those nodes, through `ask`. So `result.accumulated_usage` is zero for this pipeline and
     reading it would report a run that cost nothing. The per-call figures are the record.
     """
-    lines = ["", "## What this run cost", "", "| | tokens in | out | total | seconds |",
-             "|---|---:|---:|---:|---:|"]
+    lines = ["", "## What this run cost", "",
+             "| | tokens in | of which cached | out | total | seconds |",
+             "|---|---:|---:|---:|---:|---:|"]
     for c in run.calls:
-        lines.append(f"| {c.who}{' (cut off)' if c.capped else ''} | {c.input:,} | {c.output:,} "
-                     f"| {c.total:,} | {c.seconds:.1f} |")
+        lines.append(f"| {c.who}{' (cut off)' if c.capped else ''} | {c.input:,} | {c.cached:,} "
+                     f"| {c.output:,} | {c.total:,} | {c.seconds:.1f} |")
 
     tin = sum(c.input for c in run.calls)
+    tcached = sum(c.cached for c in run.calls)
     tout = sum(c.output for c in run.calls)
     ttot = sum(c.total for c in run.calls)
     tsec = sum(c.seconds for c in run.calls)
-    lines.append(f"| **{len(run.calls)} model call(s)** | **{tin:,}** | **{tout:,}** "
-                 f"| **{ttot:,}** | **{tsec:.1f}** |")
+    lines.append(f"| **{len(run.calls)} model call(s)** | **{tin:,}** | **{tcached:,}** "
+                 f"| **{tout:,}** | **{ttot:,}** | **{tsec:.1f}** |")
+
+    # SAID PLAINLY, because a column of zeros is ambiguous on its own -- it reads equally as "the
+    # provider has no cache" and as "the prefix changed every round". Neither is good news, and a
+    # reader deciding whether a retry is cheap needs to know which it is looking at.
+    if run.calls and not tcached:
+        lines += ["", "*None of that input was served from a prompt cache.* A retry re-sends the "
+                  "whole prior exchange, so whether that is billed in full is the difference "
+                  "between a cheap round and an expensive one. Gemini caches implicitly on a "
+                  "matching PREFIX; Strands cannot place an explicit cache point there, because "
+                  "its Gemini provider skips `cachePoint` blocks (models/gemini.py:251)."]
 
     order = getattr(result, "execution_order", None) or []
     if order:

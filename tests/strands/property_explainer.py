@@ -168,6 +168,76 @@ def main() -> int:
           odd.says == "" and any("could not parse" in n for n in odd.notes), str(odd.notes))
     check("and an unreadable claim is never called vacuous", not odd.vacuous)
 
+    # AN UNREADABLE *INIT* IS A DIFFERENT FAILURE, and it reached a person before it was caught.
+    # This reader enumerates one variable ranging over a set of records; a module declaring SEVERAL
+    # variables over named sets is outside that shape, so `states()` gives up and `total` is 0.
+    # The rendering then said "applies to NONE of the 0 states" — a statement of fact about a
+    # property nobody had measured, printed on all six claims of a module TLC had just checked and
+    # found to HOLD over 48 states. The gate was right (`vacuous` requires `total > 0`, so it fails
+    # open); only the words were wrong, which is worse than the reverse: nothing was blocked, and
+    # the reader was told the opposite of the truth at the one checkpoint where a person decides.
+    # THE BULLETED CONJUNCTION LIST, which is how Lamport writes one and what a drafter reaches
+    # for. The parser here is infix and a leading `/\` has no left operand, so this raised
+    # ParseError, `tree()` returned None, and the whole Init was reported unread.
+    bulleted = explain(module(
+        "Amounts == {500, 2500}\nGaps == {60, 1800}\n"
+        "VARIABLE amount, gap\n"
+        "Init ==\n    /\\ amount \\in Amounts\n    /\\ gap \\in Gaps\n"
+        "Next == UNCHANGED <<amount, gap>>\n"
+        "Spec == Init /\\ [][Next]_<<amount, gap>>\n\n"
+        "Big == (amount = 2500) => (gap <= 1800)\n",
+        "SPECIFICATION Spec\nINVARIANT Big\n"))
+    check("a bulleted /\\ list is read the same as the inline form",
+          len(bulleted.states) == 4, f"{len(bulleted.states)} states")
+    check("...and the claim is counted over it",
+          len(claim_named(bulleted, "Big").applies) == 2,
+          str(claim_named(bulleted, "Big").applies))
+
+    # WHY THAT MATTERS BEYOND THE RENDERING: `states()` giving up sets `total = 0`, and
+    # `Claim.vacuous` requires `total > 0` — so the static vacuity gate was silently INACTIVE for
+    # every module written this way. It failed open, which is the right direction, but it was not
+    # doing its job and nothing said so.
+    # The same fixture as the vacuity case above, with its Init written the other way round. If
+    # the two ever disagree, the gate depends on layout — which is exactly the bug.
+    empty_bulleted = explain(module(
+        "Requests == {[port |-> Num(22)]}\n"
+        "VARIABLE req\n"
+        "Init ==\n    /\\ req \\in Requests\n"
+        "Next == UNCHANGED req\n"
+        "Spec == Init /\\ [][Next]_req\n"
+        "\n"
+        "HttpsIsRefused == (req.port = Num(443)) => ~Grants(req)\n",
+        "SPECIFICATION Spec\nINVARIANT HttpsIsRefused\n"))
+    check("...so a vacuous claim under a bulleted Init is now caught",
+          [c.name for c in empty_bulleted.vacuous] == ["HttpsIsRefused"],
+          str([c.name for c in empty_bulleted.vacuous]))
+
+    # AND WHEN THE INIT GENUINELY CANNOT BE READ, say so rather than asserting a count. A NESTED
+    # list stays unread on purpose: real bulleted lists are indentation-scoped, and a transform
+    # that guessed at nesting could parse one into something that means something else. Failing to
+    # read is recoverable; misreading is not.
+    nested = explain(module(
+        "VARIABLE a, b\n"
+        "Init ==\n    /\\ a \\in {1, 2}\n    /\\ \\/ b = 1\n       \\/ b = 2\n"
+        "Next == UNCHANGED <<a, b>>\nSpec == Init /\\ [][Next]_<<a, b>>\n\n"
+        "Big == (a = 2) => (b = 1)\n",
+        "SPECIFICATION Spec\nINVARIANT Big\n"))
+    shown = render(nested)
+    check("an Init this reader cannot enumerate leaves the state count unknown",
+          claim_named(nested, "Big").total == 0 and not nested.states,
+          f"total={claim_named(nested, 'Big').total}")
+    check("...and is NOT reported as vacuous", not nested.vacuous,
+          str([c.name for c in nested.vacuous]))
+    # The load-bearing one. If this ever fails, the checkpoint is lying to somebody again: it told
+    # a person "applies to NONE of the 0 states" on six claims of a property TLC had just checked
+    # and found to HOLD over 48 states.
+    check("...and the rendering does NOT say it applies to none of them",
+          "NONE of the 0" not in shown and "NOT DETERMINED" in shown,
+          next((line for line in shown.splitlines() if "applies" in line), ""))
+    check("...but says plainly that the states were never counted",
+          "never counted" in shown and "not a claim that it applies to none" in shown,
+          next((line for line in shown.splitlines() if "applies" in line), ""))
+
     # --- the modules actually in the repo ---------------------------------------------------------
     # The fixtures above are written to exercise a shape. These are the real ones, and they are
     # what a reader will actually run this on.

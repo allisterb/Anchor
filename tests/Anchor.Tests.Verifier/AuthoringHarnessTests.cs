@@ -190,6 +190,24 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("a claim whose condition no state satisfies is reported as vacuous", run.Output);
         Assert.Contains("a tautology about the DECISION is not caught by reading alone", run.Output);
         Assert.Contains("the policy's decision is UNKNOWN, never guessed", run.Output);
+
+        // THE BULLETED CONJUNCTION LIST — how Lamport writes one, and what a drafter reaches for.
+        // This reader is infix, so a leading <c>/\</c> had no left operand: the parse failed, the
+        // Init was reported unread, and <c>total</c> was 0. Because <c>Claim.vacuous</c> requires
+        // <c>total &gt; 0</c>, the static vacuity gate was silently INACTIVE for every module
+        // written that way — failing open, which is the right direction, but not doing its job and
+        // saying nothing about it.
+        Assert.Contains("a bulleted /\\ list is read the same as the inline form", run.Output);
+        Assert.Contains("...so a vacuous claim under a bulleted Init is now caught", run.Output);
+
+        // And when an Init genuinely cannot be read, the rendering must say so rather than assert a
+        // count. It said "applies to NONE of the 0 states" — on all six claims of a property TLC
+        // had just checked and found to hold over 48 states, in front of a person at the hitl
+        // checkpoint being asked to confirm it. A nested list stays unread on purpose: misreading
+        // an indentation-scoped list would be worse than declining to read it.
+        Assert.Contains("ok    ...and the rendering does NOT say it applies to none of them", run.Output);
+        Assert.Contains("ok    ...but says plainly that the states were never counted", run.Output);
+
         Assert.DoesNotContain("FAIL", run.Output);
     }
 

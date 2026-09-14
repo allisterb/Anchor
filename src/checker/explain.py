@@ -416,8 +416,43 @@ class Parser:
         return ("ite", cond, then, self.expr())
 
 
+BULLET = re.compile(r"^\s*(/\\|\\/)")
+
+
+def unbullet(src: str) -> str:
+    """TLA+'s bulleted conjunction list, as the infix expression it means.
+
+        Init ==                        Init == amount \\in Amounts
+            /\\ amount \\in Amounts              /\\ gap \\in Gaps
+            /\\ gap \\in Gaps
+
+    THE PARSER BELOW IS INFIX and a leading `/\\` has no left operand, so the bulleted form raised
+    ParseError, `tree()` returned None, and `states()` reported "no readable Init" -- for the layout
+    Lamport himself writes and every drafter reaches for. Dropping the FIRST bullet is the whole
+    transform: `/\\ A` `/\\ B` `/\\ C` becomes `A /\\ B /\\ C`, and every remaining `/\\` is already
+    in infix position.
+
+    WHAT THIS COST BEFORE IT WAS FOUND, and it was not only cosmetic. `states()` giving up sets
+    `total = 0`; `Claim.vacuous` requires `total > 0`; so `author.preflight`'s vacuity gate -- the
+    cheap one, that rejects a claim nothing it ranges over can break -- was silently INACTIVE for
+    every module written this way. It failed open, which is the right direction to fail, but it was
+    not doing its job and nothing said so. The visible half was a person at the `hitl` checkpoint
+    being shown "applies to NONE of the 0 states" for six claims of a property TLC had just found
+    to hold.
+
+    FLAT LISTS ONLY, and deliberately. A nested list still fails to parse and is still reported as
+    unread, which is the honest answer -- real bulleted lists are indentation-scoped, and a
+    transform that guessed at nesting could turn `/\\ A` `/\\ \\/ B` `\\/ C` into something that
+    parses and means something else. Failing to read is recoverable; misreading is not.
+    """
+    stripped = src.strip()
+    if not BULLET.match(stripped):
+        return src
+    return stripped[2:]
+
+
 def parse(src: str):
-    p = Parser(lex(src))
+    p = Parser(lex(unbullet(src)))
     node = p.expr()
     if p.i != len(p.toks):
         raise ParseError(f"unread input from {p.peek()!r}")
@@ -1072,6 +1107,22 @@ def render(x: Explanation, *, width: int = 96) -> str:
             elif c.unknown:
                 lines.append(f"      applies   unknown -- `{c.condition}` could not be worked out "
                              f"here for {c.unknown} of the {c.total} states")
+            elif not c.total:
+                # NOT "NONE of the 0 states", which is what this said and which is a STATEMENT OF
+                # FACT about a property nobody measured. `states()` returns "no readable Init" when
+                # the module's Init is outside the shape it can enumerate -- several variables over
+                # named sets rather than one request over a field domain -- and a claim whose state
+                # space was never read has not been shown to apply to nothing. It has not been
+                # shown to apply to anything either, and those are different sentences.
+                #
+                # It reached a person at the `hitl` checkpoint reading "applies to NONE of the 0
+                # states" on all six claims of a property TLC had just checked and found to hold.
+                # The vacuity gate itself was right -- `vacuous` requires `total > 0`, so it failed
+                # open -- and only the rendering was wrong, which made it worse rather than better:
+                # nothing was blocked, and the reader was told the opposite of the truth.
+                lines.append("      applies   NOT DETERMINED -- this module's Init is outside the "
+                             "shape the reader can enumerate, so the states were never counted. "
+                             "This is not a claim that it applies to none of them.")
             else:
                 lines.append(f"      applies   to NONE of the {plural(c.total, 'state')}")
         elif c.says and c.total:
