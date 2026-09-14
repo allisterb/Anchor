@@ -110,11 +110,27 @@ EVAL_START = "ANCHOR_EVAL_START"
 EVAL_END = "ANCHOR_EVAL_END"
 
 EVAL_MODULE = """---------------------------- MODULE {name} ----------------------------
-EXTENDS Integers, Sequences, FiniteSets, TLC, {extends}
+EXTENDS Integers, Sequences, FiniteSets, {extends}
 
-ASSUME /\\ PrintT("{start}")
-       /\\ PrintT({expr})
-       /\\ PrintT("{end}")
+\\* INSTANCE, NOT EXTENDS, and this is not a style choice. Extending TLC here made evaluation of
+\\* the policy semantics FAIL on any policy whose rules join across value kinds -- TLC reported
+\\* "Attempted to check equality of string ... with non-string: TRUE" and, on a second run, "TLC
+\\* was unable to fingerprint". The same expression, in the same module, checked as an INVARIANT
+\\* rather than an ASSUME, evaluates correctly; so does an ASSUME once TLC arrives by INSTANCE.
+\\* Reproduced on examples/aws2/agent-policy.dw with both a hand-written and a drafted module.
+\\*
+\\* THE TRIGGER NEEDS BOTH HALVES, which is why one rule was not enough to reproduce it: a join
+\\* comparing across value kinds (a string account beside a boolean flag) AND an aggregate binding
+\\* over the trace's scalars. Either alone evaluates correctly under EXTENDS.
+\\*
+\\* WHY extending it does that is NOT established -- the tagged value model and TLC's own
+\\* normalisation are the obvious suspects and neither was confirmed. What is established is the
+\\* reproduction and the fix, and `tests/policies/eval_join.dw` holds the line.
+T == INSTANCE TLC
+
+ASSUME /\\ T!PrintT("{start}")
+       /\\ T!PrintT({expr})
+       /\\ T!PrintT("{end}")
 ============================================================================
 """
 

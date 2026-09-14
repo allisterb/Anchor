@@ -1,0 +1,28 @@
+// A permit whose temporal join compares TWO DIFFERENT VALUE KINDS at once: an account (string)
+// and a verified flag (boolean). Modelled on examples/aws2/02-identity-verification.dw.
+//
+// THE POINT OF THIS FIXTURE is `--eval`, not the policy. Evaluating `Decide` over a policy of this
+// shape used to fail with "Attempted to check equality of string ... with non-string: TRUE",
+// because the generated eval module EXTENDED TLC instead of instancing it. Checking the SAME
+// expression as an invariant worked, so nothing in the test suite noticed.
+permit ( principal, action == AgentCore::Action::"initiate_transfer", resource )
+when temporal {
+    formerly within 15m AgentCore::Action::"verify_identity"::response{
+        input.account:   context.input.account,
+        output.verified: true
+    }
+};
+
+// A second rule, with an AGGREGATE. The single permit above evaluates fine either way; adding a
+// `sum` over the trace is what made the difference, and narrowing it to this pair is what keeps
+// the fixture small enough to read.
+forbid ( principal, action == AgentCore::Action::"initiate_transfer", resource )
+when temporal {
+    exists (total: Long). (
+        (sum a for (a: Long), (t: Timepoint). where (
+            formerly within 12h (
+                AgentCore::Action::"initiate_transfer"::request{ input.amount: a } && tp(t)
+            )
+        )) == total && total > 50000
+    )
+};

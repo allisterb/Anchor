@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -252,6 +253,27 @@ def main() -> int:
           crashed["output"][-300:])
     check("...and names the field TLC choked on",
           "nonexistent field" in crashed["output"], crashed["output"][-300:])
+
+    # --- AND THE EVALUATOR, on the policy shape that broke it --------------------------------------
+    # `--eval` answers "what IS this value" in a couple of seconds, and it silently stopped being
+    # able to answer anything about a policy that both joins across value kinds and carries an
+    # aggregate: TLC reported "Attempted to check equality of string ... with non-string: TRUE".
+    # The generated eval module EXTENDED TLC instead of instancing it. Nothing noticed, because
+    # the same expression checked as an INVARIANT evaluates correctly -- so every property run
+    # passed while the evaluator was dead on exactly the policies worth evaluating.
+    evaluated = subprocess.run(
+        [sys.executable, str(REPO / "src" / "checker" / "properties.py"),
+         str(POLICIES / "eval_join.dw"), "--property", str(POLICIES / "eval_join.tla"),
+         "--eval", "<<Allowed(60), Allowed(3600)>>"],
+        cwd=REPO, capture_output=True, text=True, timeout=900)
+    said = evaluated.stdout + evaluated.stderr
+
+    check("an expression over a joining, aggregating policy evaluates",
+          "did not evaluate" not in said, said[-300:])
+    # The VALUE, not merely the absence of an error: allowed inside the 15-minute window and
+    # refused outside it. An evaluator that returns the wrong answer is worse than one that fails.
+    check("...and returns the right values either side of the window",
+          "<<TRUE, FALSE>>" in said, said[-300:])
 
     print()
     if failures:
