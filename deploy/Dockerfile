@@ -60,7 +60,7 @@ FROM python:3.13-slim-bookworm AS runtime
 # A headless JRE for TLC -- it needs no display, fonts or browser -- and ICU for .NET.
 #
 # libicu is not optional and not obvious: a slim Python image has no ICU, and the self-contained
-# `anchor` binary then dies at startup with "Couldn't find a valid ICU package installed on the
+# `Anchor.CLI` binary then dies at startup with "Couldn't find a valid ICU package installed on the
 # system". The alternative is InvariantGlobalization, which is smaller and WRONG for us: it silently
 # changes culture-sensitive string behaviour, so the container would differ from every developer
 # machine in ways nothing reports. Pay the ~30 MB and keep the two the same.
@@ -81,9 +81,9 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requ
     && rm /tmp/requirements.txt
 
 # The publish OUTPUT DIRECTORY, not a file: a self-contained publish emits 363 of them and the
-# executable is one. Copied to /app/cli so that /app/cli/anchor is unambiguously the binary --
-# `COPY /out/anchor /app/anchor` made /app/anchor a directory, and ANCHOR_CLI then named it, which
-# fails as "is a directory: permission denied" at the agent's first MCP call.
+# executable is one. Copied to /app/cli so that /app/cli/Anchor.CLI is unambiguously the binary --
+# `COPY /out/cli /app/cli` naming a directory after the binary made ANCHOR_CLI point at a directory,
+# which fails as "is a directory: permission denied" at the agent's first MCP call.
 COPY --from=build /out/cli               /app/cli
 COPY --from=build /out/tla2tools.jar     /app/lib/tla2tools-1.7.4.jar
 
@@ -100,13 +100,13 @@ COPY tests/policies                     /app/tests/policies
 # is exactly the case in an image. ANCHOR_CLI names the self-contained binary, which the agent runs
 # directly rather than through `dotnet`.
 ENV ANCHOR_ROOT=/app \
-    ANCHOR_CLI=/app/cli/anchor \
+    ANCHOR_CLI=/app/cli/Anchor.CLI \
     ANCHOR_PROJECT_DIR=/app \
     PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1 \
     PORT=8080
 
-RUN chmod +x /app/cli/anchor
+RUN chmod +x /app/cli/Anchor.CLI
 
 # Not root. The agent runs model-authored requests against a checker that spawns processes; there is
 # no reason for any of that to hold root in the bargain.

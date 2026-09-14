@@ -1,7 +1,7 @@
 """`hitl`: the same pipeline, but a person is one of the gates.
 
     python src/agent/hitl.py examples/aws1/07-trust-decay.dw \\
-        --brief "After 15 minutes without advisor interaction, the agent loses write access."
+        --intent "After 15 minutes without advisor interaction, the agent loses write access."
 
 WHY THIS EXISTS, and it is not "autonomy did not work". It is that autoformalisation has one step
 with no oracle behind it. Everything downstream of a property module is mechanical -- does it
@@ -44,6 +44,7 @@ choice that costs nothing to change.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -686,6 +687,59 @@ def progress(console: Console):
     return announce
 
 
+def stated_intent(policy: Path, intents: Path | None, console: Console) -> str | None:
+    """The requirement for `policy` out of an intents file, or None to go and ask for it.
+
+    THE SAME FILE `auto` SWEEPS A DIRECTORY WITH, so a requirement written once is reachable from
+    both modes rather than retyped into this one. Its headings are `## <policy>.dw` there; a file
+    about a single policy SET uses one heading per requirement instead, and those cannot be matched
+    by name -- so a lone entry is taken and several are shown rather than guessed between.
+
+    FALLING THROUGH TO THE QUESTION IS THE POINT, and it is the whole difference from `auto`. A
+    missing file, a file with no heading for this policy, a file whose headings are labels: none of
+    those is an error here, because there is a person to ask. The one exception is an intents file
+    named explicitly and not present, which is a typo rather than an absence.
+    """
+    path = intents or policy.parent / "intents.md"
+    if not path.is_file():
+        if intents is not None:
+            print(f"no intents file at {path}", file=sys.stderr)
+            raise SystemExit(2)
+        return None
+
+    stated = pipeline.read_intents(path)
+
+    def named(what: str) -> str | None:
+        """A heading matched the way somebody types one: any case, the `.dw` optional."""
+        wanted = what.strip().lower().removesuffix(".dw")
+        return next((v for k, v in stated.items()
+                     if k.lower().removesuffix(".dw") == wanted), None)
+
+    found = named(policy.name) or (next(iter(stated.values())) if len(stated) == 1 else None)
+    if found:
+        # SHOWN, not used silently. The person did not type this one, and it is the sentence the
+        # whole session is about -- including the confirm gate, which reads a claim back against it.
+        console.say(f"{path.name} states: {found}")
+        return found
+
+    # NOTHING NAMES THIS POLICY AND THERE IS MORE THAN ONE CANDIDATE, which is the shape an intents
+    # file takes when its headings are requirements against one policy SET rather than one file
+    # each. `auto` runs all of them; a session is one requirement, so here it is a choice. Asking
+    # which beats listing them and then asking a blank question the person would answer by retyping
+    # a sentence the file already holds.
+    if stated:
+        console.say(f"{path.name} states no requirement for {policy.name}. It states {len(stated)}:")
+        for heading in sorted(stated):
+            console.say(f"  {heading}")
+        said = console.ask("Which of those is this session about?",
+                           hint="a name from that list, or the requirement in your own words")
+        # A name gets its stated text; anything else IS the requirement -- including a stop word,
+        # which main reads as "no requirement given" exactly as it would from the open question.
+        return named(said) or said
+
+    return None
+
+
 def build_hitl(run: Run, console: Console, **kw):
     """`pipeline.build`, with the person's checkpoint between `review` and `check`."""
     return pipeline.build(run, confirm=lambda r, t: stage_confirm(r, t, console),
@@ -693,10 +747,21 @@ def build_hitl(run: Run, console: Console, **kw):
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # ANCHOR_VERB is set by the launcher, so usage names `anchor hitl` rather than a file the
+    # person never invoked. Unset when the script is run directly, and argparse then does what
+    # it always did.
+    p = argparse.ArgumentParser(prog=os.environ.get("ANCHOR_VERB") or None,
+                                description=__doc__.splitlines()[0])
     p.add_argument("policy", type=Path, help="the .dw policy the requirement is about")
-    p.add_argument("--brief", default=None,
-                   help="the requirement, in your own words. Asked for if not given")
+    # `--intent` is the pipeline's name for the same string and the name of the field it lands
+    # in. `--brief` stays as an alias because it is what this file documented until now.
+    p.add_argument("--intent", "--brief", dest="intent", default=None,
+                   help="the requirement, in your own words. Read from --intents or asked for if "
+                        "not given")
+    p.add_argument("--intents", type=Path, default=None,
+                   help="a markdown file of `## <policy>.dw` headings with the requirement under "
+                        "each -- the file `auto` sweeps a directory with. Defaults to intents.md "
+                        "beside the policy; no entry for it falls through to asking")
     p.add_argument("--out", type=Path, default=None)
     p.add_argument("--event-schema", type=Path, default=None)
     p.add_argument("--mutants", type=int, default=8)
@@ -726,10 +791,11 @@ def main() -> int:
     # word away.
     if not sys.stdin.isatty():
         print("hitl needs a terminal: it asks questions and waits for answers. For an unattended "
-              "run use `pipeline.py` / `auto`, which reports rather than asks.", file=sys.stderr)
+              "run use `anchor auto` (src/agent/pipeline.py), which reports rather than asks.",
+              file=sys.stderr)
         return 2
 
-    brief = args.brief or console.ask(
+    brief = args.intent or stated_intent(args.policy, args.intents, console) or console.ask(
         f"What should {args.policy.name} guarantee?",
         hint="one sentence in your own words -- what you would tell a colleague the rule is")
     if brief.lower() in STOP_WORDS:

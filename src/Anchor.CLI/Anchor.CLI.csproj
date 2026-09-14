@@ -7,9 +7,20 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Anchor.CLI</RootNamespace>
 
-    <!-- The binary a host launches, so `anchor version` should agree with the file it printed from.
-         Mapped to the shared property in Directory.Build.props rather than restated. -->
-    <AssemblyName>anchor</AssemblyName>
+    <!-- No AssemblyName override, deliberately. `anchor` is the launcher script at the repo
+         root, which dispatches the verb to this assembly or to Python; naming the assembly the
+         same thing puts two files called `anchor` on one PATH, and in the container image the
+         published self-contained binary IS one of them.
+
+         AssemblyTitle is the compensation, and it is not cosmetic. CommandLineParser builds its
+         banner from AssemblyTitleAttribute when there is one and from the assembly name otherwise,
+         so without this `anchor version` and `anchor help` answer "Anchor.CLI" to somebody who
+         typed `anchor`, naming a file they never invoked and cannot find on PATH. Version is
+         mapped to the shared property in Directory.Build.props rather than restated. -->
+    <AssemblyTitle>Anchor</AssemblyTitle>
+    <!-- CopyrightInfo reads AssemblyCompanyAttribute, which defaults to the assembly name.
+         Left alone the help banner credits the copyright to a file. -->
+    <Company>Allister Beharry</Company>
     <AssemblyVersion>$(ProjectAssemblyVersion)</AssemblyVersion>
     <FileVersion>$(ProjectAssemblyVersion)</FileVersion>
   </PropertyGroup>

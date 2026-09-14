@@ -51,6 +51,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Anchor.CLI", "src\Anchor.CL
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Scripts", "Scripts", "{3B5775B7-C313-45CA-BA01-C5F2AEF997BA}"
 	ProjectSection(SolutionItems) = preProject
+		anchor = anchor
+		anchor.ps1 = anchor.ps1
+		build.ps1 = build.ps1
+		build.sh = build.sh
 		Directory.Build.props = Directory.Build.props
 	EndProjectSection
 EndProject

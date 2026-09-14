@@ -128,12 +128,9 @@ EOF
 # The CLI's own help cannot mention the two verbs it does not have, so this script says them after.
 show_extra_verbs() {
     cat <<'EOF'
-
-  auto       draft the property module from a brief and check it, unattended
-  hitl       the same, with you answering when a gate turns a draft away
-
-  Both are Python entry points rather than CLI verbs. `anchor help auto` and
-  `anchor help hitl` show their options.
+  auto       Draft the property module from a natural language brief and check it, unattended.
+  
+  hitl       Draft the property module from a natural language brief with a human answering when a gate turns a draft away.
 EOF
 }
 

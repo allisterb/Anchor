@@ -52,7 +52,7 @@ too; an honest gap is worth more here than a confident summary.
 
 
 def find_cli() -> Path:
-    """The built `anchor` binary this agent launches as its MCP server.
+    """The built Anchor CLI this agent launches as its MCP server.
 
     Release before Debug, since a Release tree is the deliberate one. `ANCHOR_CLI` overrides both,
     which is how a container points at wherever it installed the binary.
@@ -61,14 +61,14 @@ def find_cli() -> Path:
         return Path(override)
 
     for configuration in ("Release", "Debug"):
-        candidate = REPO / "src" / "Anchor.CLI" / "bin" / configuration / "net10.0" / "anchor.dll"
+        candidate = REPO / "src" / "Anchor.CLI" / "bin" / configuration / "net10.0" / "Anchor.CLI.dll"
         if candidate.exists():
             return candidate
 
     raise SystemExit(
         "the anchor CLI is not built. Run:\n"
         "    dotnet build Anchor.sln\n"
-        "or set ANCHOR_CLI to the path of anchor.dll")
+        "or set ANCHOR_CLI to the path of Anchor.CLI.dll")
 
 
 def anchor_server(project_dir: Path | None = None):

@@ -225,10 +225,39 @@ cover them all, and solver-builds publishes no checksums of its own. Windows and
 recorded and both are built and tested in CI. macOS is not: on an unpinned platform the scripts stop
 and explain how to record a hash rather than installing an unverified solver.
 
+## Running
+
+One launcher over two runtimes, at the repo root:
+
+```
+./anchor <verb> [...]                # Linux, macOS, or git bash on Windows
+./anchor.ps1 <verb> [...]            # PowerShell
+```
+
+It dispatches on the verb, forwards everything after it verbatim, and passes the exit code through.
+
+| verb | | |
+|---|---|---|
+| `check` | the .NET CLI | check a policy against a property module you wrote, or audit a directory of them |
+| `explain` | the .NET CLI | say in English what a property module forbids |
+| `server` | the .NET CLI | the MCP server, over stdio or HTTP. The default verb |
+| `auto` | Python | draft the property module from a natural-language brief and check it, unattended |
+| `hitl` | Python | the same, with a person answering when a gate turns a draft away |
+
+**The two drafting modes are Python entry points rather than CLI verbs, deliberately.** A verb for
+either would re-declare every flag `argparse` already has, so each option would live in two places
+— and then spawn Python anyway. `anchor auto ...` and `python src/agent/pipeline.py ...` are the
+same run; the launcher exists so that one command reaches both halves, not to hide either.
+
+`ANCHOR_PYTHON` and `ANCHOR_CLI` override the interpreter and the binary. Otherwise the launcher
+takes the venv at `python/`, and a Release build before a Debug one under `src/Anchor.CLI/bin`.
+
 ## Layout
 
 | Path | |
 |---|---|
+| `anchor`, `anchor.ps1` | the launcher: one command over the .NET CLI and the Python entry points |
+| `src/Anchor.CLI` | the only executable — `server`, `check`, `explain`, verb-dispatched |
 | `src/Anchor.Runtime` | base types for every other project — `Runtime` and its logging, `Result<T>`, process helpers |
 | `src/Anchor.Verifiers.Dafny` | parse, resolve and verify Dafny via the DafnyPipeline assembly |
 | `src/Anchor.Verifiers.TLAPlus` | SANY in-process via IKVM; TLC out-of-process via `TLCProcess` |

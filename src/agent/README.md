@@ -220,12 +220,51 @@ it the generated vocabulary and nothing else.
 
 Writes `anchor/<policy>/findings.md` per policy and `anchor/summary.md` over the set.
 
+## Three modes, and the axis they differ on
+
+**How much of the formalization is yours.** Nothing else about them differs — `hitl` is the
+`auto` graph with one node added, and both check what `check` checks.
+
+| | who writes the property module | how to run it |
+|---|---|---|
+| `check` | you | `anchor check policy.dw --property claim.tla`, or a directory to audit |
+| `auto` | the agent, unattended | `anchor auto policy.dw --intent "..."` |
+| `hitl` | the agent, with you | `anchor hitl policy.dw` |
+
+`anchor` is the launcher at the repo root — `./anchor` on Linux and macOS, `./anchor.ps1` under
+PowerShell. It dispatches on the verb, forwards the rest verbatim and passes the exit code through.
+
+**Only the first of those three is a CLI verb; `auto` and `hitl` are Python entry points, and that
+is deliberate.** A verb for either would be a passthrough: the C# would re-declare every flag
+`argparse` already has — so each option would live in two places, and adding one to the Python
+would leave it unreachable — and then spawn Python anyway. The process hop buys nothing, and the
+extra layer is what makes stdio behave differently than expected, which matters most for the mode
+that reads answers from a terminal. `check` and `server` stay in the CLI because they are genuinely
+C#-fronted. The launcher is where the two halves meet, and it is one dispatch table rather than a
+second copy of every option.
+
+Nothing is hidden by it: `anchor auto ...` and `python src/agent/pipeline.py ...` are the same run,
+and the Python form is what the rest of this file writes.
+
 ## `hitl` — the same pipeline with a person as one of the gates
 
 ```bash
 python src/agent/hitl.py examples/aws1/07-trust-decay.dw \
-    --brief "After 15 minutes without advisor interaction, the agent loses write access."
+    --intent "After 15 minutes without advisor interaction, the agent loses write access."
 ```
+
+`--intent` is the same flag and the same string `auto` takes; `--brief` remains as an alias. Omit
+both and `hitl` reads the requirement out of `intents.md` beside the policy — the file `auto` sweeps
+a directory with, so a requirement written once is reachable from either mode. `--intents` names it
+somewhere else.
+
+**What it will not do is guess.** A heading matching the policy's filename is taken and shown. An
+intents file about a policy *set* states a requirement per heading and none of them is the filename,
+so those are listed and the person picks one — by name, or by typing the requirement instead. A
+session started on the wrong requirement looks exactly like one started on the right one until it
+ends, which is why the ambiguous case costs a question rather than a guess. This is the one place
+the two modes must differ: `auto` has to fail where nothing is stated, because there is nobody to
+ask.
 
 [`hitl.py`](hitl.py) runs the pipeline autonomously and turns to a person only where
 autoformalisation has no oracle. Everything downstream of a property module is mechanical — does it
@@ -386,7 +425,7 @@ branch on "needs a human" without parsing prose.
 
 | | |
 |---|---|
-| `ANCHOR_CLI` | path to `anchor.dll`. Otherwise a Release build is preferred, then Debug |
+| `ANCHOR_CLI` | path to `Anchor.CLI.dll`, or to a self-contained executable. Otherwise a Release build is preferred, then Debug |
 | `--project-dir` | the directory policy paths resolve inside; a path escaping it is refused. Defaults to the repo, and the agent is exactly the caller containment exists for |
 | `--provider` | `auto`, `bedrock` or `gemini`. `auto` picks Gemini when a key is present and Bedrock otherwise — an API key in config was put there deliberately, whereas `~/.aws` exists on most machines whether or not the account can call a model |
 | `--model` | model id. Defaults to the provider's own default |

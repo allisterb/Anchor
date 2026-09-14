@@ -43,6 +43,7 @@ the object that runs are the same object.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -1102,7 +1103,11 @@ def sweep_report(target: Path, intents: dict[str, str], runs: list[Run]) -> str:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # ANCHOR_VERB is set by the launcher, so usage names `anchor auto` rather than a file the
+    # person never invoked. Unset when the script is run directly, and argparse then does what
+    # it always did.
+    p = argparse.ArgumentParser(prog=os.environ.get("ANCHOR_VERB") or None,
+                                description=__doc__.splitlines()[0])
     p.add_argument("policy", type=Path, help="a .dw policy, or a DIRECTORY to sweep")
     p.add_argument("--intent", default=None,
                    help="the requirement to state formally. Prose the POLICY did not write")

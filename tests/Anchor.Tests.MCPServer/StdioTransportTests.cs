@@ -220,7 +220,7 @@ public class StdioTransportTests : TestsRuntime
         Repo, "src", "Anchor.CLI", "bin",
         new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug",
         new DirectoryInfo(AppContext.BaseDirectory).Name,
-        "anchor.dll");
+        "Anchor.CLI.dll");
 
     #endregion
 }

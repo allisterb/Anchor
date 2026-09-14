@@ -14,8 +14,10 @@
 # read it -- so it survives every local test on Windows and surfaces as
 # "./requirements/strands/install.sh: Permission denied" in CI. That is how it was found.
 #
-# Scripts that must carry the bit, checkable with `git ls-files -s '*.sh'` (want 100755, not 100644):
+# Scripts that must carry the bit, checkable with `git ls-files -s anchor '*.sh'`
+# (want 100755, not 100644):
 #
+#   anchor                            the launcher, which dispatches the verb
 #   build.sh                          the build entry point
 #   requirements/strands/install.sh   invoked by .github/workflows/build.yml
 #
@@ -23,3 +25,7 @@
 # `bash <path>` would work with or without the bit, which means a lost bit would go unnoticed until
 # somebody tried to run it by hand. This way CI is what catches it.
 *.sh text eol=lf
+
+# The launcher carries no extension, deliberately -- `anchor check ...` is the command -- so the
+# rule above does not reach it and it needs its own.
+anchor text eol=lf

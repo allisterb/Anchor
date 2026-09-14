@@ -1,6 +1,6 @@
 """`src/agent/hitl.py`: the loop that puts a person at the one boundary with no oracle.
 
-Seven scenarios, and every one of them runs with a SCRIPTED person. That is the design decision
+Eight scenarios, and every one of them runs with a SCRIPTED person. That is the design decision
 this file exists to hold onto: a loop that can only be driven by somebody sitting at a terminal is
 a loop nothing can test, and this one has branches -- a gate that fires, an answer that gives up,
 an allowance that runs out, a person who overrules a model -- that would otherwise have to be
@@ -28,6 +28,10 @@ reproduced by hand every time anything changed.
      BEFORE TLC runs, and saying no stops the run -- with a report.
   7. EVERY EXIT REPORTS. Passing, giving up, running out, and the model being unreachable: four
      ways to leave, four session reports, and each says which it was.
+  8. WHERE THE REQUIREMENT COMES FROM, and that a wrong guess is worse than a question. An
+     `intents.md` beside a policy SET states one requirement per heading and none of them names
+     the file; taking the first would spend a session -- model calls, TLC, a person's attention --
+     on a requirement nobody chose.
 
 No provider and no credentials.
 
@@ -455,6 +459,68 @@ def every_exit_reports(passing) -> None:
           and "verified by a human" not in report, report[-500:])
 
 
+def where_the_requirement_comes_from() -> None:
+    """The brief can come out of the file `auto` already sweeps, and nothing may be guessed.
+
+    NO PROVIDER AND NO GRAPH: this is the step before either, and it is all text and files. What it
+    protects is the difference between the two modes at this exact point. `auto` must fail when no
+    requirement is stated, because there is nobody to ask; `hitl` must ASK, because there is -- and
+    must ask rather than pick, because a session started on the wrong requirement looks exactly
+    like a session started on the right one until it ends.
+    """
+    print("\nWhere the requirement comes from")
+    print("-" * 78)
+    with tempfile.TemporaryDirectory(prefix="anchor-intents-") as tmp:
+        here = Path(tmp)
+        policy = here / "firewall.dw"
+        policy.write_text((POLICIES / "firewall.dw").read_text(encoding="utf-8"), encoding="utf-8")
+        intents = here / "intents.md"
+
+        person = hitl.Scripted()
+        check("no intents file: nothing stated, and nothing said about it",
+              hitl.stated_intent(policy, None, person) is None and person.shown == [],
+              str(person.shown))
+
+        intents.write_text(f"# Intents\n\n## firewall.dw\n\n> {BRIEF}\n", encoding="utf-8")
+        person = hitl.Scripted()
+        check("a heading naming the policy is taken",
+              hitl.stated_intent(policy, None, person) == BRIEF)
+        check("shown rather than used silently", any(BRIEF in line for line in person.shown),
+              str(person.shown))
+        check("and nothing was asked", person.asked == [], str(person.asked))
+
+        # The other shape an intents file takes: one policy SET, a requirement per heading, not one
+        # of them the filename. This is `examples/aws2`.
+        intents.write_text(f"# Intents\n\n## inbound.dw\n\n> {BRIEF}\n\n"
+                           "## outbound.dw\n\n> Nothing may leave the network.\n", encoding="utf-8")
+        person = hitl.Scripted("outbound")
+        check("several headings and none names it: the person chooses",
+              hitl.stated_intent(policy, None, person) == "Nothing may leave the network.")
+        check("having been shown every one of them",
+              all(any(h in line for line in person.shown) for h in ("inbound.dw", "outbound.dw")),
+              str(person.shown))
+        check("asked once, and nothing guessed", len(person.asked) == 1, str(person.asked))
+        formal("\n".join(person.shown + person.asked), "choosing a requirement")
+
+        # A name is a convenience, not a grammar: anything that is not one is the requirement.
+        person = hitl.Scripted("Only port 22, and only from inside.")
+        check("prose instead of a name is the requirement itself",
+              hitl.stated_intent(policy, None, person) == "Only port 22, and only from inside.")
+
+        # And walking away has to stay available here, exactly as at the open question.
+        person = hitl.Scripted("stop")
+        check("a stop word survives to main, which reads it as giving up",
+              hitl.stated_intent(policy, None, person) in hitl.STOP_WORDS)
+
+        # An absent default says nothing; an absent file somebody NAMED is a typo.
+        try:
+            hitl.stated_intent(policy, here / "nope.md", hitl.Scripted())
+            check("an intents file named and missing stops the run", False)
+        except SystemExit as stopped:
+            check("an intents file named and missing stops the run", stopped.code == 2,
+                  str(stopped.code))
+
+
 def hitl_is_not_auto() -> None:
     """`auto` must be untouched by all of this: no questions, no person, the same eight stages.
 
@@ -498,6 +564,7 @@ def main() -> int:
     answers_reach_the_drafter()
     passing = the_checkpoint()
     every_exit_reports(passing)
+    where_the_requirement_comes_from()
     hitl_is_not_auto()
 
     print()
