@@ -1,9 +1,9 @@
 """`src/agent/pipeline.py` end to end, and the claim that makes it worth having.
 
-Eight scenarios, and the first is the one the whole graph exercise was for:
+Nine scenarios, and the first is the one the whole graph exercise was for:
 
   1. THE SHAPE THAT RUNS IS THE SHAPE THAT WAS CHECKED. `to_tla` over the graph `pipeline.build`
-     actually returns must carry all three gate decisions as exclusive pairs, and must satisfy
+     actually returns must carry all four gate decisions as exclusive pairs, and must satisfy
      `AlwaysReports` -- the same claim, over the same module, that tests/strands/anchor_workflow.py
      proves about the `gated` variant. Without this the design work checked a drawing.
   2. A DRAFT THAT WILL NOT COMPILE is retried, having been told the line and the token. This is
@@ -22,7 +22,12 @@ Eight scenarios, and the first is the one the whole graph exercise was for:
   6. A REJECTED DRAFT still reports, without a TLC run or a second model call.
   7. AN ACCEPTED DRAFT goes the whole way, and the answerer sees the verdicts and their BOUND
      rather than the drafter's module.
-  8. A SWEEP over a directory runs one pipeline per STATED intent, names the policies that have
+  8. THE ROUND TRIP. A third agent, shown only the BRIEF and the plain-English reading of the
+     claim -- never the formal claim, never the policy -- says whether they match. It is the one
+     gate that compares the property against the requirement rather than against the policy, and
+     the only one with no oracle behind it: it may REJECT, and its agreement is reported as an
+     agreement between two models rather than as a verification.
+  9. A SWEEP over a directory runs one pipeline per STATED intent, names the policies that have
      none, and discriminates: the same drafted property holds on the sound policy and breaks on
      the unsound one.
 
@@ -175,14 +180,16 @@ def check(label: str, ok: bool, detail: str = "") -> None:
             print(f"          {detail[:400]}")
 
 
-def run_pipeline(draft, out: Path, mutants: int = 2, rounds: int = 3):
+def run_pipeline(draft, out: Path, mutants: int = 2, rounds: int = 3, reviewer=None):
     run = pipeline.Run(policy=POLICIES / "firewall.dw",
                        intent="SSH from the local range is permitted, and every external source "
                               "is denied.",
                        out=out, mutants=mutants, rounds=rounds)
     drafter = draft if isinstance(draft, Agent) else agent(draft, "draft")
     answerer = agent("The property held.", "answer")
-    graph = pipeline.build(run, drafter=drafter, answerer=answerer)
+    graph = pipeline.build(run, drafter=drafter, answerer=answerer,
+                           reviewer=reviewer or agent("VERDICT: MATCH -- it says the same.",
+                                                      "review"))
     result = graph("State and check the intention for firewall.dw.")
     pipeline.append_usage(run, result)
     return run, result, [n.node_id for n in result.execution_order], answerer
@@ -240,7 +247,8 @@ def never_aborts() -> None:
     # --- a policy that cannot be read ----------------------------------------------------------
     with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
         run = pipeline.Run(policy=POLICIES / "does_not_exist.dw", intent="x", out=Path(tmp))
-        graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"))
+        graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"),
+                               reviewer=agent("VERDICT: MATCH", "review"))
         result = graph("go")
         ran = [n.node_id for n in result.execution_order]
 
@@ -260,7 +268,8 @@ def never_aborts() -> None:
         try:
             pipeline.stage_check = lambda r, t: 1 / 0          # type: ignore[assignment]
             graph = pipeline.build(run, drafter=agent(GOOD, "draft"),
-                                   answerer=agent("ok", "answer"))
+                                   answerer=agent("ok", "answer"),
+                                   reviewer=agent("VERDICT: MATCH", "review"))
             result = graph("go")
         finally:
             pipeline.stage_check = boom                        # type: ignore[assignment]
@@ -307,7 +316,8 @@ def capped() -> None:
         run = pipeline.Run(policy=POLICIES / "firewall.dw", intent="x", out=Path(tmp), mutants=2)
         graph = pipeline.build(run, drafter=agent(GOOD, "draft"),
                                answerer=Agent(model=Capped("The property h"),
-                                              callback_handler=None, name="answer"))
+                                              callback_handler=None, name="answer"),
+                               reviewer=agent("VERDICT: MATCH", "review"))
         result = graph("go")
         ran = [n.node_id for n in result.execution_order]
 
@@ -404,7 +414,7 @@ def accepted_path() -> None:
 
         # --- WHAT IT COST ---------------------------------------------------------------------
         check("findings.md reports the cost", "## What this run cost" in text, text[-600:])
-        check("one row per model call", len(run.calls) == 2,
+        check("one row per model call", len(run.calls) == 3,
               str([c.who for c in run.calls]))
         check("and a per-stage time for every stage that ran",
               all(f"  {s:<12}" in text for s in pipeline.STAGES), text[-800:])
@@ -419,10 +429,11 @@ def same_object() -> None:
     print("-" * 78)
     with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
         run = pipeline.Run(policy=POLICIES / "firewall.dw", intent="x", out=Path(tmp))
-        graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"))
+        graph = pipeline.build(run, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"),
+                               reviewer=agent("VERDICT: MATCH", "review"))
 
         t = to_tla(graph)
-        check("all three gates declared as exclusive decisions", len(t.exclusive) == 3,
+        check("all four gates declared as exclusive decisions", len(t.exclusive) == 4,
               str(t.exclusive))
         check("no half-decisions", t.unpaired == [], str(t.unpaired))
         check("no undeclared assumptions", t.assumptions == [], str(t.assumptions))
@@ -437,6 +448,51 @@ def same_object() -> None:
         # The separation, enforced by the SDK rather than by this file.
         check("the drafter and the answerer are different objects",
               graph.nodes["draft"].executor is not graph.nodes["answer"].executor)
+
+
+def round_trip() -> None:
+    """The one gate that compares the property against the BRIEF rather than against the policy."""
+    print("\nThe round trip: does it say what was asked for?")
+    print("-" * 78)
+
+    # --- a reviewer that disagrees stops the run ------------------------------------------------
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        no = agent("VERDICT: MISMATCH\nThe requirement is about refunds; this is about SSH.",
+                   "review")
+        run, result, ran, answerer = run_pipeline(GOOD, Path(tmp), reviewer=no)
+
+        print(f"  ran {len(ran)}/{result.total_nodes}: {', '.join(ran)}")
+        check("a mismatch stops the run at review", run.rejected_at == "review", run.rejected_at)
+        check("check and answer never ran", not ({"check", "answer"} & set(ran)), str(ran))
+        check("the answerer was not invoked", answerer.model.calls == 0)
+        check("report ran anyway", "report" in ran, str(ran))
+
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("findings.md carries the reviewer's reasoning",
+              "about SSH" in text and "do not match" in text, text[:400])
+
+    # --- and what an AGREEMENT is allowed to claim ----------------------------------------------
+    # This gate has no oracle: every other one is a criterion in code, this is a model judging a
+    # model. So agreement must be reported as agreement. If this assertion ever has to change
+    # because the wording got stronger, that is the bug it exists to catch.
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        run, result, ran, _ = run_pipeline(GOOD, Path(tmp))
+        text = run.findings.read_text(encoding="utf-8") if run.findings else ""
+        check("an agreement is reported as an agreement, not a proof",
+              "not a proof that the claim captures the requirement" in text, text[:500])
+        check("...and says the reviewer never saw the formal claim",
+              "never the formal claim itself" in text, text[:500])
+
+    # --- a reviewer that answers in no recognisable form must NOT block --------------------------
+    # Fail-open is right HERE and only here: acceptance proves nothing anyway, so blocking on a
+    # non-answer would give this gate an authority the other gates have and it does not.
+    with tempfile.TemporaryDirectory(prefix="anchor-pipe-") as tmp:
+        vague = agent("I think it's probably fine, hard to say really.", "review")
+        run, result, ran, _ = run_pipeline(GOOD, Path(tmp), reviewer=vague)
+        check("an unparseable review does not stop the run", run.rejected_at == "", run.rejected_at)
+        check("...and the report says the round trip was NOT established",
+              "not established" in (run.findings.read_text(encoding="utf-8") if run.findings
+                                    else ""), run.review)
 
 
 def sweeping() -> None:
@@ -458,10 +514,19 @@ def sweeping() -> None:
         intents = pipeline.read_intents(work / "intents.md")
         check("both stated intents were read", len(intents) == 2, str(sorted(intents)))
 
+        # PROGRESS AS IT LANDS. A sweep is minutes per policy, and collecting the outcomes to print
+        # a table at the end means the whole run shows nothing until it is over -- which is the
+        # same defect the report itself exists to avoid, in the terminal instead of the document.
+        seen: list[tuple[str, bool]] = []
         runs = pipeline.sweep(work, intents, out=work / "anchor", mutants=2,
+                              report=lambda label, run: seen.append((label, run is None)),
                               build_graph=lambda r: pipeline.build(
-                                  r, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer")))
+                                  r, drafter=agent(GOOD, "draft"), answerer=agent("ok", "answer"),
+                                  reviewer=agent("VERDICT: MATCH", "review")))
         check("one run per stated intent", len(runs) == 2, str([r.policy.name for r in runs]))
+        check("each policy is announced BEFORE it runs and reported after",
+              seen == [("firewall.dw", True), ("firewall.dw", False),
+                       ("firewall_open.dw", True), ("firewall_open.dw", False)], str(seen))
 
         # The same property against a policy that HOLDS it and one that BREAKS it -- so the sweep
         # is shown to discriminate rather than merely to complete.
@@ -489,6 +554,7 @@ def main() -> int:
     exhausted()
     rejected_path()
     accepted_path()
+    round_trip()
     sweeping()
 
     print()

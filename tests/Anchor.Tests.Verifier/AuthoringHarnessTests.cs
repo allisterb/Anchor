@@ -15,8 +15,15 @@ namespace Anchor.Tests.TLAPlus;
 /// split is balanced by measured duration, not by count, and the floor is the longest single test.
 /// </para>
 /// <para>
-/// This class holds 87s of the 508s. Its slowest test is
-/// <c>ADraftedPropertyIsKeptOnlyIfItCouldHaveFailed</c>, at 38s.
+/// This class held 87s of the 508s when the split was measured. It has since gained
+/// <c>APersonRefinesTheRequirementUntilTheGatesPass</c>, whose harness takes <b>103s</b> run on its
+/// own — so this class is now the suite's floor, and <c>dotnet test --filter</c> over it alone
+/// measures <b>5m57s</b>. The two figures do not reconcile, which means the 87s above predates
+/// something and should be re-measured before the split is rebalanced rather than trusted.
+/// </para>
+/// <para>
+/// The new test was 169s as first written. The three passes it dropped were re-observations of
+/// facts asserted next door; what remains are mutation-scoring runs a scenario actually turns on.
 /// </para>
 ///
 /// See <see cref="PythonHarnessAttribute"/> for why any of these may report as skipped.
@@ -210,18 +217,31 @@ public class AuthoringHarnessTests : TestsRuntime
 
         // A rejected draft costs nothing downstream — no TLC, no second model call — and still
         // reports. Both halves, because either alone would be the wrong behaviour.
-        Assert.Contains("ran 4/7: describe, draft, preflight, report", run.Output);
+        Assert.Contains("ran 4/8: describe, draft, preflight, report", run.Output);
         Assert.Contains("ok    the answerer was not invoked", run.Output);
         Assert.Contains("ok    report ran anyway", run.Output);
         Assert.Contains("ok    findings.md says nothing was verified", run.Output);
 
         // An accepted draft goes the whole way, and the answerer sees the verdicts rather than the
         // drafter's module — the separation as it actually lands, not as it was intended.
-        Assert.Contains("ran 7/7: describe, draft, preflight, score, check, answer, report", run.Output);
+        Assert.Contains("ran 8/8: describe, draft, preflight, score, review, check, answer, report", run.Output);
         Assert.Contains("ok    the answerer did NOT see the draft", run.Output);
 
         // And the claim the whole graph exercise was for.
         Assert.Contains("ok    AlwaysReports HOLDS on the graph that actually runs", run.Output);
+
+        // THE ROUND TRIP — the only gate that compares the property against the BRIEF rather than
+        // against the policy, and the only one with no oracle behind it. It may reject; its
+        // agreement is an agreement between two models. The last two assertions are the ones that
+        // keep it honest, and if either ever has to change because the wording got stronger, that
+        // is precisely the defect they exist to catch.
+        Assert.Contains("ok    a mismatch stops the run at review", run.Output);
+        Assert.Contains("ok    findings.md carries the reviewer's reasoning", run.Output);
+        Assert.Contains("ok    an agreement is reported as an agreement, not a proof", run.Output);
+        Assert.Contains("ok    ...and says the reviewer never saw the formal claim", run.Output);
+        // Fail-OPEN on a non-answer, uniquely here: acceptance proves nothing anyway, so blocking
+        // would give this gate an authority the others have and it does not.
+        Assert.Contains("ok    an unparseable review does not stop the run", run.Output);
 
         // The retry, which exists because a live run lost a semantically perfect module to one
         // stray `*`. A round that is not told WHERE cannot fix it, so the location is pinned too.
@@ -261,7 +281,7 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("ok    an unreadable policy is a rejection, not an abort", run.Output);
         Assert.Contains("ok    a stage that throws does not abort the run", run.Output);
         Assert.Contains("ok    findings.md says it was ANCHOR that failed, not the policy", run.Output);
-        Assert.Contains("ok    all three gates declared as exclusive decisions", run.Output);
+        Assert.Contains("ok    all four gates declared as exclusive decisions", run.Output);
 
         Assert.Contains("ok    findings.md reports the cost", run.Output);
         Assert.Contains("ok    ...each at ITS OWN cost, not the agent's running total", run.Output);
@@ -273,6 +293,108 @@ public class AuthoringHarnessTests : TestsRuntime
         Assert.Contains("ok    the correct policy passes", run.Output);
         Assert.Contains("ok    and the broken one is caught", run.Output);
         Assert.Contains("ok    the summary names the policy with no stated intent", run.Output);
+        // Progress as it lands. A sweep is minutes per policy and used to print nothing until it
+        // was over — the same defect the report exists to avoid, in the terminal instead.
+        Assert.Contains("ok    each policy is announced BEFORE it runs and reported after", run.Output);
+    }
+
+    /// <summary>
+    /// <c>hitl</c>: the same pipeline with a <b>person</b> as one of the gates, at the one boundary
+    /// in autoformalisation that has no oracle behind it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Everything downstream of a property module is mechanical — does it compile, does the
+    /// decision vary, does it catch a mutant, does it hold — and every one of those is a criterion
+    /// in code that cannot be talked out of its answer. Everything <i>upstream</i> is a person
+    /// saying what they meant, and nothing here can check a property against an intention nobody
+    /// wrote down. A live sweep accepted one requirement in five, and the four that failed failed
+    /// on the <i>semantic</i> gate: well-formed statements of something the brief did not quite
+    /// say.
+    /// </para>
+    /// <para>
+    /// <b>The load-bearing assertion is that the person is never shown TLA+.</b> The gates talk to
+    /// the drafter, and their complaints are right for it — "the .cfg names INVARIANT X, which the
+    /// module does not define" is the sentence that gets the next round fixed. Forwarded to
+    /// somebody who was asked for a requirement in English, it is a demand that they debug a file
+    /// they have never seen, and that is precisely what the first run of the harness caught. The
+    /// scan runs over what actually reached the scripted person, including the reading of the
+    /// claim at the checkpoint, rather than over the code that produced it.
+    /// </para>
+    /// <para>
+    /// The other one is the footer. Being in this mode is not a confirmation: a session whose
+    /// allowance ran out asked four questions and kept no property, and crediting the person there
+    /// would claim the strongest thing in the document on the strength of the mode it was run in.
+    /// </para>
+    /// <para>
+    /// <c>hitl</c> adds one node to the graph, so <c>AlwaysReports</c> is <i>re-proved</i> over the
+    /// graph <c>build_hitl</c> returns rather than inherited from the <c>auto</c> graph it is no
+    /// longer identical to — and <c>auto</c> is asserted unchanged in the same breath.
+    /// </para>
+    /// </remarks>
+    [PythonHarness("hitl_loop.py", "strands")]
+    public async Task APersonRefinesTheRequirementUntilTheGatesPass()
+    {
+        var run = await PythonHarness.RunAsync("tests/strands/hitl_loop.py");
+        Assert.True(run.ExitCode == 0, run.Output);
+
+        Assert.Contains("all checks passed", run.Output);
+        Assert.DoesNotContain("FAIL", run.Output);
+
+        // The shape. One more gate, still exclusive, still reports on every path — and the auto
+        // graph untouched, because four properties were chosen against that exact shape.
+        Assert.Contains("ok    the person's checkpoint is a fifth exclusive decision", run.Output);
+        Assert.Contains("ok    AlwaysReports HOLDS on the hitl graph that actually runs", run.Output);
+        Assert.Contains("ok    ...and the auto graph still has exactly four", run.Output);
+        Assert.Contains("ok    no confirm node in the auto graph", run.Output);
+
+        // WHAT REACHES THE PERSON. The whole premise of the mode is that they refine a requirement
+        // they can read; two of these tokens were leaking on the first run, straight out of a gate
+        // complaint written for the drafter.
+        Assert.Contains("ok    nothing shown to the person when a gate rejects the draft mentions `INVARIANT`", run.Output);
+        Assert.Contains("ok    nothing shown to the person when a gate rejects the draft mentions `.cfg`", run.Output);
+        Assert.Contains("ok    nothing shown to the person at the checkpoint mentions `|->`", run.Output);
+        Assert.Contains("ok    every line of the reading reached the person", run.Output);
+
+        // WHICH QUESTION, AND WHY THAT ONE. Asking about the wrong gate costs a whole attempt, and
+        // the ordering is the diagnosis: a policy that refuses everything the property names also
+        // fails mutation scoring, and only one of the two has an answer a person can give.
+        Assert.Contains("ok    a claim that cannot fail asks which VALUES to check at", run.Output);
+        Assert.Contains("ok    a property that catches no mutant asks what must NEVER be allowed", run.Output);
+        Assert.Contains("ok    a policy that refuses everything asks what must have happened FIRST", run.Output);
+        Assert.Contains("ok    ...even though the mutation gate is what rejected it", run.Output);
+        Assert.Contains("ok    ...and tells them they may overrule the reviewing model", run.Output);
+
+        // What no clarification can fix is not put to a person, and the loop stops rather than
+        // spending a model call per attempt asking them to rephrase their way out of a 404.
+        Assert.Contains("ok    an unreachable model is not a question for the person", run.Output);
+        Assert.Contains("ok    an unreadable policy ends the session after ONE attempt", run.Output);
+        Assert.Contains("ok    ...without asking the person anything", run.Output);
+
+        // The answers become part of the requirement — appended, never substituted, because the
+        // original text is what the reviewing gate compares against and what an auditor reads.
+        Assert.Contains("ok    the ORIGINAL brief survives verbatim", run.Output);
+        Assert.Contains("ok    ...with the answer appended, not substituted", run.Output);
+        Assert.Contains("ok    and the DRAFTER saw it on the next attempt", run.Output);
+
+        // THE CHECKPOINT, and the scenario it exists for: every gate passed, a second model
+        // agreed, and the property is about the wrong rule. Nothing else can catch that.
+        Assert.Contains("ok    the person was shown what the claim forbids", run.Output);
+        Assert.Contains("ok    the person's `no` stops the run", run.Output);
+        Assert.Contains("ok    findings.md says the gate was the PERSON'S, not a criterion in code", run.Output);
+
+        // Every exit reports, and a person who leaves is not kept in a loop. Saying no at the
+        // checkpoint and then declining to explain leaves the brief unchanged — so a further
+        // attempt would re-draft from the same text and show them the identical reading, once per
+        // attempt remaining.
+        Assert.Contains("ok    saying no and then nothing also ends the session", run.Output);
+        Assert.Contains("ok    ...rather than asking the same thing again", run.Output);
+
+        // And what the documents are allowed to claim. If either of these has to change because
+        // the wording got stronger, that is the defect they exist to catch.
+        Assert.Contains("ok    ...and says the person did NOT read the formal claim", run.Output);
+        Assert.Contains("ok    ...and does not claim a person verified anything", run.Output);
+        Assert.Contains("ok    ...and does not credit the person with confirming anything", run.Output);
     }
 
     #endregion

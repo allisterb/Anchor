@@ -1,8 +1,8 @@
 """Anchor's property-authoring pipeline, as the Strands `Graph` that runs it.
 
-    describe ──┬──> draft ──> preflight ──┬──> score ──┬──> check ──> answer ──> report
-               │                          │            │                            ^
-               └──────────────────────────┴────────────┴────────────────────────────┘
+    describe ─┬─> draft ─> preflight ─┬─> score ─┬─> review ─┬─> check ─> answer ─> report
+              │                        │          │           │                        ^
+              └────────────────────────┴──────────┴───────────┴────────────────────────┘
                      every rejection still reports, and nothing raises
 
 THE SEPARATION IS THE POINT. The agent that DRAFTS the property is not the agent that ANSWERS with
@@ -11,7 +11,7 @@ specification is the cheapest way to pass -- the most-reported pathology in agen
 and the reason this is two agents rather than one with two prompts. `GraphBuilder` enforces it:
 one Agent instance cannot be two nodes, and neither sees the other's context.
 
-WHAT IS A MODEL'S DECISION AND WHAT IS NOT. Only `draft` and `answer` are language models. The five
+WHAT IS A MODEL'S DECISION AND WHAT IS NOT. Only `draft`, `review` and `answer` are language models. The five
 other nodes are `Computed`: ordinary Python behind the same interface, so the graph is uniform
 while the criteria stay in code where nothing can negotiate with them.
 
@@ -21,6 +21,10 @@ while the criteria stay in code where nothing can negotiate with them.
              nothing it ranges over can break                            (author.preflight)
   score      GATE, adversarial: does the property hold of every BROKEN version of the policy too?
              If so it constrains nothing                          (author.score, author.assess)
+  review     MODEL, a THIRD one, shown ONLY the brief and `explain`'s plain-English reading of
+             the claim -- never the formal claim, never the policy. The one gate that compares the
+             property against the REQUIREMENT rather than against the policy, and the only one
+             with no oracle: it may REJECT, and its agreement is reported as an agreement
   check      the checks actually run             (repair.run_checker, repair.check_property)
   answer     MODEL, a DIFFERENT one. Answers in prose from the verdicts
   report     findings.md, on every path including both rejections
@@ -62,7 +66,30 @@ from annotations import VERDICT_PASS, verdict                          # noqa: E
 
 from agent import author, repair                                       # noqa: E402
 
-STAGES = ("describe", "draft", "preflight", "score", "check", "answer", "report")
+STAGES = ("describe", "draft", "preflight", "score", "review", "check", "answer", "report")
+
+# `hitl` adds ONE node, between the last gate a model can pass and the checks themselves: the
+# person is shown what the claim forbids and says whether that is what they meant. It sits there
+# rather than at the end because a misread requirement confirmed by TLC is still a misread
+# requirement, and the reading costs milliseconds while the checks cost minutes. See
+# `agent.hitl.stage_confirm`; the graph is otherwise the same shape, and the same properties are
+# re-proved over it.
+HITL_STAGES = STAGES[:5] + ("confirm",) + STAGES[5:]
+
+REVIEWER_PROMPT = (
+    "You are given a REQUIREMENT in plain English, and a plain-English reading of a formal claim "
+    "somebody wrote to capture it. Your only job is to say whether the second says what the first "
+    "says.\n\n"
+    "YOU CANNOT SEE THE FORMAL CLAIM ITSELF, and that is deliberate. You are checking a "
+    "translation, not reviewing code.\n\n"
+    "Answer on the first line with exactly `VERDICT: MATCH` or `VERDICT: MISMATCH`, then say why "
+    "in two or three sentences.\n\n"
+    "Say MISMATCH when the reading is about a different action, a different direction (permitting "
+    "where the requirement forbids, or the reverse), a different threshold or window, or when it "
+    "omits a condition the requirement states. Pay attention to WHICH VALUES it says it examines: "
+    "a requirement about amounts over $500 that is checked only at $100 and $200 is not that "
+    "requirement. Small wording differences are fine; a difference that would let something "
+    "through is not.")
 
 ANSWERER_PROMPT = (
     "You report formal verification results to the person who owns the policy. You are given a "
@@ -194,7 +221,20 @@ class Run:
     round: int = 0
     attempts: list[str] = field(default_factory=list)
     exhausted: bool = False
+
+    # WHAT A PERSON PUT IN, and it is empty in `auto`. `carried` is what the last attempt was told
+    # by the gate that rejected it, so a new attempt does not have to rediscover it; the other two
+    # are `hitl`'s record of a human in the loop, carried here rather than kept beside it because
+    # `report` is the thing that must not be able to omit them. A property shaped by three answers
+    # from the person who asked for it is a different artifact from one drafted unattended, and a
+    # findings.md that does not say so is overstating what ran.
+    carried: str = ""
+    clarifications: list[tuple[str, str]] = field(default_factory=list)
+    confirmed: bool = False
+
     decision: str = ""           # varies / constant / skipped, from the decision probe
+    review: str = ""             # match / mismatch / no answer / skipped
+    review_said: str = ""
 
     # Per-invocation caps on the agent loop: turns / total_tokens / output_tokens. Empty means no
     # cap. NOT cumulative across calls -- `rounds` rounds of `turns` turns is the product, which is
@@ -202,6 +242,7 @@ class Run:
     limits: dict[str, int] = field(default_factory=dict)
     capped: list[str] = field(default_factory=list)
     crashed: list[str] = field(default_factory=list)
+    unreachable: list[str] = field(default_factory=list)
     calls: list["Call"] = field(default_factory=list)
 
     vocab: dict = field(default_factory=dict)
@@ -258,7 +299,17 @@ def ask(agent, prompt: str, run: Run, who: str) -> tuple[str, bool]:
     what it returns is a truncated answer. Here somebody looks.
     """
     started = time.monotonic()
-    result = agent(prompt, **({"limits": run.limits} if run.limits else {}))
+    try:
+        result = agent(prompt, **({"limits": run.limits} if run.limits else {}))
+    except Exception as e:                                  # noqa: BLE001 - reported, not raised
+        # THE MODEL COULD NOT BE REACHED, which is NOT a defect in Anchor -- a wrong model id, a
+        # missing key, a region that does not carry the model, a quota. Caught here rather than by
+        # the stage's generic handler because that one says "a stage of Anchor itself failed" and
+        # sends the reader to the wrong place: a run with `--model gemini-3.7-flash` reported five
+        # Anchor bugs for what was a 404 on the model name.
+        run.unreachable.append(f"{who}: {e}")
+        run.calls.append(Call(who, seconds=time.monotonic() - started, capped=True))
+        return "", True
     elapsed = time.monotonic() - started
 
     tokens = spent(result)
@@ -313,7 +364,10 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
     run.out.mkdir(parents=True, exist_ok=True)
     scratch = run.out / f"{run.module_name}.tla"
 
-    feedback = ""
+    # Empty in `auto`. In `hitl` this is what the PREVIOUS pass was rejected for, so round 1 of a
+    # new pass starts where the last one left off instead of repeating its mistake and spending a
+    # round being told about it again.
+    feedback = run.carried
     for attempt in range(1, max(1, run.rounds) + 1):
         run.round = attempt
         # BUILT FROM THE VOCABULARY, never from what the parent node said. `describe` emits a
@@ -327,6 +381,13 @@ def stage_draft(run: Run, asked: str, drafter) -> str:
         # A CAPPED DRAFT IS A FAILED ROUND, not a draft. Left alone it would reach the gates as a
         # half-written module, be rejected for not compiling, and the report would blame the model
         # for a syntax error that was really a budget running out.
+        # No point spending the allowance on an endpoint that is not answering.
+        if run.unreachable:
+            run.rejected_at = "draft"
+            run.complaints = ["the model could not be reached: "
+                              + "; ".join(run.unreachable)[-600:]]
+            return ""
+
         if cut:
             feedback = ("Your reply was cut off before it finished -- a budget cap was reached. "
                         "Return the two files and nothing else: no commentary, no explanation, "
@@ -455,6 +516,48 @@ def stage_score(run: Run, _: str) -> str:
                       f"this policy that were tried")
 
 
+def stage_review(run: Run, _: str, reviewer) -> str:
+    """Does the property say what the BRIEF said? A third agent, shown only the two English texts.
+
+    THE ONE THING NO OTHER GATE ASKS. Every check before this one compares the property against the
+    POLICY -- does it compile, does it evaluate, does the decision vary, does it catch a mutant.
+    None of them compares it against the REQUIREMENT, so a property can pass all of them and be
+    about the wrong rule entirely.
+
+    BLINKERED ON PURPOSE. The reviewer gets the brief and `explain`'s reading of the claim, and
+    never the TLA+ or the policy. Shown the module it would re-read the drafter's reasoning and
+    agree with it, which is the same self-certification the drafter/answerer split exists to stop.
+
+    AND IT CANNOT CERTIFY, ONLY REJECT. Every other gate is a criterion in code with an exact
+    answer; this one is a model's judgement, with no oracle behind it. So a MISMATCH stops the run
+    and a MATCH is reported as an agreement rather than a verification -- and an answer that comes
+    back in no recognisable form is treated as NOT REJECTED rather than as a failure, because
+    blocking on it would give this gate an authority it does not have.
+    """
+    if not run.explained.strip():
+        run.review = "skipped"
+        return gate(True, "no plain-English reading was available to review")
+
+    asked = (f"THE REQUIREMENT:\n\n{run.intent}\n\n"
+             f"THE READING OF THE FORMAL CLAIM WRITTEN TO CAPTURE IT:\n\n{run.explained}")
+    said, cut = ask(reviewer, asked, run, "the review")
+
+    verdict = "mismatch" if "MISMATCH" in said.upper() else (
+        "match" if "MATCH" in said.upper() else "no answer")
+    run.review, run.review_said = verdict, said
+
+    if verdict == "mismatch":
+        run.rejected_at = "review"
+        run.complaints = [f"a second model, shown only the requirement and the plain-English "
+                          f"reading of the claim, judged that they do not match:\n\n{said}"]
+        return gate(False, said)
+
+    if verdict == "no answer" or cut:
+        return gate(True, "the reviewer did not answer in the required form, so the round trip "
+                          "was NOT established; nothing was rejected on that basis")
+    return gate(True, said)
+
+
 def stage_check(run: Run, _: str) -> str:
     """The checks, run. Two invocations because `--property` REPLACES the derived questions."""
     # THE DERIVED QUESTIONS GET NO --max-fields, deliberately. They quantify over the product of
@@ -529,9 +632,25 @@ def stage_report(run: Run, said: str) -> str:
     run.findings = run.out / "findings.md"
 
     lines = [f"# {run.policy.name}", "", f"**Stated intention.** {run.intent}", ""]
+    # WHAT A PERSON PUT IN, before any verdict. Every claim below is read differently depending on
+    # whether the requirement arrived whole or was assembled over four rounds of being told what
+    # was wrong with the last one -- and only this section can tell the two apart. In `auto` it is
+    # empty and nothing is printed.
+    if run.clarifications:
+        lines += [f"**A person was asked about this requirement {len(run.clarifications)} "
+                  f"time(s), and the answers are part of it:**", ""]
+        lines += [f"- *{q}* — {a}" for q, a in run.clarifications]
+        lines += [""]
     # A CRASHED STAGE FIRST OF ALL. It is caught rather than raised so that this file exists at
     # all -- an exception would abort the run and write nothing -- but it is a defect in Anchor,
     # not a finding about the policy, and must not be read as one.
+    if run.unreachable:
+        lines += ["> **The model could not be reached, so nothing was drafted or checked.**",
+                  "> This is a configuration problem -- a model id, a key, a region, a quota --",
+                  "> not a defect in Anchor and not a finding about your policy.", ">"]
+        lines += [f"> - {u}" for u in run.unreachable]
+        lines += [""]
+
     if run.crashed:
         lines += ["> **A stage of Anchor itself failed during this run.** This is a bug in Anchor,",
                   "> not a finding about your policy, and whatever appears below is incomplete.",
@@ -551,9 +670,20 @@ def stage_report(run: Run, said: str) -> str:
                   + (", and the allowance ran out -- what follows is the last attempt, judged by "
                      "the same gates as any other." if run.exhausted else ".") + "*", ""]
     if run.rejected_at:
+        # WHOSE JUDGEMENT STOPPED IT. Six of the gates are criteria in code with exact answers,
+        # `review` is a model's opinion, and `confirm` is the person's -- and a reader deciding
+        # whether to argue with the verdict needs to know which of the three they are arguing with.
+        # Said generically, this line claimed all three were code.
+        whose = {"review": "The gate below is a second model's judgement about whether the claim "
+                           "says what the requirement says. It has no oracle behind it, and it is "
+                           "the one gate here a person may overrule.",
+                 "confirm": "The gate below is the PERSON'S: they were shown, in plain English, "
+                            "what the claim forbids, and said it is not what they meant. No tool "
+                            "disagreed with the draft."}.get(
+            run.rejected_at,
+            "The gate below is a criterion in code, not a judgement a model was asked to make.")
         lines += [f"## No property was checked: the draft was rejected at `{run.rejected_at}`", "",
-                  "The gate below is a criterion in code, not a judgement a model was asked to "
-                  "make. Nothing downstream ran, and nothing here was verified.", ""]
+                  f"{whose} Nothing downstream ran, and nothing here was verified.", ""]
         lines += [f"- {c}" for c in run.complaints]
     else:
         # `said` is what the ANSWERER said -- report's parent on this path. The verdicts it was
@@ -570,14 +700,49 @@ def stage_report(run: Run, said: str) -> str:
                if caught is not None else
                "kept because it does not hold on the policy as written -- it has already shown "
                "it can tell one policy from another, so it was not scored against mutants")
+        # WHAT THE ROUND TRIP ESTABLISHED, and it is deliberately modest. Every other line in this
+        # report rests on a criterion in code; this one rests on a model agreeing with another
+        # model, so it is reported as an agreement and never as a verification.
+        trip = {
+            "match": "A second model, shown only the requirement and the plain-English reading of "
+                     "the claim — never the formal claim itself — judged that they match. That is "
+                     "an agreement between two models, not a proof that the claim captures the "
+                     "requirement.",
+            "no answer": "The round trip was **not established**: the reviewing model did not "
+                         "answer in the required form. Nothing was rejected on that basis, and "
+                         "nothing was confirmed either.",
+            "skipped": "The round trip was not attempted.",
+        }.get(run.review, "")
+
         lines += ["## What was checked", "", f"`{run.module_name}.tla`, drafted from the "
-                  f"intention above and {why}.", "",
-                  "## Verdicts", "", "```", run.checked.strip(), "```", "",
+                  f"intention above and {why}.", ""]
+        if trip or run.confirmed:
+            lines += ["### Does it say what you asked for?", ""]
+            # THE PERSON FIRST, because their answer is the better evidence and because putting the
+            # two models' agreement above it would read as the stronger finding. Still stated
+            # exactly: they read a plain-English reading of the claim, not the claim.
+            if run.confirmed:
+                lines += ["**A person was shown, in plain English, what this claim forbids, and "
+                          "confirmed it is what they meant — before anything was checked.** They "
+                          "did not read the formal claim, so what they confirmed is the reading "
+                          "of it; the two are generated from the same module and the reading is "
+                          "the part a person can audit.", ""]
+            if trip:
+                lines += [trip, ""]
+        lines += ["## Verdicts", "", "```", run.checked.strip(), "```", "",
                   "## Reported", "", run.answered]
 
-    lines += ["", "---", "", "*A property drafted by a model and gated by Anchor. Findings "
-              "against an agent-authored property are weaker evidence than findings against one "
-              "a person wrote.*", ""]
+    # AND WHAT THIS DOCUMENT IS ALLOWED TO CLAIM. Both readings end in the same place -- nobody
+    # wrote the property -- but a run a person steered is not an unattended one, and a footer that
+    # said so either way would be wrong in one of the two directions every time.
+    lines += ["", "---", "",
+              "*A property drafted by a model and gated by Anchor. A person stated the requirement "
+              "and confirmed a plain-English reading of the claim, which is better evidence than "
+              "an unattended run and is still not a person having written the property.*"
+              if run.confirmed else
+              "*A property drafted by a model and gated by Anchor. Findings against an "
+              "agent-authored property are weaker evidence than findings against one a person "
+              "wrote.*", ""]
 
     run.findings.write_text("\n".join(lines), encoding="utf-8")
     return f"wrote {run.findings}"
@@ -637,31 +802,47 @@ def computed(run: Run, fn, name: str) -> Agent:
     return Agent(model=Computed(run, fn, name), callback_handler=None, name=name)
 
 
-def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None, *,
-          max_node_executions: int | None = None, node_timeout: float | None = None):
+def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
+          reviewer: Agent | None = None, *, provider: str = "auto", model: str | None = None,
+          max_node_executions: int | None = None, node_timeout: float | None = None,
+          confirm=None):
     """The graph. `gated` from tests/strands/anchor_workflow.py, wired to the real stages.
 
     The two agents are injected so the pipeline can be exercised without a provider -- and so that
     they are visibly two objects. `GraphBuilder` refuses one instance as two nodes, which is the
     separation enforced rather than intended.
+
+    `confirm` is `hitl`'s one extra gate, `fn(run, text) -> str` returning a `gate()` verdict, and
+    it goes between `review` and `check`. Optional and absent by default, so `auto` builds exactly
+    the graph it always did -- an extra node would change the shape that
+    `tests/strands/anchor_workflow.py` chose, and the whole point of that exercise is that the
+    shape which runs is the shape that was checked. With it the graph is the SAME SHAPE with one
+    more gate on the same pattern, and `AlwaysReports` is re-proved over it rather than assumed.
     """
-    if drafter is None or answerer is None:
-        from agent.policy_agent import build_model                     # noqa: PLC0415
+    if drafter is None or answerer is None or reviewer is None:
+        from agent.policy_agent import build_model as _build           # noqa: PLC0415
+
+        def build_model():
+            return _build(provider, model)
+
         # TWO models, deliberately built twice. Sharing one object would share whatever state it
         # carries, and the separation this graph exists for is about what the answerer has seen.
         drafter = drafter or Agent(model=build_model(), callback_handler=None,
                                    system_prompt=author.DRAFTER_PROMPT, name="draft")
         answerer = answerer or Agent(model=build_model(), callback_handler=None,
                                      system_prompt=ANSWERER_PROMPT, name="answer")
+        reviewer = reviewer or Agent(model=build_model(), callback_handler=None,
+                                     system_prompt=REVIEWER_PROMPT, name="review")
 
     describe_ok, describe_no = verdict("describe")
     preflight_ok, preflight_no = verdict("preflight")
+    review_ok, review_no = verdict("review")
     score_ok, score_no = verdict("score")
 
     # THE SEPARATION, asserted here because the graph no longer gets it free. While `draft` was
     # the drafting Agent itself, GraphBuilder refused one instance as two nodes; now that the
     # retry loop wraps it, the drafter is not a node and nobody else is checking.
-    if drafter is answerer:
+    if drafter is answerer or drafter is reviewer or answerer is reviewer:
         raise ValueError("the agent that drafts the property cannot be the agent that reports on "
                          "it: asked for both, a model finds a trivial property the cheapest way "
                          "to pass, and a reporter that wrote the claim is not reviewing it")
@@ -676,7 +857,7 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     # Deliberately NOT set_execution_timeout: the `score` gate runs TLC once per mutant, and a
     # wall-clock bound would turn a slow-but-correct check into a stopped run with no report, for
     # the same reason. `author.score` carries its own timeout, where what is being timed is known.
-    b.set_max_node_executions(max_node_executions or len(STAGES) * 2)
+    b.set_max_node_executions(max_node_executions or len(HITL_STAGES) * 2)
     if node_timeout is not None:
         b.set_node_timeout(node_timeout)
 
@@ -684,6 +865,7 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     b.add_node(computed(run, lambda r, t: stage_draft(r, t, drafter), "draft"), "draft")
     b.add_node(computed(run, stage_preflight, "preflight"), "preflight")
     b.add_node(computed(run, stage_score, "score"), "score")
+    b.add_node(computed(run, lambda r, t: stage_review(r, t, reviewer), "review"), "review")
     b.add_node(computed(run, stage_check, "check"), "check")
     b.add_node(computed(run, lambda r, t: stage_answer(r, t, answerer), "answer"), "answer")
     b.add_node(computed(run, stage_report, "report"), "report")
@@ -693,8 +875,20 @@ def build(run: Run, drafter: Agent | None = None, answerer: Agent | None = None,
     b.add_edge("draft", "preflight")
     b.add_edge("preflight", "score", condition=preflight_ok)
     b.add_edge("preflight", "report", condition=preflight_no)
-    b.add_edge("score", "check", condition=score_ok)
+    b.add_edge("score", "review", condition=score_ok)
     b.add_edge("score", "report", condition=score_no)
+    b.add_edge("review", "report", condition=review_no)
+    if confirm is None:
+        b.add_edge("review", "check", condition=review_ok)
+    else:
+        # ONE MORE GATE ON THE SAME PATTERN, which is why it costs nothing to reason about: a
+        # `verdict()` pair like the other four, one arm to the work and one arm to the report, and
+        # no new edge into anything that did not already have one.
+        confirm_ok, confirm_no = verdict("confirm")
+        b.add_node(computed(run, confirm, "confirm"), "confirm")
+        b.add_edge("review", "confirm", condition=review_ok)
+        b.add_edge("confirm", "check", condition=confirm_ok)
+        b.add_edge("confirm", "report", condition=confirm_no)
     b.add_edge("check", "answer")
     b.add_edge("answer", "report")
     b.set_entry_point("describe")
@@ -742,7 +936,7 @@ def read_intents(path: Path) -> dict[str, str]:
 
 
 def sweep(target: Path, intents: dict[str, str], *, out: Path | None = None,
-          build_graph=None, **kw) -> list[Run]:
+          build_graph=None, report=None, **kw) -> list[Run]:
     """One pipeline per stated intent. Returns a Run each.
 
     TWO SHAPES, because policies come both ways:
@@ -760,14 +954,28 @@ def sweep(target: Path, intents: dict[str, str], *, out: Path | None = None,
     runs: list[Run] = []
     base = out or (target if target.is_dir() else target.parent) / "anchor"
 
+    # REPORTED AS EACH ONE LANDS, not collected and printed at the end. A sweep is minutes per
+    # policy; printing the table afterwards means the whole run shows nothing at all until it is
+    # over, and "is it stuck or working?" is exactly the question a long run should answer.
+    def done(label: str, run: Run) -> Run:
+        runs.append(run)
+        if report is not None:
+            report(label, run)
+        return run
+
     if target.is_dir():
         for policy in sorted(target.glob("*.dw")):
             if (intent := intents.get(policy.name)):
-                runs.append(_one(policy, intent, base / policy.stem, "Intent", build_graph, kw))
+                if report is not None:
+                    report(policy.name, None)
+                done(policy.name,
+                     _one(policy, intent, base / policy.stem, "Intent", build_graph, kw))
         return runs
 
     for label, intent in intents.items():
-        runs.append(_one(target, intent, base / label, module_name_for(label), build_graph, kw))
+        if report is not None:
+            report(label, None)
+        done(label, _one(target, intent, base / label, module_name_for(label), build_graph, kw))
     return runs
 
 
@@ -781,8 +989,15 @@ def _one(policy: Path, intent: str, out: Path, module: str, build_graph, kw) -> 
 
 def outcome(run: Run) -> str:
     """One line on what happened, in the order a reader cares about."""
+    if run.unreachable:
+        return "MODEL UNREACHABLE"
     if run.crashed:
         return "ANCHOR FAILED"
+    if run.rejected_at == "confirm":
+        # NOT "rejected at confirm". Every other gate refusing a draft is Anchor turning something
+        # away; this one is the person saying the claim is not what they meant, which is the mode
+        # working rather than the draft failing.
+        return "the person said this is not what they meant"
     if run.rejected_at:
         return f"no property (rejected at {run.rejected_at})"
     if run.prop.get("_failed"):
@@ -840,6 +1055,13 @@ def main() -> int:
                         "over the product of every field domain and do not finish above the "
                         "default, so they are left to refuse instead")
     p.add_argument("--name", default="Intent", help="the property module's name")
+    # THE MODEL MATTERS MORE THAN ANY GATE HERE. Drafting a TLA+ property module is the hardest
+    # thing this pipeline asks of a model, and the default is a small fast one -- every gate below
+    # exists because a weak draft is the norm, not because the gates are the interesting part.
+    p.add_argument("--provider", default="auto", help="auto, bedrock or gemini")
+    p.add_argument("--model", default=None,
+                   help="model id. Defaults to the provider's own default (gemini-2.5-flash for "
+                        "Gemini), which is a small model for a hard task")
     p.add_argument("--rounds", type=int, default=3,
                    help="drafting attempts. A round costs one model call plus ~1s of SANY; "
                         "running out still reports (default: 3)")
@@ -895,13 +1117,23 @@ def main() -> int:
 
         print(f"sweeping {len(intents)} intent(s) against {args.policy} (this makes live model "
               f"calls)\n", file=sys.stderr)
-        runs = sweep(args.policy, intents, out=out, **per_run)
+        def progress(label: str, run: Run | None) -> None:
+            if run is None:
+                print(f"  {label:<32} ...", end="\r", file=sys.stderr, flush=True)
+                return
+            spent = sum(c.total for c in run.calls)
+            print(f"  {label:<32} {outcome(run):<34} {spent:>7,} tokens, {run.round} round(s)",
+                  file=sys.stderr, flush=True)
+
+        runs = sweep(args.policy, intents, out=out, report=progress,
+                     build_graph=lambda r: build(r, provider=args.provider, model=args.model),
+                     **per_run)
 
         out.mkdir(parents=True, exist_ok=True)
         summary = out / "summary.md"
         summary.write_text(sweep_report(args.policy, intents, runs), encoding="utf-8")
-        for label, r in zip(intents, runs):
-            print(f"  {label:<32} {outcome(r)}", file=sys.stderr)
+        print(f"\n{sum(sum(c.total for c in r.calls) for r in runs):,} tokens over "
+              f"{sum(len(r.calls) for r in runs)} model calls", file=sys.stderr)
         print(summary)
         return 1 if any(r.crashed or r.rejected_at for r in runs) else 0
 
@@ -912,8 +1144,8 @@ def main() -> int:
     run = Run(policy=args.policy, intent=args.intent,
               out=args.out or args.policy.parent / "anchor", **shared)
 
-    graph = build(run, max_node_executions=args.max_node_executions,
-                  node_timeout=args.node_timeout)
+    graph = build(run, provider=args.provider, model=args.model,
+                  max_node_executions=args.max_node_executions, node_timeout=args.node_timeout)
     result = graph(f"State and check the intention for {args.policy.name}.")
 
     append_usage(run, result)

@@ -3,100 +3,70 @@ EXTENDS Integers, Sequences, FiniteSets, PolicyUnderTest
 
 D == INSTANCE DogwoodSemantics WITH Cases <- << >>
 
-(* Constants for time calculations *)
 Minute == 60
-HalfHour == 30 * Minute
 
-(* Helper functions to construct events *)
-(* An approval event, where the approval was granted.
-   `approved: TRUE` is an output field of the `request_approval` action. *)
-ApprovedRequestApproval(chargeId, time) == 
-    Ev("request_approval", "response", NoFields, [approved |-> Bool(TRUE)], time)
+AmountsOver500 == {Num(2500), Num(2501)}
+AmountsUnderOrEqualTo500 == {Num(499), Num(500)}
+AmountValues == AmountsUnderOrEqualTo500 \cup AmountsOver500
+ChargeIdValues == {Num(1), Num(2)}
+GapValues == {10 * Minute, 30 * Minute, 45 * Minute}
 
-(* A refund request event. *)
-IssueRefund(amountVal, chargeId, time) ==
-    Ev("issue_refund", "request", [amount |-> amountVal, charge_id |-> chargeId], NoFields, time)
+VARIABLE amount, gap, hasApproval, isApproved, approvalChargeId, refundChargeId
+vars == << amount, gap, hasApproval, isApproved, approvalChargeId, refundChargeId >>
 
-(* Added: Verification event, as a common prerequisite that many policies require before other actions.
-   This helps address the "CONSTANT decision" error by providing necessary context for the policy
-   to potentially grant the refund. *)
-VerifyIdentity(time) ==
-    Ev("verify_identity", "request", NoFields, NoFields, time)
+InputRec(acc, amt, cid, timeVal) ==
+  [account |-> acc, amount |-> amt, charge_id |-> cid, systemNowTime |-> timeVal]
 
-(* A session composed of verification, approval, then refund.
-   All events must be in time order. *)
-RefundSession(verificationTime, approvalTime, refundTime, amountVal, chargeId) ==
-    << VerifyIdentity(verificationTime),
-       ApprovedRequestApproval(chargeId, approvalTime), 
-       IssueRefund(amountVal, chargeId, refundTime) >>
+OutputRec(app, ver) ==
+  [approved |-> Bool(app), verified |-> Bool(ver)]
 
-(* The policy's decision for the refund event (the third event, index 3) in the session. *)
-RefundAllowed(verificationTime, approvalTime, refundTime, amountVal, chargeId) ==
-    D!Decide(RefundSession(verificationTime, approvalTime, refundTime, amountVal, chargeId), Policies, 3, AllValues)
+VerifyInput == InputRec(Num(1), Num(500), Num(1), Num(32400000))
+VerifyOutput == OutputRec(FALSE, TRUE)
 
-(***************************************************************************)
-(* THE REQUESTS THIS CLAIM IS ABOUT.                                       *)
-(* Values chosen to test the boundaries of the policy.                     *)
-(***************************************************************************)
-(* Amounts to test: below, at, and above the $500 threshold. *)
-amountValues == {Num(499), Num(500), Num(501), Num(2500), Num(2501)}
-chargeIdValues == {Num(1), Num(2)}
+ApprovalInput(cid, amt) == InputRec(Num(1), amt, cid, Num(32400000))
+ApprovalOutput(app) == OutputRec(app, FALSE)
 
-(* Time differences (deltaT = refundTime - approvalTime) between approval and refund.
-   Must be non-negative for approval to precede or coincide with the refund.
-   Values cover: exact same time, within window, at window boundary, just outside, and well outside. *)
-deltaTValues == {
-    0,                                (* Approval and refund at same time *)
-    1,                                (* Approval 1 second before refund *)
-    HalfHour \div 2,                  (* Approval in middle of window (integer division) *)
-    HalfHour - 1,                     (* Approval just before window end *)
-    HalfHour,                         (* Approval exactly at window end (30 minutes) *)
-    HalfHour + 1,                     (* Approval just outside window (> 30 minutes) *)
-    HalfHour + 10 * Minute            (* Approval well outside window *)
-}
+RefundInput(cid, amt) == InputRec(Num(1), amt, cid, Num(32400000))
+RefundOutput == OutputRec(FALSE, FALSE)
 
-(* Variables that define the state space for model checking *)
-VARIABLE amount_var, charge_id_var, deltaT_var
+VerifyEvent ==
+  Ev("verify_identity", "response", VerifyInput, VerifyOutput, 1)
 
-(* Initial state: each variable takes one value from its defined domain *)
-Init == 
-    amount_var \in amountValues /\
-    charge_id_var \in chargeIdValues /\
-    deltaT_var \in deltaTValues
+ApprovalEvent(cid, amt, app, t) ==
+  Ev("request_approval", "response", ApprovalInput(cid, amt), ApprovalOutput(app), t)
 
-(* Next state: variables remain unchanged, as we test one scenario (request) per state *)
-Next == UNCHANGED <<amount_var, charge_id_var, deltaT_var>>
+RefundEvent(cid, amt, t) ==
+  Ev("issue_refund", "request", RefundInput(cid, amt), RefundOutput, t)
 
-(* Specification: Start in an initial state, then stay in that state *)
-Spec == Init /\ [][Next]_<<amount_var, charge_id_var, deltaT_var>>
+Trace ==
+  IF hasApproval
+  THEN << VerifyEvent, ApprovalEvent(approvalChargeId, amount, isApproved, 100), RefundEvent(refundChargeId, amount, 100 + gap) >>
+  ELSE << VerifyEvent, RefundEvent(refundChargeId, amount, 100 + gap) >>
 
-(***************************************************************************)
-(* THE CLAIMS.                                                             *)
-(* "A refund over $500 requires a supervisor approval for that charge     *)
-(* within the previous 30 minutes."                                        *)
-(***************************************************************************)
-(* Common predicates used in the invariants *)
-IsRefundOver500 == amount_var > Num(500)
-ApprovalIsWithin30Minutes == deltaT_var <= HalfHour
-ApprovalIsOutside30Minutes == deltaT_var > HalfHour
+DecideIndex == IF hasApproval THEN 3 ELSE 2
 
-(* Define base times for the session:
-   Verification at t=1, approval at t=2, refund at t=2+deltaT_var.
-   This ensures verification always precedes approval, and all event times are >= 1. *)
-verificationBaseTime == 1
-approvalBaseTime == 2
-refundActualTime == approvalBaseTime + deltaT_var
+RefundAllowed == D!Decide(Trace, Policies, DecideIndex, AllValues)
 
-(* Invariant 1: If a refund is over $500 AND its required approval is older than 30 minutes,
-   then the policy MUST forbid this refund. *)
-RefundOver500WithOldApprovalIsForbidden ==
-    (IsRefundOver500 /\ ApprovalIsOutside30Minutes)
-    => ~RefundAllowed(verificationBaseTime, approvalBaseTime, refundActualTime, amount_var, charge_id_var)
+Init ==
+  /\ amount \in AmountValues
+  /\ gap \in GapValues
+  /\ hasApproval \in {TRUE, FALSE}
+  /\ isApproved \in {TRUE, FALSE}
+  /\ approvalChargeId \in ChargeIdValues
+  /\ refundChargeId \in ChargeIdValues
 
-(* Invariant 2: If a refund is over $500 AND its required approval happened within 30 minutes,
-   then the policy MUST permit this refund. *)
-RefundOver500WithRecentApprovalIsPermitted ==
-    (IsRefundOver500 /\ ApprovalIsWithin30Minutes)
-    => RefundAllowed(verificationBaseTime, approvalBaseTime, refundActualTime, amount_var, charge_id_var)
+Next == UNCHANGED vars
+Spec == Init /\ [][Next]_vars
+
+IsOver500(amt) == amt \in AmountsOver500
+
+HasValidApproval ==
+  /\ hasApproval
+  /\ isApproved
+  /\ approvalChargeId = refundChargeId
+  /\ gap <= 30 * Minute
+
+RefundOver500RequiresApproval ==
+  (IsOver500(amount) /\ ~HasValidApproval) => ~RefundAllowed
 
 =============================================================================

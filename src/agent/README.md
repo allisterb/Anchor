@@ -100,8 +100,10 @@ answer — and the run exits 1. **A loop that cannot fail is a loop that will no
 [`pipeline.py`](pipeline.py) is the whole of the above wired as a Strands `Graph`:
 
 ```
-describe ──> draft ──> preflight ──┬──> score ──┬──> check ──> answer ──> report
-                                   └────────────┴──────────────────────────^
+describe ─┬─> draft ─> preflight ─┬─> score ─┬─> review ─┬─> check ─> answer ─> report
+          │                        │          │           │                        ^
+          └────────────────────────┴──────────┴───────────┴────────────────────────┘
+                 every rejection still reports, and nothing raises
 ```
 
 **The agent that drafts the property is not the agent that answers with it.** Asked for both an
@@ -204,6 +206,73 @@ header comment so the transcription can be checked. **The drafter sees neither**
 it the generated vocabulary and nothing else.
 
 Writes `anchor/<policy>/findings.md` per policy and `anchor/summary.md` over the set.
+
+## `hitl` — the same pipeline with a person as one of the gates
+
+```bash
+python src/agent/hitl.py examples/aws1/07-trust-decay.dw \
+    --brief "After 15 minutes without advisor interaction, the agent loses write access."
+```
+
+[`hitl.py`](hitl.py) runs the pipeline autonomously and turns to a person only where
+autoformalisation has no oracle. Everything downstream of a property module is mechanical — does it
+compile, does the decision vary, does it catch a mutant, does it hold — and each of those is a
+criterion in code that cannot be talked out of its answer. Everything *upstream* is somebody saying
+what they meant, and nothing here can check a property against an intention nobody wrote down. A
+live sweep over `agent-policy.dw` accepted **one requirement in five**, and the four that failed
+failed on the semantic gate rather than on syntax: well-formed statements of something the brief
+did not quite say.
+
+```
+brief ─> [ the graph ] ─> passed? ─ yes ─> checked, and reported
+           ^                 │
+           └── clarify ──────┘        bounded by --refinements, and every exit reports
+```
+
+**The person is never shown TLA+.** Each gate already knows what went wrong in terms of the policy
+and the brief; `ask_about` turns that into a question about the *requirement*, and the answer is
+appended to the brief before the graph runs again.
+
+| what fired | what the person is asked |
+|---|---|
+| the decision never varies | *what has to have happened BEFORE the request you care about?* |
+| the claim cannot fail | *which exact values should this be checked at?* |
+| it catches no mutant | *name one thing this policy must never allow* |
+| the reviewer disagrees | both texts, side by side — and `keep` **overrules** it |
+| the allowance ran out | say it again, with the policy's own vocabulary shown |
+
+The order is the diagnosis: a policy that refuses everything the property names *also* fails
+mutation scoring, and "what would a broken policy do" is unanswerable while the real answer is a
+missing prior approval. What no clarification can fix — an unreachable model, an unparseable
+policy, a bug in Anchor — is **not** put to a person; the loop stops and says so.
+
+**One extra node, `confirm`, between `review` and `check`.** The person is shown, in plain English,
+what the claim forbids, *before* any TLC runs — the one step that can catch a property which is
+well-formed, discriminating, agreed to by a second model, and about the wrong rule. It costs
+milliseconds because `explain` is already in hand from `preflight`.
+
+**The loop is outside the graph**, for the same reason `draft`'s retry is inside one node: a retry
+is a cycle. Each attempt is one whole acyclic run of the checked shape, and
+[`tests/strands/hitl_loop.py`](../../tests/strands/hitl_loop.py) re-proves `AlwaysReports` over the
+graph `build_hitl()` returns — five exclusive decisions now, not four — rather than inheriting it
+from a graph this one is no longer identical to.
+
+**The I/O is injected**, which is load-bearing rather than tidy: `Console` is three methods, and
+the harness drives the whole mode with a scripted person and no provider at all. `Terminal` is
+stdlib `print`/`input` writing to **stderr**, because stdout carries the session report's path.
+Swapping it for a richer renderer touches that class and nothing else.
+
+| flag | default | note |
+|---|---|---|
+| `--refinements` | 4 | how many times the person may be asked before the session ends |
+| `--rounds` | 3 | drafting attempts *within* one pass, before the person is asked |
+
+Writes `anchor/attempt-N/findings.md` per attempt and `anchor/session.md` over the session —
+what was first asked for, what the person was asked and said, and a row per attempt. **Being in
+this mode is not a confirmation**: a session whose allowance ran out says so, and the footer
+credits the person only where they actually reached the checkpoint. It refuses to start without a
+terminal, because a mode that asks questions and reads EOF as an answer would spend a model call
+per attempt talking to nobody.
 
 ## Drafting a property, and the two gates on it
 
