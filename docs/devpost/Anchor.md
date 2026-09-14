@@ -8,8 +8,9 @@ The recent explosion of autonomous AI-driven security compromises and AI model s
 The deployment of autonomous AI systems across safety-critical cloud
 architectures, financial protocols, distributed enterprise workflows etc. as well as the use of autonomous AI agents for vulnerability scanning and exploitation has exposed fundamental limits in conventional validation of distributed system code and policies. Standard testing methods such as unit testing or fuzzing or manual peer review fail to guarantee correctness across all possible inputs that an AI could use, and also fail to keep up with the rapid rate of code production by AI agents. This divergence introduces security-critical vulnerabilities, including authorization bypasses, privilege escalation, and unintended execution pathways. Enforcing boundaries between distributed systems and verifying the correctness of policies that define those boundaries as well as verifying the behavior of AI agents that interpret, author, and refactor these policies, has never been more critical for the software world. 
 
-Modern distributed systems infrastructure increasingly decouples governance rules and policies from underlying application code into domain-specific policy languages such as AWS's Cedar and Dogwood languages. Policies that control security, authorization, and admission-control systems represent the operational domains that are simultaneously the most
-high-consequence to compromise and the most vulnerable to deliberate attacks by agents which can improvise and exhaustively explore input until they reach cases not covered by traditional testing methods..
+Modern distributed systems infrastructure increasingly decouples governance rules and policies from underlying application code into domain-specific policy languages such as AWS's Cedar and Dogwood languages. Policies that control security, authorization, and admission-control systems represent the operational domains that are simultaneously the most high-consequence to compromise and the most vulnerable to deliberate attacks by agents which can improvise and exhaustively explore input until they reach cases not covered by traditional testing methods..
+
+As agents become part of mission-critical distributed systems and as more software is being written by agents, the same tools humans use for verifying policies and software must be made available to agents themselves to allow them to autonomosly test and repair and give feedback on the policies and code they write in response to natural language instructions from humans. 
 
 ### AWS Dogwood policy language
 [Dogwood](https://aws.amazon.com/blogs/opensource/introducing-dogwood-runtime-verification-for-ai-agents/) is an open-source policy and governance language released by Amazon Web Services to control and verify AI agent behavior over time. Dogwood extendes the existing Cedar policy language with the following capabilities and features
@@ -22,11 +23,9 @@ high-consequence to compromise and the most vulnerable to deliberate attacks by 
 
  Dogwood is built directly into Amazon Bedrock AgentCore to monitor and restrict agent tool calls at the infrastructure layer. But Dogwood policies suffer from the same vulnerabilities as software: an incorrectly written and inadequately tested policy, either by humans or by AI coding agents, can be discovered and exploited by autonomous AI agents with an explict objective of finding vulnrabilities, or by legitimate agents without the correct architectural guardrails and workflows that allows them to autonomously improvise and find vulnerabilites and work around incorrectly written policies to achieve a business goal, to the detriment of security.
 
-(* Add Amazon AR checking of Dogwwod here and its limitations* )
+### AWS Dogwood automated reasoning
 
-
-As agents become part of mission-critical distributed systems and as more software is being written by agents, the same tools humans use for verifying policies and software must be made available to agents themselves to allow them to autonomosly test and repair and give feedback on the policies and code they write in response to natural language instructions from humans. 
-
+Dogwood is built on Cedar and the Dogwood CLI can compile a `.dw` policy set into ordinary Cedar policies plus an augmented schema. Automated reasoning and formal verification already exists for Cedar policies, and some AR also exists for Dogwood e.g. the `validate` CLI command checkes well-formedness and certain derived properties like vacuity. But no automated reasoning currently exists for Dogwood set or history relative reasoning i.e a large subset of the *semantics* of a temporal policy.
 
 
 ### Agentic formal verification as a defensive measure againt AI-driven explots
@@ -36,13 +35,26 @@ Agentic formal verification provides one answer to the velocity of AI-driven aut
 
 However agentic formal verification systems also have numerous failings and sources of incorrectness. Melding the inherently probalistic and improvisational and goal-driven nature of AI agents with the rigidity and critical correctness requirements of formal verification  require a careful design and gating to produce useful, valid results. A flawed formal verification result is worse than no result at all as it inspires a high-level of confidence in a policy where no such justification or even the inverse may exist.
 
-An agentic formal verification system built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of policy languages like Dogwood, and a valuable toolkit in the defensive arsenal of modern distributed systems against AI-driven attacks.
+An agentic formal verification system that models temporal policy semantics and built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of temporal policy languages like Dogwood, and a valuable toolkit in the defensive arsenal of modern distributed systems against AI-driven attacks.
 
 
 ## What it does
 Anchor is a agentic formal verification framework that uses the [TLA+](https://lamport.azurewebsites.net/tla/tla.html) formal specification language and model checker to formally verify Amazon Dogwood temporal policies, and provides a Strands SDK agent that allows humans to perform formal verification of these policies and code using natural language questions and prompts, without knowing the technical details of the formal verification framework or tools or theory.
 
 Anchor allows developers and engineers and administrators to use the benefits of formal verification without requiring the specialized knowledge and skills formal methods typically demands. It uses a graph-based Strands multi-agent workflow to try to address the [known issues](https://arxiv.org/html/2606.05792v1) in agentic formal verification.
+
+Anchor formal verification was able to find incorrectness in multiple policies posted in two AWS blog posts:
+
+Article: [Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/authoring-dogwood-policies-from-natural-language-in-amazon-bedrock-agentcore/)
+
+Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
+
+Article: [Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/authoring-dogwood-policies-from-natural-language-in-amazon-bedrock-agentcore/)
+Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
+
+Article: [*Securing AI agents with temporal policies in Amazon Bedrock
+AgentCore*](https://aws.amazon.com/blogs/machine-learning/securing-ai-agents-with-temporal-policies-in-amazon-bedrock-agentcore/)
+Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws1/findings.md)
 
 Anchor provides:
 
@@ -98,6 +110,7 @@ When an agent translates informal natural language requirements into formal spec
 Bounded Model Checking (BMC) like what the TLC checker does guarantees correctness only up to a fixed execution depth. If an autonomous agent relies solely on BMC to certify a loop or recursive policy rule, vulnerabilities lying at depth remain invisible, providing an incomplete
 guarantee of mathematical assurance. Anchor allows the user to explictly specify the bounds of BMC and the Anchor knowledge resources and each Anchor report always emphasizes the lack of a finding does not translate into a finding not existing.
 
+### Results
 
 ## How it works
 The Dogwood temporal policy formal verification in Anchor makes use of two main external toolsets:
@@ -124,7 +137,52 @@ The first `check` mode mechanically translates the Dogwood policy to TLA+ then r
 | `--against other.dw`: Does the difference between two policies cause a difference in policy decisions? | **THEY DIFFER** / no difference |
 
 ### Agentic Workflow
-(* Describe the agentic workflow and gates for auto and hitl mode *)
+`auto` and `hitl` are the same Strands `Graph` with one node's difference. A requirement written in
+English goes in; a property module, a verdict, and a report come out — and between them stand three
+**different** language models and four mechanical gates, any one of which can turn a draft away.
+
+```
+describe ─┬─> draft ─> preflight ─┬─> score ─┬─> review ─┬─> check ─> answer ─> report
+          │                       │          │           │                        ^
+          └───────────────────────┴──────────┴───────────┴────────────────────────┘
+                 every rejection still reports, and nothing raises
+```
+
+| node | what it is | what it decides |
+|---|---|---|
+| `describe` | code | the vocabulary the property may name, generated **from the policy** by the checker |
+| `draft` | **model** | proposes a `.tla` module and its `.cfg` |
+| `preflight` | code, static gate | an invariant the `.cfg` names but the module never defines; a claim that nothing it ranges over can break |
+| `score` | code, adversarial gate | breaks the policy on purpose and re-checks. A property that still holds of *every* broken policy constrains nothing |
+| `review` | **model**, a third one | shown only the brief and a plain-English reading of the claim — never the formal claim, never the policy. The one gate that compares the property against the **requirement** |
+| `check` | code | the checks actually run: the derived questions, and the property against the policy |
+| `answer` | **model**, a different one | states in prose what the verdicts established |
+| `report` | code | `findings.md`, on every path including both kinds of rejection |
+
+Three properties of this shape are what make the result worth anything:
+
+**The agent that drafts the property is not the agent that answers with it.** Asked to produce both
+an artifact and its specification, a model finds that a trivial specification is the cheapest way to
+pass — the vacuity trap described above. `GraphBuilder` enforces the separation structurally: one
+`Agent` instance cannot be two nodes, and neither sees the other's context.
+
+**The drafter never sees the policy's rule conditions.** `describe` hands it the generated
+vocabulary, the knowledge article on writing a property module, and the natural-language brief —
+nothing else. A property drafted from a policy is a restatement of that policy and will always pass;
+a property drafted from a *requirement* can disagree with the rules, which is the only way it can
+find anything.
+
+**A gate that rejects is not a failed node.** It completes, writes its verdict, and two `verdict()`
+edges route on it — declared as one decision, so the model checker that verifies this graph knows
+exactly one arm fires. Every exit writes a report, including the rejections.
+
+`hitl` inserts one more node, `confirm`, between `review` and `check`: before any model checker
+runs, the claim is read back to the person in plain English — what each invariant **forbids**, and
+how many of the states it ranges over its condition even applies to — and they say whether that is
+what they meant. When a gate turns a draft away, `hitl` asks the person about the **requirement**,
+never about TLA+, folds the answer into the brief, and runs the graph again, bounded by
+`--refinements`. This is the one boundary the literature identifies as having no oracle behind it,
+and it is the only place this mode puts a human.
 
 ## How we built it
 Anchor is written in C# and Python. 
@@ -142,10 +200,105 @@ Anchor is written in C# and Python.
 Anchor uses .NET to host the TLA+ language tools which are written in Java. The SANY parser the MCP tools use is an IKVM .NET [port](https://github.com/allisterb/Anchor/blob/master/src/Anchor.Verifiers.TLAPlus/Anchor.Verifiers.TLAPlus.csproj) of the Java tlatools library. This allows the parser to be used as an ordinary in-process .NET library this is repeatedly called by the MCP tool used by the agent for TLA+ code generation without having to launch an external JVM process everytime. The TLC model checker isn't compatible with IKVM however and must still be launched as a command-line subprocesses.
 
 ### `translator`
-(* Describe implementation details of the translator module* )
+The premise is that **a model written by reading something is a paraphrase, and nothing checks a
+paraphrase.** So the artifact itself is the input, in both directions:
+
+```
+.dw text ──> parse ──> policy dicts ──> emit ──> TLA+ records ──┐
+               ▲                          ▲                     │
+         schema (pins)             trace (events)                ├──> tlc ──> a verdict
+                                                                 │
+GraphBuilder ──> Graph ──> strands_graph_to_tla ──> Workflow.tla ┘
+```
+
+| | |
+|---|---|
+| `parse.py` | a recursive-descent parser for the modelled Dogwood subset, written against the real `.pest` grammar in the Dogwood tree. It **refuses** anything outside the subset rather than guessing, and names the *feature* it declined rather than the token it tripped over. Macros are expanded here |
+| `schema.py` | reads an `event.dwschema` for the one thing in it that changes what a policy *means*: a `pin`, which forces a field of every event to equal something about the decision. A policy can neither see nor bypass it, and declaring one on every event kind partitions the trace — so two identical policies with different schemas get different verdicts |
+| `emit.py` | the TLA+ data. Every value carries its kind, so TLC refuses a cross-kind comparison instead of quietly answering one |
+| `trace.py` | an event log into trace records; `@N` is seconds |
+| `tlc.py` | finds the tools jar and runs TLC out of process, with a private `java.io.tmpdir` per run so concurrent runs cannot corrupt each other's unpacked standard modules |
+| `strands_graph_to_tla.py` | walks a **live** Strands `Graph` into `Workflow.tla` |
+
+That last row is the second translation and the one that verifies Anchor itself. `GraphBuilder` is
+the construction API, so the graph object **is** the workflow the runtime executes — walking it is
+translation rather than inference. An edge condition is an opaque Python callable, and the
+translator does not guess what one means: a combinator that carries its own TLA+ predicate is
+meaning by construction, a user's declared assertion is emitted as a **hole listed in the generated
+module's header** rather than absorbed silently, and an undeclared condition becomes a
+nondeterministic edge about which nothing is claimed.
 
 ### `check`
-(* Describe implementation details of the check module* )
+`translator` decides what a policy *says*. `check` decides what *follows* from it, by asking TLC
+questions the policy text cannot answer about itself.
+
+| | |
+|---|---|
+| `properties.py` | the entry point and the exit codes. Runs the derived questions, a `--property` module, or both; `--against` compares two policies; `--smoke N` trades exhaustion for a random walk |
+| `explain.py` | reads a property module and says per claim what it **forbids**, which states it will be checked in, and how many of those its condition even applies to. Runs no model checker. This is what `hitl` reads back to the person, and what the reviewing model is shown instead of the formal claim |
+| `witness.py` | turns a counterexample back into the user's own language: the concrete session it stands for, rendered as a Dogwood `.log` trace |
+| `engine.py` | the reference engine, asked the two questions only it can answer |
+
+**The polarity is inverted, and that is the subtle part.** TLA+ is linear-time and has no `EF`, so
+*can this rule ever grant anything* is asked by checking the negation and reading the violation as
+the witness. A TLC **violation** is therefore the good outcome, and the tool inverts it before
+printing, because the raw reading is a trap. It also means `--smoke` is backwards from every other
+smoke test: a random walk that finds a witness is a **sound positive** — a witness is a witness
+however it was reached — while finding none is not a verdict and never means the rule is inert.
+
+**`VACUOUS` is the answer that must never be wrong**, since it tells somebody a control is dead and
+the obvious response is to delete it. It is falsification-tested rather than merely observed, and
+anything that is not an answer — a parse error, an unsupported construct — raises rather than
+reporting vacuous.
+
+`engine.py` is where the real Dogwood binary comes in, and it settles two things our own parser
+cannot settle about itself. Our parser reads a subset, so a refusal has two meanings with one
+message — *this construct is outside the subset* versus *this policy is broken* — and `dogwood
+check-parse` distinguishes them for about 35 ms. And when a claim is `BROKEN`, the counterexample is
+carried back as a `.log` trace and put to `dogwood replay`, so the verdict shown beside the finding
+is **the reference engine's, not ours**. Everything here degrades to "not available" and says so
+when the binary is absent; it is never reported as a verification finding.
 
 ### `agent`
-(* Describe implementation details of the agent module.* Pay attention to how Strands SDK is used to implement the graph workflow and gates for the auto and hitl modes )
+The workflow above is a Strands `Graph`, built with `GraphBuilder`, and the SDK is doing three
+specific jobs rather than being a convenient way to call a model in a loop.
+
+**Nodes are the unit of separation, and the SDK enforces it.** `pipeline.build` adds `draft`,
+`review` and `answer` as three distinct `Agent` instances. `GraphBuilder` refuses to let one `Agent`
+be two nodes, so the drafter structurally cannot also be the reviewer or the answerer, and none of
+them inherits another's context. The alternative designs — one agent with three prompts, or agents
+exposed to each other as tools — both leave the model able to satisfy its own specification, which
+is the failure mode this whole structure exists to prevent.
+
+**Gates are ordinary Python behind the same interface.** `preflight`, `score`, `check`, `describe`
+and `report` are `Computed` nodes: they present as graph nodes so the graph is uniform, while the
+criteria stay in code where nothing can negotiate with them. Only three nodes in the graph are a
+model's decision, and the table above says which.
+
+**Routing is declared, not inferred.** A gate writes a verdict into its own result and two
+`verdict()` edges route on it. Those two edges are declared as **one decision**, which is what lets
+the graph itself be model-checked: `tests/strands/anchor_workflow.py` translates the live
+`GraphBuilder` output into TLA+ and checks four properties over it — among them that every path
+reaches `report`, and that no decision can fire both arms or neither. `hitl` adds the `confirm` node
+and is re-proved as its own graph rather than inheriting the result, because it is no longer the
+same object.
+
+Around the graph:
+
+| | |
+|---|---|
+| `pipeline.py` | the graph, the stages, and the `auto` entry point |
+| `hitl.py` | the refinement loop and the terminal I/O. The loop is **outside** the graph: it runs a whole graph per attempt, asks the person about whatever stopped it, and runs another |
+| `author.py` | the drafter's prompts, the preflight and mutation gates, and the assessment that turns a gate's output into a question about the requirement |
+| `drafting.py` | the drafter's own tools — compile this module, tell me what it forbids, evaluate this expression. Deliberately **not** the mutation scorer or the reviewer: a model that can run the gate it is being judged by will tune the property until it passes |
+| `repair.py` | the checker invocations |
+| `invoke.py` | a content-keyed memo over checker runs. Measured on a one-state model, **1.6s of every 2.0s TLC invocation is JVM startup**, so the only lever on a run's cost is invoking TLC fewer times |
+| `policy_agent.py` | the MCP client, and the model configuration — `--config` / `ANCHOR_APPSETTINGS`, provider selection between Bedrock and Gemini |
+
+The mutation gate is the one worth spelling out. `score` breaks the **policy** — deleting rules,
+inverting effects, dropping conditions — and re-runs the property against each broken version. A
+property that still holds of a policy with its protections removed is a property that constrains
+nothing, and it is rejected however well-formed it is. The mutants are taken breadth-first across
+the policy's rules rather than in file order, because a prefix of a grouped list leaves most of a
+multi-rule policy untouched — measured as 0 of 8 mutants caught versus 4 of 21 before that was
+fixed.

@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 980" preserveAspectRatio="xMidYMid meet"
+     role="img" aria-labelledby="t d">
+  <title id="t">Anchor architecture</title>
+  <desc id="d">One launcher dispatches a verb to the .NET CLI or to the Python agent. Both reach
+  the same mechanical half — the translator and the checker — which drives TLC, SANY and the
+  Dogwood reference engine.</desc>
+
+  <style>
+    /* One palette, deliberately. An adaptive version lived here as a
+       prefers-color-scheme block; inverting it would still have handed a light-preferring
+       reader the light palette, which is not what was wanted. */
+    :root {
+      --bg:#0d1117; --panel:#161b22; --ink:#e6edf3; --muted:#9aa4b2; --line:#30363d;
+      --netl:#b39ddb; --netf:#1e1830;
+      --pyl:#79c0ff;  --pyf:#0e2337;
+      --extl:#e3b341; --extf:#2a2312;
+      --iol:#56d364;  --iof:#0f2417;
+    }
+    text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+           fill: var(--ink); }
+    .h    { font-size:19px; font-weight:700; }
+    .cap  { font-size:11px; font-weight:700; letter-spacing:.12em; fill:var(--muted); }
+    .box  { font-size:14px; font-weight:600; }
+    .sm   { font-size:11.5px; fill:var(--muted); }
+    .pill { font-size:12px; font-weight:600; }
+    .edge { stroke:var(--line); stroke-width:1.6; fill:none; }
+    .panel{ fill:var(--panel); stroke:var(--line); stroke-width:1.2; }
+    .net  { fill:var(--netf); stroke:var(--netl); stroke-width:1.4; }
+    .py   { fill:var(--pyf);  stroke:var(--pyl);  stroke-width:1.4; }
+    .ext  { fill:var(--extf); stroke:var(--extl); stroke-width:1.4; }
+    .io   { fill:var(--iof);  stroke:var(--iol);  stroke-width:1.4; }
+    .ghost{ fill:none; stroke:var(--pyl); stroke-width:1.4; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="980" fill="var(--bg)"/>
+  <text class="h" x="620" y="32" text-anchor="middle" style="font-size:22px">Anchor</text>
+
+  <!-- ============================ what you bring ============================ -->
+  <rect class="panel" x="32" y="48" width="1176" height="74" rx="10"/>
+  <text class="cap" x="48" y="68">WHAT A PERSON WRITES</text>
+  <g class="box">
+    <rect class="io" x="48"  y="78" width="112" height="30" rx="7"/><text x="104"  y="98" text-anchor="middle">policy.dw</text>
+    <rect class="io" x="172" y="78" width="146" height="30" rx="7"/><text x="245"  y="98" text-anchor="middle">event.dwschema</text>
+    <rect class="io" x="330" y="78" width="104" height="30" rx="7"/><text x="382"  y="98" text-anchor="middle">trace.log</text>
+    <rect class="io" x="446" y="78" width="212" height="30" rx="7"/><text x="552"  y="98" text-anchor="middle">intents.md / --intent</text>
+    <rect class="io" x="670" y="78" width="120" height="30" rx="7"/><text x="730"  y="98" text-anchor="middle">claim.tla</text>
+  </g>
+  <text class="sm" x="806" y="91">Only the first is required. The brief is prose; `claim.tla` is the one</text>
+  <text class="sm" x="806" y="106">formal artifact a person writes, and only in `check` mode.</text>
+
+  <path class="edge" marker-end="url(#a)" d="M620,122 L620,158"/>
+
+  <!-- ============================ the launcher ============================ -->
+  <rect class="panel" x="380" y="158" width="480" height="62" rx="10"/>
+  <text class="box" x="620" y="184" text-anchor="middle" style="font-size:16px">anchor</text>
+  <text class="sm"  x="620" y="204" text-anchor="middle">one launcher, dispatching on the verb; args forwarded, exit code passed through</text>
+
+  <path class="edge" marker-end="url(#a)" d="M470,220 L320,262"/>
+  <text class="sm" x="330" y="243" text-anchor="end">check &#183; explain &#183; server</text>
+  <path class="edge" marker-end="url(#a)" d="M770,220 L920,262"/>
+  <text class="sm" x="912" y="243">auto &#183; hitl</text>
+
+  <!-- ============================ .NET ============================ -->
+  <rect class="panel" x="32" y="262" width="576" height="286" rx="10"/>
+  <text class="cap" x="48" y="284">.NET &#8212; C# 14 / net10.0</text>
+
+  <rect class="net" x="48" y="296" width="264" height="56" rx="8"/>
+  <text class="box" x="180" y="318" text-anchor="middle">Anchor.CLI</text>
+  <text class="sm"  x="180" y="336" text-anchor="middle">verb dispatch, documented exit codes</text>
+
+  <rect class="net" x="328" y="296" width="264" height="56" rx="8"/>
+  <text class="box" x="460" y="318" text-anchor="middle">Anchor.MCPServer</text>
+  <text class="sm"  x="460" y="336" text-anchor="middle">policy tools + knowledge; the agent's MCP server</text>
+
+  <rect class="net" x="48" y="364" width="264" height="56" rx="8"/>
+  <text class="box" x="180" y="386" text-anchor="middle">Anchor.Runtime</text>
+  <text class="sm"  x="180" y="404" text-anchor="middle">Result&lt;T&gt;, logging, PythonProcess</text>
+
+  <rect class="net" x="328" y="364" width="264" height="56" rx="8"/>
+  <text class="box" x="460" y="386" text-anchor="middle">Anchor.Verifiers.TLAPlus</text>
+  <text class="sm"  x="460" y="404" text-anchor="middle">SANY in-process, TLC out of it</text>
+
+  <text class="sm" x="48" y="448">Everything here is a thin front. `check` finds the interpreter and hands</text>
+  <text class="sm" x="48" y="464">the verdict back unchanged &#8212; the answer is computed in Python.</text>
+  <text class="sm" x="48" y="488">Anchor.Verifiers.Dafny exists and is not on this path.</text>
+
+  <!-- ============================ agent ============================ -->
+  <rect class="panel" x="632" y="262" width="576" height="286" rx="10"/>
+  <text class="cap" x="648" y="284">PYTHON &#8212; THE AGENT, A STRANDS GRAPH</text>
+
+  <text class="sm" x="648" y="304">Three different models and four mechanical gates. `GraphBuilder` refuses to let</text>
+  <text class="sm" x="648" y="319">one Agent be two nodes, so the drafter cannot also be its own reviewer.</text>
+
+  <g class="pill">
+    <rect class="ghost" x="648" y="330" width="92" height="30" rx="15"/><text x="694" y="350" text-anchor="middle">describe</text>
+    <rect class="py"    x="754" y="330" width="92" height="30" rx="15"/><text x="800" y="350" text-anchor="middle">draft</text>
+    <rect class="ghost" x="860" y="330" width="92" height="30" rx="15"/><text x="906" y="350" text-anchor="middle">preflight</text>
+    <rect class="ghost" x="966" y="330" width="92" height="30" rx="15"/><text x="1012" y="350" text-anchor="middle">score</text>
+
+    <rect class="py"    x="648" y="376" width="92" height="30" rx="15"/><text x="694" y="396" text-anchor="middle">review</text>
+    <rect class="ghost" x="754" y="376" width="92" height="30" rx="15" stroke-dasharray="4 3"/><text x="800" y="396" text-anchor="middle">confirm</text>
+    <rect class="ghost" x="860" y="376" width="92" height="30" rx="15"/><text x="906" y="396" text-anchor="middle">check</text>
+    <rect class="py"    x="966" y="376" width="92" height="30" rx="15"/><text x="1012" y="396" text-anchor="middle">answer</text>
+    <rect class="ghost" x="1072" y="376" width="92" height="30" rx="15"/><text x="1118" y="396" text-anchor="middle">report</text>
+  </g>
+  <path class="edge" marker-end="url(#a)" d="M740,345 L752,345"/>
+  <path class="edge" marker-end="url(#a)" d="M846,345 L858,345"/>
+  <path class="edge" marker-end="url(#a)" d="M952,345 L964,345"/>
+  <path class="edge" marker-end="url(#a)" d="M1012,360 L1012,368 L694,368 L694,374"/>
+  <path class="edge" marker-end="url(#a)" d="M740,391 L752,391"/>
+  <path class="edge" marker-end="url(#a)" d="M846,391 L858,391"/>
+  <path class="edge" marker-end="url(#a)" d="M952,391 L964,391"/>
+  <path class="edge" marker-end="url(#a)" d="M1058,391 L1070,391"/>
+
+  <g class="sm">
+    <rect class="py"    x="648" y="416" width="16" height="12" rx="6"/><text x="670" y="426">a model</text>
+    <rect class="ghost" x="728" y="416" width="16" height="12" rx="6"/><text x="750" y="426">code &#8212; a gate that cannot be argued with</text>
+    <rect class="ghost" x="990" y="416" width="16" height="12" rx="6" stroke-dasharray="4 3"/><text x="1012" y="426">`hitl` only</text>
+  </g>
+
+  <rect class="py" x="648" y="436" width="544" height="64" rx="8"/>
+  <text class="box" x="920" y="456" text-anchor="middle">author &#183; drafting &#183; repair &#183; invoke &#183; policy_agent</text>
+  <text class="sm"  x="920" y="473" text-anchor="middle">prompts and gate criteria &#183; the drafter's own tools &#183; checker calls</text>
+  <text class="sm"  x="920" y="489" text-anchor="middle">a content-keyed memo over TLC runs &#183; the MCP client and the model config</text>
+
+  <text class="sm" x="648" y="512">Every rejection still writes a report. `hitl` runs the whole graph again with</text>
+  <text class="sm" x="648" y="528">the person's answer folded into the brief, bounded by --refinements.</text>
+
+
+  <path class="edge" marker-end="url(#a)" d="M328,548 L328,594"/>
+  <path class="edge" marker-end="url(#a)" d="M912,548 L912,594"/>
+
+  <!-- ============================ the mechanical half ============================ -->
+  <rect class="panel" x="32" y="594" width="1176" height="182" rx="10"/>
+  <text class="cap" x="48" y="616">PYTHON &#8212; THE MECHANICAL HALF. NO MODEL RUNS HERE.</text>
+
+  <rect class="py" x="48" y="628" width="560" height="130" rx="8"/>
+  <text class="box" x="328" y="650" text-anchor="middle">translator</text>
+  <text class="sm"  x="328" y="670" text-anchor="middle">what the policy SAYS</text>
+  <text class="sm"  x="328" y="692" text-anchor="middle">parse &#183; schema &#183; emit &#183; trace &#183; tlc &#183; dw_to_tla</text>
+  <text class="sm"  x="328" y="716" text-anchor="middle">A recursive-descent parser for a SUBSET of Dogwood, written against</text>
+  <text class="sm"  x="328" y="732" text-anchor="middle">the real grammar. It refuses what it cannot model rather than guessing,</text>
+  <text class="sm"  x="328" y="748" text-anchor="middle">and names the feature it declined rather than the token it tripped over.</text>
+
+  <rect class="py" x="632" y="628" width="560" height="130" rx="8"/>
+  <text class="box" x="912" y="650" text-anchor="middle">checker</text>
+  <text class="sm"  x="912" y="670" text-anchor="middle">what FOLLOWS from it</text>
+  <text class="sm"  x="912" y="692" text-anchor="middle">properties &#183; explain &#183; witness &#183; engine</text>
+  <text class="sm"  x="912" y="716" text-anchor="middle">live / VACUOUS / REDUNDANT / DEAD, and whether a --property claim</text>
+  <text class="sm"  x="912" y="732" text-anchor="middle">HOLDS or is BROKEN. A TLC violation is the GOOD answer here, so the</text>
+  <text class="sm"  x="912" y="748" text-anchor="middle">reading is inverted before it is printed &#8212; the raw one is a trap.</text>
+
+  <path class="edge" marker-end="url(#a)" d="M328,776 L328,820"/>
+  <path class="edge" marker-end="url(#a)" d="M912,776 L912,820"/>
+
+  <!-- ============================ engines ============================ -->
+  <rect class="panel" x="32" y="820" width="1176" height="92" rx="10"/>
+  <text class="cap" x="48" y="840">WHAT ACTUALLY DECIDES</text>
+
+  <rect class="ext" x="48" y="848" width="268" height="52" rx="8"/>
+  <text class="box" x="182" y="868" text-anchor="middle">TLC &#8212; a real JVM</text>
+  <text class="sm"  x="182" y="886" text-anchor="middle">tla2tools.jar, one subprocess per question</text>
+
+  <rect class="ext" x="332" y="848" width="268" height="52" rx="8"/>
+  <text class="box" x="466" y="868" text-anchor="middle">dogwood &#8212; Rust</text>
+  <text class="sm"  x="466" y="886" text-anchor="middle">check-parse &#183; replay, as a second opinion</text>
+
+  <rect class="ext" x="616" y="848" width="268" height="52" rx="8"/>
+  <text class="box" x="750" y="868" text-anchor="middle">SANY &#8212; in .NET</text>
+  <text class="sm"  x="750" y="886" text-anchor="middle">cross-compiled by IKVM; called by the MCP tools</text>
+
+  <rect class="ext" x="900" y="848" width="292" height="52" rx="8"/>
+  <text class="box" x="1046" y="868" text-anchor="middle">Gemini / Bedrock</text>
+  <text class="sm"  x="1046" y="886" text-anchor="middle">reached only from the three model nodes</text>
+
+  <!-- ============================ outputs ============================ -->
+  <text class="cap" x="32" y="940">WHAT COMES BACK</text>
+  <g class="box">
+    <rect class="io" x="196" y="924" width="128" height="30" rx="7"/><text x="260" y="944" text-anchor="middle">findings.md</text>
+    <rect class="io" x="336" y="924" width="128" height="30" rx="7"/><text x="400" y="944" text-anchor="middle">results.json</text>
+    <rect class="io" x="476" y="924" width="104" height="30" rx="7"/><text x="528" y="944" text-anchor="middle">traces/</text>
+    <rect class="io" x="592" y="924" width="176" height="30" rx="7"/><text x="680" y="944" text-anchor="middle">Intent.tla + .cfg</text>
+    <rect class="io" x="780" y="924" width="128" height="30" rx="7"/><text x="844" y="944" text-anchor="middle">session.md</text>
+  </g>
+  <text class="sm" x="924" y="936">Every exit writes one, including the refusals &#8212; a run that</text>
+  <text class="sm" x="924" y="951">reported nothing is indistinguishable from one never started.</text>
+</svg>

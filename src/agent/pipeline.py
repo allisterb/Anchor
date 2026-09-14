@@ -65,7 +65,7 @@ from strands.types.tools import ToolSpec                               # noqa: E
 
 from annotations import VERDICT_PASS, verdict                          # noqa: E402
 
-from agent import author, repair                                       # noqa: E402
+from agent import author, policy_agent, repair                         # noqa: E402
 
 STAGES = ("describe", "draft", "preflight", "score", "review", "check", "answer", "report")
 
@@ -999,6 +999,18 @@ def read_intents(path: Path) -> dict[str, str]:
     return out
 
 
+def intent_for(stated: dict[str, str], what: str) -> str | None:
+    """One heading's requirement, matched the way somebody types a filename.
+
+    Case-insensitive and the `.dw` optional, because `07-trust-decay` and `07-Trust-Decay.dw` are
+    the same thing to everyone except a dict lookup. Shared with `hitl` so that the two modes cannot
+    disagree about what counts as naming a policy.
+    """
+    wanted = what.strip().lower().removesuffix(".dw")
+    return next((v for k, v in stated.items()
+                 if k.lower().removesuffix(".dw") == wanted), None)
+
+
 def sweep(target: Path, intents: dict[str, str], *, out: Path | None = None,
           build_graph=None, report=None, **kw) -> list[Run]:
     """One pipeline per stated intent. Returns a Run each.
@@ -1102,6 +1114,24 @@ def sweep_report(target: Path, intents: dict[str, str], runs: list[Run]) -> str:
     return "\n".join(lines)
 
 
+def absolute(args, *names: str) -> None:
+    """Resolve the named path arguments in place. Call it before anything reads them.
+
+    NOT COSMETIC, and the bug it fixes is invisible where most people will look for it.
+    `invoke.checker` runs the checker with `cwd=REPO` -- deliberately, so it always sees the Anchor
+    tree the same way whoever called it. But argparse resolved a relative path against the CALLER's
+    directory, and the two are only the same place when the command was typed inside a checkout.
+
+    In the container they are /app and /work, so `anchor auto examples/aws1` swept six policies and
+    rejected all six at `describe` with "no such policy file" -- 0 tokens, six reports, and nothing
+    in any of them pointing at a working directory. Resolving here makes the paths mean the same
+    thing to every process that is handed one.
+    """
+    for name in names:
+        if (value := getattr(args, name, None)) is not None:
+            setattr(args, name, value.resolve())
+
+
 def main() -> int:
     # ANCHOR_VERB is set by the launcher, so usage names `anchor auto` rather than a file the
     # person never invoked. Unset when the script is run directly, and argparse then does what
@@ -1126,6 +1156,10 @@ def main() -> int:
     # THE MODEL MATTERS MORE THAN ANY GATE HERE. Drafting a TLA+ property module is the hardest
     # thing this pipeline asks of a model, and the default is a small fast one -- every gate below
     # exists because a weak draft is the norm, not because the gates are the interesting part.
+    p.add_argument("--config", type=Path, default=None, metavar="APPSETTINGS.JSON",
+                   help="the settings file holding the model configuration and API key. Defaults "
+                        "to appsettings.json beside src/agent/ or at the repo root; in a container "
+                        "this is how a mounted one is named")
     p.add_argument("--provider", default="auto", help="auto, bedrock or gemini")
     p.add_argument("--model", default=None,
                    help="model id. Defaults to the provider's own default (gemini-2.5-flash for "
@@ -1152,6 +1186,14 @@ def main() -> int:
     p.add_argument("--verbose", action="store_true",
                    help="leave third-party logging alone; see the note below")
     args = p.parse_args()
+
+    # Before anything is read from them, and before the sweep globs children off `policy`.
+    absolute(args, "policy", "intents", "out", "event_schema")
+
+    # BEFORE anything builds a model, and before the graph is built at all: every read of this
+    # file happens inside policy_agent, lazily, so setting it here reaches all of them.
+    if args.config is not None:
+        policy_agent.use_appsettings(args.config)
 
     if not args.verbose:
         # google-genai warns, once per process, that strands calls generate_content_stream
@@ -1205,8 +1247,27 @@ def main() -> int:
         print(summary)
         return 1 if any(r.crashed or r.rejected_at for r in runs) else 0
 
+    # NO --intent, so look where `hitl` looks: a heading naming this policy in the intents.md
+    # beside it. `--intents` is NOT the spelling for this -- with a single policy that flag means
+    # "run EVERY heading in the named file against this one policy", which is a different and
+    # deliberate mode, so the useful default had to be what OMITTING it does.
+    beside = args.policy.parent / "intents.md"
+    if not args.intent and beside.is_file():
+        if (stated := intent_for(read_intents(beside), args.policy.name)):
+            print(f"{beside.name} states: {stated}", file=sys.stderr)
+            args.intent = stated
+
     if not args.intent:
-        print("--intent is required for a single policy", file=sys.stderr)
+        # Two situations, two different fixes: a file that says nothing about this policy, or
+        # no file at all. "Add a heading to that file" when there is no file is the kind of
+        # advice that costs somebody a minute of looking for it.
+        where, how = ((f"and no heading for {args.policy.name} in {beside}",
+                       f"add a `## {args.policy.name}` heading to that file")
+                      if beside.is_file() else
+                      (f"and there is no {beside}",
+                       f"create it with a `## {args.policy.name}` heading"))
+        print(f"no requirement for this policy: --intent was not given, {where}.\n"
+              f"Pass --intent \"...\", or {how}.", file=sys.stderr)
         return 2
 
     run = Run(policy=args.policy, intent=args.intent,

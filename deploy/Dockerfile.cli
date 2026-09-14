@@ -4,7 +4,13 @@
 #
 #   docker buildx build -f deploy/Dockerfile.cli -t anchor:latest --load .
 #   docker run --rm -v "$PWD:/work" anchor check tests/policies/firewall.dw
-#   docker run --rm -v "$PWD:/work" -e GEMINI_API_KEY anchor auto policy.dw --intent "..."
+#   docker run --rm -v "$PWD:/work" -v "$HOME/.anchor:/config:ro" \
+#       anchor auto policy.dw --config /config/appsettings.json --intent "..."
+#
+# THE SETTINGS FILE IS NEVER BUILT IN. .dockerignore excludes **/appsettings.json by name -- a
+# key baked into a layer is a key published to everyone who can pull the image -- so the model
+# configuration arrives as a read-only mount named by --config, or as ANCHOR_APPSETTINGS, or as
+# a single -e GEMINI_API_KEY where a key is all that is needed.
 #
 # NOT deploy/Dockerfile, which is the Bedrock AgentCore image. That one is a SERVICE: it answers
 # POST /invocations on 8080 and its entry point is src/agent/server.py. This one is a COMMAND --
@@ -25,10 +31,14 @@
 # WHAT IS NOT HERE: Dafny and z3. Neither is on the Dogwood policy path -- no verb reaches the
 # solver -- so that is ~90 MB and a per-platform hash pin not spent.
 #
-# BOTH ARCHITECTURES. Every compile stage runs on the BUILD host and cross-compiles, so nothing
-# goes through QEMU: dotnet publishes per RID, and cargo builds per target with the matching
-# cross linker. An emulated Rust build was measured as the slowest and least predictable part of
-# the AgentCore image and is the reason that one carries no Rust at all.
+# BOTH ARCHITECTURES. The two COMPILE stages run on the BUILD host and cross-compile: dotnet
+# publishes per RID, and cargo builds per target with the matching cross linker. So neither an
+# emulated .NET nor an emulated Rust build ever happens -- the latter was measured as the
+# slowest and least predictable part of the AgentCore image and is why that one carries no Rust.
+#
+# The RUNTIME stage is deliberately NOT pinned to BUILDPLATFORM, because its layers are the
+# target's: an arm64 build on an x64 host runs its apt-get and its pip install under QEMU, and
+# that is most of the wall time. Nothing is compiled there, so it is slow rather than fragile.
 
 ARG TLATOOLS_VERSION=1.7.4
 ARG TLATOOLS_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
@@ -73,7 +83,8 @@ RUN set -eux; \
 # Also on the build host, cross-linked rather than emulated. `ext/dogwood` is a submodule pinned at
 # a commit verified byte-for-byte against the snapshot that was scanned and audited; see
 # reference/README.md, which is also where the terms and the cargo audit are recorded.
-# 1.90, and the number is a floor with headroom rather than a minimum. The LANGUAGE floor is
+#
+# THE RUST VERSION is a floor with headroom rather than a minimum. The LANGUAGE floor is
 # 1.85: every Dogwood crate is `edition = "2024"` and rustc refuses that before 1.85. Dogwood
 # declares no `rust-version`, so its 271-package graph has no recorded MSRV and 1.85 exactly is
 # untested -- 1.90 is what this image is built and tested with, which is the version that
@@ -92,18 +103,22 @@ COPY requirements/dogwood/Cargo.lock ext/dogwood/Cargo.lock
 RUN set -eux; \
     case "$TARGETARCH" in \
         amd64) target=x86_64-unknown-linux-gnu; \
-               cross_cc=gcc-x86-64-linux-gnu; \
+               cross_pkgs="gcc-x86-64-linux-gnu libc6-dev-amd64-cross"; \
                linker_var=CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER; \
                linker=x86_64-linux-gnu-gcc ;; \
         arm64) target=aarch64-unknown-linux-gnu; \
-               cross_cc=gcc-aarch64-linux-gnu; \
+               cross_pkgs="gcc-aarch64-linux-gnu libc6-dev-arm64-cross"; \
                linker_var=CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER; \
                linker=aarch64-linux-gnu-gcc ;; \
         *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     if [ "$target" != "$(rustc -vV | sed -n 's/^host: //p')" ]; then \
         apt-get update; \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$cross_cc"; \
+        # UNQUOTED, so the two package names split into two arguments. And libc6-dev-*-cross is
+        # not optional: gcc-<target> pulls it only as a RECOMMENDS, which --no-install-recommends
+        # drops. Without it every crate compiles and the FINAL LINK fails, six minutes in, with
+        # `cannot find Scrt1.o` and `cannot find crti.o` -- the C runtime startup objects.
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $cross_pkgs; \
         rm -rf /var/lib/apt/lists/*; \
         rustup target add "$target"; \
         export "$linker_var=$linker"; \
@@ -161,6 +176,11 @@ COPY anchor                      /app/anchor
 COPY src/translator              /app/src/translator
 COPY src/checker                 /app/src/checker
 COPY src/agent                   /app/src/agent
+# NOT optional, and the omission is silent until a verb runs: pipeline.py does
+# `from annotations import VERDICT_PASS, verdict` at import, so without this `auto` and
+# `hitl` die with ModuleNotFoundError while `check` works perfectly. It is also what
+# translator/strands_graph_to_tla.py imports.
+COPY src/annotations             /app/src/annotations
 # specs/policy/TemporalPolicy holds Vacuity.tla and DogwoodSemantics.tla, which the checker copies
 # into each scratch directory beside the generated PolicyUnderTest.tla. Nothing reaches it by name;
 # it is read on every run.

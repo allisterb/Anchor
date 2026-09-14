@@ -56,7 +56,9 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "src") not in sys.path:
     sys.path.insert(0, str(REPO / "src"))
 
-from agent import pipeline                                             # noqa: E402
+# policy_agent's module level is stdlib only -- `mcp` and `strands` are imported inside the
+# functions that need them -- so naming it here costs nothing at import time.
+from agent import pipeline, policy_agent                               # noqa: E402
 from agent.pipeline import Run, gate, outcome                          # noqa: E402
 
 STOP_WORDS = {"", "stop", "quit", "exit", "give up", "nothing", "done"}
@@ -762,10 +764,7 @@ def stated_intent(policy: Path, intents: Path | None, console: Console) -> str |
     stated = pipeline.read_intents(path)
 
     def named(what: str) -> str | None:
-        """A heading matched the way somebody types one: any case, the `.dw` optional."""
-        wanted = what.strip().lower().removesuffix(".dw")
-        return next((v for k, v in stated.items()
-                     if k.lower().removesuffix(".dw") == wanted), None)
+        return pipeline.intent_for(stated, what)
 
     found = named(policy.name) or (next(iter(stated.values())) if len(stated) == 1 else None)
     if found:
@@ -819,6 +818,10 @@ def main() -> int:
     p.add_argument("--mutants", type=int, default=8)
     p.add_argument("--max-fields", type=int, default=None)
     p.add_argument("--name", default="Intent", help="the property module's name")
+    p.add_argument("--config", type=Path, default=None, metavar="APPSETTINGS.JSON",
+                   help="the settings file holding the model configuration and API key. Defaults "
+                        "to appsettings.json beside src/agent/ or at the repo root; in a container "
+                        "this is how a mounted one is named")
     p.add_argument("--provider", default="auto", help="auto, bedrock or gemini")
     p.add_argument("--model", default=None)
     p.add_argument("--rounds", type=int, default=3,
@@ -830,6 +833,14 @@ def main() -> int:
     p.add_argument("--output-tokens", type=int, default=None)
     p.add_argument("--verbose", action="store_true")
     args = p.parse_args()
+
+    # Before anything is read from them, and before the sweep globs children off `policy`.
+    pipeline.absolute(args, "policy", "intents", "out", "event_schema")
+
+    # BEFORE anything builds a model, and before the graph is built at all: every read of this
+    # file happens inside policy_agent, lazily, so setting it here reaches all of them.
+    if args.config is not None:
+        policy_agent.use_appsettings(args.config)
 
     if not args.verbose:
         import logging                                                  # noqa: PLC0415

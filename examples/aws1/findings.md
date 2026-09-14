@@ -16,7 +16,7 @@
 |---|---|
 | policies | 7 |
 | stated intentions (`.tla`) | 3 |
-| questions answered | 0 |
+| questions answered | 5 |
 
 ## Per policy
 

@@ -128,20 +128,39 @@ takes the venv at `python/`, and a Release build before a Debug one under `src/A
 ### In a container, with nothing installed
 
 Four runtimes is a lot to ask of somebody who wants to check one policy.
-[`deploy/Dockerfile.cli`](deploy/Dockerfile.cli) carries all of them — .NET, a JVM, CPython, and the Rust-built `dogwood`
-binary — and its entry point is the launcher, so the container *is* the command.
+[`deploy/Dockerfile.cli`](deploy/Dockerfile.cli) carries all of them — .NET, a JVM, CPython, and the
+Rust-built `dogwood` binary — and its entry point is the launcher, so the container *is* the command.
 
 ```bash
 docker buildx build -f deploy/Dockerfile.cli --platform linux/amd64 -t anchor:latest --load .
 docker run --rm -v "$PWD:/work" anchor check tests/policies/firewall.dw
-docker run --rm -v "$PWD:/work" -e GEMINI_API_KEY anchor auto policy.dw --intent "..."
 ```
 
-`--platform linux/arm64` builds the other one; every compile stage runs on the build host and
-cross-compiles, so neither goes through QEMU. Your working directory is mounted at `/work`, which is
-the container's working directory, so paths read the way they do on the host and output written
-beside a policy lands back on the host. On Linux add `--user "$(id -u):$(id -g)"` so that output is
-owned by you rather than by the image's user.
+Your working directory is mounted at `/work`, which is the container's working directory, so paths
+read the way they do on the host and output written beside a policy lands back on the host. On Linux
+add `--user "$(id -u):$(id -g)"` so that output is owned by you rather than by the image's user.
+
+`--platform linux/arm64` builds the other architecture. The two **compile** stages always run on the
+build host and cross-compile — `dotnet publish` per RID, `cargo build` per target with the matching
+cross linker — so neither an emulated .NET nor an emulated Rust build ever happens. The runtime
+stage is not pinned that way, so an arm64 build on an x64 host does run its `apt-get` and its
+`pip install` under QEMU, and that is most of the wall time.
+
+The agentic modes need a model, and its configuration is yours rather than the image's. **The
+settings file is never built in** — `.dockerignore` excludes `**/appsettings.json` by name, because
+a key baked into a layer is a key published to everyone who can pull it. Mount the directory that
+holds it, read-only, and name the file:
+
+```bash
+docker run --rm -v "$PWD:/work" -v "$HOME/.anchor:/config:ro" \
+    anchor auto policy.dw --config /config/appsettings.json --intent "..."
+```
+
+`--config` works outside a container too, and `ANCHOR_APPSETTINGS` is the same thing from the
+environment. Without either, the file is looked for beside `src/agent/` and at the repo root — which
+is where a checkout keeps it and where an image has neither. A single `-e GEMINI_API_KEY` also works
+if a key is all you need. A path that is not there is refused with exit 2 rather than silently
+falling back, so a typo fails loudly instead of running with no key.
 
 Dafny and z3 are **not** in it: neither is on the Dogwood policy path, so no verb reaches the
 solver. [`deploy/Dockerfile`](deploy/Dockerfile) is a different image and a different shape — the

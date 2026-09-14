@@ -4,7 +4,7 @@
     "01-workflow-sequencing.dw": {
       "kind": "derived",
       "policy": "01-workflow-sequencing.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -59,7 +59,7 @@
     "02-output-to-input.dw": {
       "kind": "derived",
       "policy": "02-output-to-input.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -95,7 +95,7 @@
     "03-data-freshness.dw": {
       "kind": "derived",
       "policy": "03-data-freshness.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -131,7 +131,7 @@
     "04-cumulative-budget-cap.dw": {
       "kind": "derived",
       "policy": "04-cumulative-budget-cap.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -189,7 +189,7 @@
     "05-human-approval.dw": {
       "kind": "derived",
       "policy": "05-human-approval.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -249,7 +249,7 @@
     "07-trust-decay.dw": {
       "kind": "derived",
       "policy": "07-trust-decay.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -303,7 +303,7 @@
     "agent-policy.dw": {
       "kind": "derived",
       "policy": "agent-policy.dw",
-      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). The shipped DEFAULT partitions by principal, under which a rule reported live here may never fire.",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
       "bound": {
         "attempts": 3,
         "amount": 2,
@@ -821,7 +821,7 @@
       "kind": "property",
       "held": false,
       "exitCode": 1,
-      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\nagent-policy.dw against TradeGate.tla: 7 rule(s)\n\n  BROKEN  Invariant FreshPriceAloneIsNotEnough is violated by the initial state:\n      prereq = \"freshPriceOnly\"\n        FreshPriceAloneIsNotEnough ==\n            (prereq = \"freshPriceOnly\") => ~Allowed(prereq)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\nagent-policy.dw against TradeGate.tla: 7 rule(s)\n\n  BROKEN  Invariant FreshPriceAloneIsNotEnough is violated by the initial state:\n      prereq = \"freshPriceOnly\"\n        FreshPriceAloneIsNotEnough ==\n            (prereq = \"freshPriceOnly\") => ~Allowed(prereq)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
       "error": ""
     },
     "TrustDecay.tla": {
@@ -932,7 +932,7 @@
       "kind": "property",
       "held": false,
       "exitCode": 1,
-      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\n07-trust-decay.dw against TrustDecay.tla: 1 rule(s)\n\n  BROKEN  Invariant KeepsWriteWhileAdvisorEngaged is violated by the initial state:\n      gap = 1\n        \\* The other half, which the sentence implies and which is the part that makes the policy useful:\n        \\* while the advisor IS engaged, the agent can still work.\n        KeepsWriteWhileAdvisorEngaged ==\n            (gap <= 15 * Minute) => TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\n07-trust-decay.dw against TrustDecay.tla: 1 rule(s)\n\n  BROKEN  Invariant KeepsWriteWhileAdvisorEngaged is violated by the initial state:\n      gap = 1\n        \\* The other half, which the sentence implies and which is the part that makes the policy useful:\n        \\* while the advisor IS engaged, the agent can still work.\n        KeepsWriteWhileAdvisorEngaged ==\n            (gap <= 15 * Minute) => TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
       "error": ""
     },
     "TrustDecay10.tla": {
@@ -1007,9 +1007,10 @@
       "kind": "property",
       "held": false,
       "exitCode": 1,
-      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). The shipped DEFAULT partitions by principal, under which a rule\n  reported live here may never fire.\n\n07-trust-decay.dw against TrustDecay10.tla: 1 rule(s)\n\n  BROKEN  Invariant LosesWriteAfter10m is violated by the initial state:\n      gap = 960\n        LosesWriteAfter10m ==\n            (gap > 10 * Minute) => ~TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\n07-trust-decay.dw against TrustDecay10.tla: 1 rule(s)\n\n  BROKEN  Invariant LosesWriteAfter10m is violated by the initial state:\n      gap = 960\n        LosesWriteAfter10m ==\n            (gap > 10 * Minute) => ~TradeAllowed(gap)\n\nThe policy does not mean what the property says it means. The state above is the\nrequest that breaks the claim, and the claim is quoted beneath it -- read the two\ntogether, because a violated invariant says which direction failed only when you can\nsee what it asserted.",
       "error": ""
     }
   },
+  "smoke": null,
   "unpaired": []
 }

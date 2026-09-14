@@ -425,6 +425,8 @@ branch on "needs a human" without parsing prose.
 
 | | |
 |---|---|
+| `--config` | the settings file holding the model configuration and API key. Sets `ANCHOR_APPSETTINGS`, so there is one answer to which file that is; unlike the variable it refuses a path that is not there, because somebody who typed it named a file. Exit 2 |
+| `ANCHOR_APPSETTINGS` | the same thing from the environment, for something that wrote the file on your behalf. Falls through to the search when its path is absent |
 | `ANCHOR_CLI` | path to `Anchor.CLI.dll`, or to a self-contained executable. Otherwise a Release build is preferred, then Debug |
 | `--project-dir` | the directory policy paths resolve inside; a path escaping it is refused. Defaults to the repo, and the agent is exactly the caller containment exists for |
 | `--provider` | `auto`, `bedrock` or `gemini`. `auto` picks Gemini when a key is present and Bedrock otherwise — an API key in config was put there deliberately, whereas `~/.aws` exists on most machines whether or not the account can call a model |

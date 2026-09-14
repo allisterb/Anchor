@@ -142,6 +142,27 @@ def appsettings_path() -> Path | None:
     return None
 
 
+def use_appsettings(path: Path) -> None:
+    """Point every later `setting()` at this file. What `--config` does.
+
+    Sets ANCHOR_APPSETTINGS rather than a module global, because that variable already IS the
+    answer to "which file holds the key" -- it is how the container image names one a secret store
+    wrote -- and a flag that set something else would make two answers to one question. Every read
+    is lazy and happens in this module, so doing it before the graph is built reaches all of them.
+
+    RAISES where the environment variable falls through. An absent ANCHOR_APPSETTINGS path means
+    "carry on and look in the usual places", which is right for something the environment set on
+    your behalf; somebody who typed `--config` named a file, and running without a key and blaming
+    the environment is the failure that would follow from ignoring it.
+    """
+    if not path.is_file():
+        # Exit 2, the same code every other "could not run, and here is why" takes. A bare
+        # SystemExit(str) prints the message and exits 1, which a script reads as a verdict.
+        print(f"no settings file at {path}", file=sys.stderr)
+        raise SystemExit(2)
+    os.environ["ANCHOR_APPSETTINGS"] = str(path.resolve())
+
+
 def setting(name: str) -> str | None:
     """One colon-delimited setting, or None. Never raises on a bad file, and never logs a value."""
     path = appsettings_path()
