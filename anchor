@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+#
+# Anchor's entry point. Dispatches the verb to the .NET CLI or to Python.
+#
+#   server, check, explain, help, version    the .NET CLI, src/Anchor.CLI
+#   auto                                     Python, src/agent/pipeline.py
+#   hitl                                     Python, src/agent/hitl.py
+#
+# The split is deliberate rather than historical. `check`, `explain` and `server` are genuinely
+# C#-fronted -- the checker is reached through them and the MCP server IS them. The two drafting
+# modes are argparse programs with a couple of dozen options each, and a CLI verb for either would
+# re-declare every one of those options, so each would live in two places and adding one to the
+# Python would leave it unreachable from the CLI until somebody remembered. Then it would spawn
+# Python anyway. This script is that dispatch without the second copy of the flags and without the
+# process hop -- which matters most for `hitl`, whose whole job is to read answers from a terminal.
+#
+# Arguments are forwarded verbatim and the exit code is passed through, so anything documented for
+# `anchor check` or for `python src/agent/hitl.py` works here unchanged.
+#
+# Interpreter and binary are found in this order:
+#
+#   ANCHOR_PYTHON, then the repo venv at python/, then python3 / python on PATH
+#   ANCHOR_CLI, then a Release build, then a Debug build, under src/Anchor.CLI/bin
+#
+# ANCHOR_CLI may name either the managed dll or a self-contained executable; a .dll is run through
+# `dotnet` and anything else is run directly. Those are the same two rules src/agent/policy_agent.py
+# and the container image already use.
+#
+# Keep this in step with anchor.ps1, which does the same job on Windows.
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The routing table, and the only place a new Python verb needs adding. Kept as a case rather than
+# an associative array, which bash 3.2 -- still the /bin/bash on macOS -- does not have.
+python_entry_point() {
+    case "$1" in
+        auto) echo "src/agent/pipeline.py" ;;
+        hitl) echo "src/agent/hitl.py" ;;
+        *)    return 1 ;;
+    esac
+}
+
+is_help_token() {
+    case "$1" in
+        help|--help|-h|-\?) return 0 ;;
+        *)                  return 1 ;;
+    esac
+}
+
+find_python() {
+    # Trusted as given: a caller who set it knows better than this search does.
+    if [ -n "${ANCHOR_PYTHON:-}" ]; then
+        echo "$ANCHOR_PYTHON"
+        return
+    fi
+
+    # Windows here means git bash / MSYS, where the venv keeps its interpreter under Scripts.
+    local candidates
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) candidates=("$repo_root/python/Scripts/python.exe") ;;
+        *)                    candidates=("$repo_root/python/bin/python3" "$repo_root/python/bin/python") ;;
+    esac
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    done
+
+    local name
+    for name in python3 python; do
+        if command -v "$name" >/dev/null 2>&1; then
+            command -v "$name"
+            return
+        fi
+    done
+
+    cat >&2 <<'EOF'
+No usable Python found, and the drafting modes are Python.
+Create the repo venv (requirements/strands/install.sh), put python on PATH, or set ANCHOR_PYTHON.
+EOF
+    exit 1
+}
+
+# Prints the command to run the CLI, one argument per line, so a path with a space survives.
+find_cli() {
+    if [ -n "${ANCHOR_CLI:-}" ]; then
+        case "$ANCHOR_CLI" in
+            *.dll) printf '%s\n%s\n' dotnet "$ANCHOR_CLI" ;;
+            *)     printf '%s\n' "$ANCHOR_CLI" ;;
+        esac
+        return
+    fi
+
+    local apphost="Anchor.CLI"
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) apphost="Anchor.CLI.exe" ;;
+    esac
+
+    # Release before Debug: a Release tree is the deliberate one. Same order as policy_agent.py.
+    local configuration dir
+    for configuration in Release Debug; do
+        dir="$repo_root/src/Anchor.CLI/bin/$configuration/net10.0"
+
+        # The apphost when the build produced one, because it needs no dotnet on PATH.
+        if [ -x "$dir/$apphost" ]; then
+            printf '%s\n' "$dir/$apphost"
+            return
+        fi
+        if [ -f "$dir/Anchor.CLI.dll" ]; then
+            printf '%s\n%s\n' dotnet "$dir/Anchor.CLI.dll"
+            return
+        fi
+    done
+
+    cat >&2 <<'EOF'
+The Anchor CLI is not built. Run:
+    ./build.sh
+or set ANCHOR_CLI to the path of Anchor.CLI.dll.
+EOF
+    exit 1
+}
+
+# The CLI's own help cannot mention the two verbs it does not have, so this script says them after.
+show_extra_verbs() {
+    cat <<'EOF'
+
+  auto       draft the property module from a brief and check it, unattended
+  hitl       the same, with you answering when a gate turns a draft away
+
+  Both are Python entry points rather than CLI verbs. `anchor help auto` and
+  `anchor help hitl` show their options.
+EOF
+}
+
+run_python() {
+    local verb="$1" script="$2" python
+    shift 2
+    # Its own statement, not an argument: a command substitution that fails inside an argument list
+    # is not what `set -e` acts on, so `exec ""` would be the next thing to happen.
+    python="$(find_python)"
+    # So that argparse opens with "usage: anchor hitl" rather than naming a file nobody invoked.
+    export ANCHOR_VERB="$(basename "${BASH_SOURCE[0]}") $verb"
+    exec "$python" "$repo_root/$script" "$@"
+}
+
+verb="${1:-}"
+
+# `anchor help auto`, which the CLI would reject as a verb name it has never heard of.
+if is_help_token "$verb" && [ "$#" -ge 2 ] && script="$(python_entry_point "$2")"; then
+    run_python "$2" "$script" --help
+fi
+
+if script="$(python_entry_point "$verb")"; then
+    shift || true
+    run_python "$verb" "$script" "$@"
+fi
+
+# Everything else is the CLI's, including an unknown verb: its parser writes a better error than a
+# guess here would, and a verb added to the CLI works through this script without it being touched.
+# Not mapfile: that is bash 4, and /bin/bash on macOS is still 3.2. The assignment is its own
+# statement so that `set -e` sees find_cli's failure rather than an empty array.
+cli_line="$(find_cli)"
+cli=()
+while IFS= read -r part; do cli+=("$part"); done <<< "$cli_line"
+
+if is_help_token "$verb"; then
+    code=0
+    "${cli[@]}" "$@" || code=$?
+    show_extra_verbs
+    exit "$code"
+fi
+
+exec "${cli[@]}" "$@"
