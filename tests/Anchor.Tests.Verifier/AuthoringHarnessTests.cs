@@ -94,9 +94,14 @@ public class AuthoringHarnessTests : TestsRuntime
     }
 
     /// <summary>
-    /// The unattended directory check: every policy found by globbing, every <c>.tla</c> paired
-    /// with the policy its header names, and a directory with <b>no</b> stated intentions told
-    /// plainly that its clean report means much less.
+    /// The unattended directory audit — <c>anchor check &lt;directory&gt;</c>: every policy found
+    /// by globbing, every <c>.tla</c> paired with the policy its header names, and a directory with
+    /// <b>no</b> stated intentions told plainly that its clean report means much less.
+    ///
+    /// It was the <c>auto</c> verb, and that name claimed the wrong thing: "auto" means
+    /// autoformalization in this field, and nothing here formalizes anything — every intentional
+    /// claim it checks is a <c>.tla</c> module a person wrote by hand. What was automated was the
+    /// running, never the specifying.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -111,10 +116,10 @@ public class AuthoringHarnessTests : TestsRuntime
     /// project exists to catch, and would be an embarrassing one to ship in its own report.
     /// </para>
     /// </remarks>
-    [PythonHarness("auto_directory.py", "strands")]
-    public async Task AutoFindsEveryPolicyAndSaysWhatItDidNotCheck()
+    [PythonHarness("audit_directory.py", "strands")]
+    public async Task TheAuditFindsEveryPolicyAndSaysWhatItDidNotCheck()
     {
-        var run = await PythonHarness.RunAsync("tests/strands/auto_directory.py");
+        var run = await PythonHarness.RunAsync("tests/strands/audit_directory.py");
         Assert.True(run.ExitCode == 0, run.Output);
 
         Assert.Contains("a module naming no policy is reported, not dropped", run.Output);

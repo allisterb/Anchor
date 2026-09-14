@@ -1,6 +1,6 @@
 """The unattended directory check, without a model.
 
-    python tests/strands/auto_directory.py
+    python tests/strands/audit_directory.py
 
 WHAT IS WORTH PINNING HERE is not that the checks work -- they have their own tests -- but that the
 ORCHESTRATION cannot quietly do less than it claims:
@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent.auto import (Plan, check_all, discover, findings_of,  # noqa: E402
+from agent.audit import (Plan, check_all, discover, findings_of,  # noqa: E402
                         parse_questions, report)
 
 POLICIES = REPO / "tests" / "policies"

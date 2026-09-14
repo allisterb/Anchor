@@ -106,7 +106,7 @@ public class RepairHarnessTests : TestsRuntime
     /// same path every round, so a path-keyed memo would answer round 2 with round 1's verdict and
     /// report a fixed module as still broken with no sign anything went wrong. And <c>--keep</c> is
     /// never cached, because that flag is what makes the checker write the model and the raw TLC
-    /// output to a directory the caller reads afterwards — <c>auto.py</c> passes it.
+    /// output to a directory the caller reads afterwards — <c>audit.py</c> passes it.
     /// </para>
     /// </remarks>
     [PythonHarness("checker_memo.py", "strands")]

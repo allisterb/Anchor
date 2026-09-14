@@ -587,7 +587,7 @@ public partial class PolicyTools : Runtime
     public const string CheckerScript = "src/checker/properties.py";
 
     /// <summary>The unattended directory check. Relative to the Anchor root, like the checker.</summary>
-    public const string AutoScript = "src/agent/auto.py";
+    public const string AuditScript = "src/agent/audit.py";
 
     /// <summary>The property explainer, which runs no model checker. Relative to the Anchor root.</summary>
     public const string ExplainScript = "src/checker/explain.py";

@@ -283,8 +283,9 @@ from a graph this one is no longer identical to.
 **Every stage announces itself.** Before the first question can appear the run has to get through
 `describe` → `draft` (a model call per round) → `preflight` → `score` (one TLC run per mutant) →
 `review` (a second model call), which on a six-field policy is minutes. It printed nothing at all
-until a live run showed that this is indistinguishable from a hang — `auto` reports each policy as
-it lands for exactly that reason, and the mode with a person sitting in front of it did not.
+until a live run showed that this is indistinguishable from a hang — the unattended sweep reports
+each policy as it lands for exactly that reason, and the mode with a person sitting in front of
+it did not.
 
 **The I/O is injected**, which is load-bearing rather than tidy: `Console` is three methods, and
 the harness drives the whole mode with a scripted person and no provider at all. `Terminal` is

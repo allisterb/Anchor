@@ -1,0 +1,2481 @@
+{
+  "directory": "tests\\policies",
+  "derived": {
+    "added_action.dw": {
+      "kind": "derived",
+      "policy": "added_action.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Refund"
+          ],
+          "verdict": "live",
+          "note": "witness: Refund",
+          "witness": "Refund",
+          "session": [
+            {
+              "action": "Refund",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Refund",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Refund()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\added_action"
+    },
+    "aggregate_cap.dw": {
+      "kind": "derived",
+      "policy": "aggregate_cap.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "transfer"
+          ],
+          "verdict": "live",
+          "note": "witness: transfer",
+          "witness": "transfer",
+          "session": [
+            {
+              "action": "transfer",
+              "kind": "request",
+              "input": {
+                "amount": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "transfer",
+              "kind": "response",
+              "input": {
+                "amount": 1
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. transfer(amount = 1)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "transfer"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "sum(...) > 100"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\aggregate_cap"
+    },
+    "approval_gate_error.dw": {
+      "kind": "derived",
+      "policy": "approval_gate_error.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve -> Trade",
+          "witness": "Approve -> Trade",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "error",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve()  denied",
+            "2. Trade  ()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\approval_gate_error"
+    },
+    "approval_gate_request.dw": {
+      "kind": "derived",
+      "policy": "approval_gate_request.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve -> Trade",
+          "witness": "Approve -> Trade",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "error",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve()  denied",
+            "2. Trade  ()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\approval_gate_request"
+    },
+    "approval_gate_response.dw": {
+      "kind": "derived",
+      "policy": "approval_gate_response.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 1000s Approve::response"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\approval_gate_response"
+    },
+    "business_hours.dw": {
+      "kind": "derived",
+      "policy": "business_hours.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "issue_refund"
+          ],
+          "verdict": "live",
+          "note": "witness: issue_refund",
+          "witness": "issue_refund",
+          "session": [
+            {
+              "action": "issue_refund",
+              "kind": "request",
+              "input": {
+                "systemNowTime": 32400000
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "issue_refund",
+              "kind": "response",
+              "input": {
+                "systemNowTime": 32400000
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. issue_refund(systemNowTime = 32400000)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\business_hours"
+    },
+    "business_hours_impossible.dw": {
+      "kind": "derived",
+      "policy": "business_hours_impossible.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "issue_refund"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "input.systemNowTime >= 61200000",
+              "input.systemNowTime <= 32400000"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\business_hours_impossible"
+    },
+    "dead_forbid.dw": {
+      "kind": "derived",
+      "policy": "dead_forbid.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "Approve"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        }
+      ],
+      "defects": [
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\dead_forbid"
+    },
+    "docs_trading.dw": {
+      "kind": "derived",
+      "policy": "docs_trading.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "ApproveSale"
+          ],
+          "verdict": "live",
+          "note": "witness: ApproveSale",
+          "witness": "ApproveSale",
+          "session": [
+            {
+              "action": "ApproveSale",
+              "kind": "request",
+              "input": {
+                "stock": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "ApproveSale",
+              "kind": "response",
+              "input": {
+                "stock": 1
+              },
+              "output": {
+                "approved": false
+              },
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. ApproveSale(stock = 1)  allowed  (approved = false)"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "SellShares"
+          ],
+          "verdict": "live",
+          "note": "witness: ApproveSale -> SellShares",
+          "witness": "ApproveSale -> SellShares",
+          "session": [
+            {
+              "action": "ApproveSale",
+              "kind": "request",
+              "input": {
+                "stock": 1
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "ApproveSale",
+              "kind": "response",
+              "input": {
+                "stock": 1
+              },
+              "output": {
+                "approved": true
+              },
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "SellShares",
+              "kind": "request",
+              "input": {
+                "stock": 1
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "SellShares",
+              "kind": "response",
+              "input": {
+                "stock": 1
+              },
+              "output": {
+                "approved": false
+              },
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. ApproveSale(stock = 1)  allowed  (approved = true)",
+            "2. SellShares (stock = 1)  allowed  (approved = false)"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\docs_trading"
+    },
+    "docs_trading_forbidden.dw": {
+      "kind": "derived",
+      "policy": "docs_trading_forbidden.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "forbid",
+          "actions": [
+            "ApproveSale"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "SellShares"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 1h ApproveSale::response{ input.stock: 'stock', output.approved: True }"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1,
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\docs_trading_forbidden"
+    },
+    "edit_diverges_both_ways.dw": {
+      "kind": "derived",
+      "policy": "edit_diverges_both_ways.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Approve"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve",
+          "witness": "Approve",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve()  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 3,
+          "effect": "forbid",
+          "actions": [
+            "Approve"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade -> Approve",
+          "witness": "Trade -> Approve",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "error",
+              "input": {},
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade  ()  allowed",
+            "2. Approve()  denied"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\edit_diverges_both_ways"
+    },
+    "edit_diverges_both_ways_old.dw": {
+      "kind": "derived",
+      "policy": "edit_diverges_both_ways_old.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Approve"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve",
+          "witness": "Approve",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\edit_diverges_both_ways_old"
+    },
+    "eval_join.dw": {
+      "kind": "derived",
+      "policy": "eval_join.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "initiate_transfer"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "formerly within 15m verify_identity::response{ input.account: 'account', output.verified: True }"
+            ]
+          }
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "initiate_transfer"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        }
+      ],
+      "defects": [
+        1,
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\eval_join"
+    },
+    "firewall.dw": {
+      "kind": "derived",
+      "policy": "firewall.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "origin": "local",
+                "port": 22
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "response",
+              "input": {
+                "origin": "local",
+                "port": 22
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(origin = \"local\", port = 22)  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "input.origin == external"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\firewall"
+    },
+    "firewall_ip.dw": {
+      "kind": "derived",
+      "policy": "firewall_ip.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "forbid",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "src": [
+                  10,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "error",
+              "input": {
+                "src": [
+                  10,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(src = 10.0.0.0)  denied"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "src": [
+                  11,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "response",
+              "input": {
+                "src": [
+                  11,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(src = 11.0.0.0)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\firewall_ip"
+    },
+    "firewall_ip_narrow.dw": {
+      "kind": "derived",
+      "policy": "firewall_ip_narrow.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "forbid",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "src": [
+                  10,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "error",
+              "input": {
+                "src": [
+                  10,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(src = 10.0.0.0)  denied"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "src": [
+                  11,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "response",
+              "input": {
+                "src": [
+                  11,
+                  0,
+                  0,
+                  0
+                ]
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(src = 11.0.0.0)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\firewall_ip_narrow"
+    },
+    "firewall_noperm.dw": {
+      "kind": "derived",
+      "policy": "firewall_noperm.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "forbid",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\firewall_noperm"
+    },
+    "firewall_open.dw": {
+      "kind": "derived",
+      "policy": "firewall_open.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "REDUNDANT",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "input.port == 22"
+            ]
+          }
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "live",
+          "note": "witness: Connect",
+          "witness": "Connect",
+          "session": [
+            {
+              "action": "Connect",
+              "kind": "request",
+              "input": {
+                "origin": "local",
+                "port": 22
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Connect",
+              "kind": "response",
+              "input": {
+                "origin": "local",
+                "port": 22
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Connect(origin = \"local\", port = 22)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\firewall_open"
+    },
+    "like_impossible.dw": {
+      "kind": "derived",
+      "_failed": true,
+      "exitCode": 2,
+      "_why": "REFUSED: like_impossible.dw is outside the modelled subset\n  input.stock is constrained by 2 `like` patterns at once and no value satisfying all of them could be constructed; deciding that needs glob intersection, which is not modelled"
+    },
+    "like_prefix.dw": {
+      "kind": "derived",
+      "policy": "like_prefix.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "SellShares"
+          ],
+          "verdict": "live",
+          "note": "witness: SellShares",
+          "witness": "SellShares",
+          "session": [
+            {
+              "action": "SellShares",
+              "kind": "request",
+              "input": {
+                "stock": "A"
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "SellShares",
+              "kind": "response",
+              "input": {
+                "stock": "A"
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. SellShares(stock = \"A\")  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\like_prefix"
+    },
+    "like_two_patterns.dw": {
+      "kind": "derived",
+      "policy": "like_two_patterns.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "SellShares"
+          ],
+          "verdict": "live",
+          "note": "witness: SellShares",
+          "witness": "SellShares",
+          "session": [
+            {
+              "action": "SellShares",
+              "kind": "request",
+              "input": {
+                "stock": "AL"
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "SellShares",
+              "kind": "response",
+              "input": {
+                "stock": "AL"
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. SellShares(stock = \"AL\")  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\like_two_patterns"
+    },
+    "long_overflow.dw": {
+      "kind": "derived",
+      "_failed": true,
+      "exitCode": 2,
+      "_why": "REFUSED: long_overflow.dw is outside the modelled subset\n  a value the policy compares against is 3000000000, which TLC cannot represent. It holds integers in a Java int and reserves Integer.MAX_VALUE, so a literal has to fit in +/-2147483646. Cedar's Long goes to 2^63-1, so the policy is valid and this is the checker's limit rather than the language's. Scaling the units -- cents to dollars, bytes to megabytes -- makes the same comparison fit"
+    },
+    "order_decimal.dw": {
+      "kind": "derived",
+      "policy": "order_decimal.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "<exists>"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\order_decimal"
+    },
+    "order_long.dw": {
+      "kind": "derived",
+      "policy": "order_long.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "<exists>"
+            ]
+          }
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\order_long"
+    },
+    "ordering_live.dw": {
+      "kind": "derived",
+      "policy": "ordering_live.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "execute_trade"
+          ],
+          "verdict": "live",
+          "note": "witness: execute_trade",
+          "witness": "execute_trade",
+          "session": [
+            {
+              "action": "execute_trade",
+              "kind": "request",
+              "input": {
+                "cost": 24999
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "execute_trade",
+              "kind": "response",
+              "input": {
+                "cost": 24999
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. execute_trade(cost = 24999)  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\ordering_live"
+    },
+    "overridden_permit.dw": {
+      "kind": "derived",
+      "policy": "overridden_permit.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "error",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  denied"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [
+        1
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\overridden_permit"
+    },
+    "redundant_permit.dw": {
+      "kind": "derived",
+      "policy": "redundant_permit.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  allowed"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "REDUNDANT",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        }
+      ],
+      "defects": [
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\redundant_permit"
+    },
+    "redundant_permit_minimal.dw": {
+      "kind": "derived",
+      "policy": "redundant_permit_minimal.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Trade",
+          "witness": "Trade",
+          "session": [
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Trade()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\redundant_permit_minimal"
+    },
+    "scope_bind.dw": {
+      "kind": "derived",
+      "policy": "scope_bind.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve -> Trade",
+          "witness": "Approve -> Trade",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "error",
+              "input": {},
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {},
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve()  denied",
+            "2. Trade  ()  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\scope_bind"
+    },
+    "session_gate.dw": {
+      "kind": "derived",
+      "policy": "session_gate.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Trade"
+          ],
+          "verdict": "live",
+          "note": "witness: Approve -> Trade",
+          "witness": "Approve -> Trade",
+          "session": [
+            {
+              "action": "Approve",
+              "kind": "request",
+              "input": {
+                "approver": "alice"
+              },
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Approve",
+              "kind": "error",
+              "input": {
+                "approver": "alice"
+              },
+              "output": {},
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "request",
+              "input": {
+                "approver": "alice"
+              },
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Trade",
+              "kind": "response",
+              "input": {
+                "approver": "alice"
+              },
+              "output": {},
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Approve(approver = \"alice\")  denied",
+            "2. Trade  (approver = \"alice\")  allowed"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\session_gate"
+    },
+    "string_output.dw": {
+      "kind": "derived",
+      "policy": "string_output.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Login"
+          ],
+          "verdict": "live",
+          "note": "witness: Login",
+          "witness": "Login",
+          "session": [
+            {
+              "action": "Login",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Login",
+              "kind": "response",
+              "input": {},
+              "output": {
+                "result": "ok"
+              },
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Login()  allowed  (result = \"ok\")"
+          ],
+          "blame": null
+        },
+        {
+          "index": 2,
+          "effect": "permit",
+          "actions": [
+            "Read"
+          ],
+          "verdict": "live",
+          "note": "witness: Login -> Read",
+          "witness": "Login -> Read",
+          "session": [
+            {
+              "action": "Login",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 1,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Login",
+              "kind": "response",
+              "input": {},
+              "output": {
+                "result": "ok"
+              },
+              "time": 2,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Read",
+              "kind": "request",
+              "input": {},
+              "output": {},
+              "time": 3,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            },
+            {
+              "action": "Read",
+              "kind": "response",
+              "input": {},
+              "output": {
+                "result": "ok"
+              },
+              "time": 4,
+              "principal": "caller",
+              "resource": "caller",
+              "session": "caller",
+              "pins": {}
+            }
+          ],
+          "narrative": [
+            "1. Login()  allowed  (result = \"ok\")",
+            "2. Read ()  allowed  (result = \"ok\")"
+          ],
+          "blame": null
+        }
+      ],
+      "defects": [],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\string_output"
+    },
+    "syntax_broken.dw": {
+      "kind": "derived",
+      "_failed": true,
+      "exitCode": 2,
+      "_why": "REFUSED: syntax_broken.dw is outside the modelled subset\n  expected '::', got '{'\n\nAND IT IS NOT VALID DOGWOOD EITHER. The reference implementation refuses to parse\nthis file, so the refusal above is not a limit of the modelled subset -- there is a\nsyntax error in the policy. `dogwood check-parse` says:\n\n    \u00c3\u2014 unexpected token `{`, expected comparison operator\n        \u00e2\u2022\u00ad\u00e2\u201d\u20ac[20:9]\n     19 \u00e2\u201d\u201a         context.input.profit < 0 && temporal {\n     20 \u00e2\u201d\u201a \u00e2\u2022\u00ad\u00e2\u201d\u20ac\u00e2\u2013\u00b6         formerly within 24h (\n     21 \u00e2\u201d\u201a \u00e2\u201d\u201a               AgentCore::Action::\"execute_buy\"{\n     22 \u00e2\u201d\u201a \u00e2\u201d\u201a                   stock_symbol: context.input.stock_symbol}\n     23 \u00e2\u201d\u201a \u00e2\u201d\u201a           )\n     24 \u00e2\u201d\u201a \u00e2\u201d\u0153\u00e2\u201d\u20ac\u00e2\u2013\u00b6     }\n        \u00c2\u00b7 \u00e2\u2022\u00b0\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac unexpected token `{`, expected comparison operator\n     25 \u00e2\u201d\u201a     };\n        \u00e2\u2022\u00b0\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac\u00e2\u201d\u20ac"
+    },
+    "vacuous_two_terms.dw": {
+      "kind": "derived",
+      "policy": "vacuous_two_terms.dw",
+      "reading": "no --event-schema given, so every answer below assumes the UNPINNED reading (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal on every kind, so a deployed rule sees only its own principal's events and one reported live here may never fire. Pass --pinned to check that reading, or --event-schema for a real one.",
+      "bound": {
+        "attempts": 3,
+        "amount": 2,
+        "exhaustive": true,
+        "randomSessions": null
+      },
+      "rules": [
+        {
+          "index": 1,
+          "effect": "permit",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "VACUOUS",
+          "note": "no session of up to 3 attempts makes it grant",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "terms",
+            "terms": [
+              "input.origin == nowhere",
+              "input.origin == local"
+            ]
+          }
+        },
+        {
+          "index": 2,
+          "effect": "forbid",
+          "actions": [
+            "Connect"
+          ],
+          "verdict": "DEAD",
+          "note": "deleting it changes no verdict in any session",
+          "witness": null,
+          "session": [],
+          "narrative": [],
+          "blame": {
+            "kind": "structural",
+            "terms": []
+          }
+        }
+      ],
+      "defects": [
+        1,
+        2
+      ],
+      "unknown": [],
+      "artifacts": "tests\\policies\\traces\\vacuous_two_terms"
+    }
+  },
+  "properties": {
+    "aggregate_cap.tla": {
+      "policy": "aggregate_cap.dw",
+      "claims": {
+        "module": "aggregate_cap.tla",
+        "states": [
+          "amount = 5",
+          "amount = 500"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "OverTheCapIsRefused",
+            "defined": true,
+            "says": "whenever amount is greater than 100, then the policy REFUSES it (Allowed(amount))",
+            "forbids": "amount is greater than 100, and yet the policy GRANTS it (Allowed(amount))",
+            "condition": "amount > 100",
+            "appliesTo": [
+              "amount = 500"
+            ],
+            "states": 2,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 1,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "UnderTheCapIsAllowed",
+            "defined": true,
+            "says": "whenever amount is at most 100, then the policy GRANTS it (Allowed(amount))",
+            "forbids": "amount is at most 100, and yet the policy REFUSES it (Allowed(amount))",
+            "condition": "amount <= 100",
+            "appliesTo": [
+              "amount = 5"
+            ],
+            "states": 2,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 1,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
+      "witness": [],
+      "kind": "property",
+      "held": true,
+      "exitCode": 0,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\naggregate_cap.dw against aggregate_cap.tla: 2 rule(s)\n\n  every claim holds over every request the property names.\n\nThat is not a proof about requests it does not name. A property ranges over what it\nsays it ranges over, and nothing warns you when that is less than you meant.",
+      "error": ""
+    },
+    "firewall.tla": {
+      "policy": "firewall.dw",
+      "claims": {
+        "module": "firewall.tla",
+        "states": [
+          "req = [port |-> 22, origin |-> \"external\"]",
+          "req = [port |-> 22, origin |-> \"local\"]",
+          "req = [port |-> 2222, origin |-> \"external\"]",
+          "req = [port |-> 2222, origin |-> \"local\"]"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "LocalSshIsAllowed",
+            "defined": true,
+            "says": "whenever req.port is 22 and req.origin is \"local\", then the policy GRANTS it (Grants(req))",
+            "forbids": "req.port is 22 and req.origin is \"local\", and yet the policy REFUSES it (Grants(req))",
+            "condition": "req.port = Num(22) /\\ req.origin = Str(\"local\")",
+            "appliesTo": [
+              "req = [port |-> 22, origin |-> \"local\"]"
+            ],
+            "states": 4,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 3,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "OutsideIsRefused",
+            "defined": true,
+            "says": "whenever req.origin is \"external\", then the policy REFUSES it (Grants(req))",
+            "forbids": "req.origin is \"external\", and yet the policy GRANTS it (Grants(req))",
+            "condition": "req.origin = Str(\"external\")",
+            "appliesTo": [
+              "req = [port |-> 22, origin |-> \"external\"]",
+              "req = [port |-> 2222, origin |-> \"external\"]"
+            ],
+            "states": 4,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 2,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
+      "witness": [],
+      "kind": "property",
+      "held": true,
+      "exitCode": 0,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\nfirewall.dw against firewall.tla: 2 rule(s)\n\n  every claim holds over every request the property names.\n\nThat is not a proof about requests it does not name. A property ranges over what it\nsays it ranges over, and nothing warns you when that is less than you meant.",
+      "error": ""
+    },
+    "firewall_bad_field.tla": {
+      "policy": "firewall.dw",
+      "claims": {
+        "module": "firewall_bad_field.tla",
+        "states": [
+          "req = [port |-> 22, origin |-> \"external\"]",
+          "req = [port |-> 22, origin |-> \"local\"]",
+          "req = [port |-> 2222, origin |-> \"external\"]",
+          "req = [port |-> 2222, origin |-> \"local\"]"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "LocalSshIsAllowed",
+            "defined": true,
+            "says": "whenever req.nosuchfield is 22 and req.origin is \"local\", then the policy GRANTS it (Grants(req))",
+            "forbids": "req.nosuchfield is 22 and req.origin is \"local\", and yet the policy REFUSES it (Grants(req))",
+            "condition": "req.nosuchfield = Num(22) /\\ req.origin = Str(\"local\")",
+            "appliesTo": [],
+            "states": 4,
+            "unknownIn": 2,
+            "settledWithoutThePolicy": 2,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "OutsideIsRefused",
+            "defined": true,
+            "says": "whenever req.origin is \"external\", then the policy REFUSES it (Grants(req))",
+            "forbids": "req.origin is \"external\", and yet the policy GRANTS it (Grants(req))",
+            "condition": "req.origin = Str(\"external\")",
+            "appliesTo": [
+              "req = [port |-> 22, origin |-> \"external\"]",
+              "req = [port |-> 2222, origin |-> \"external\"]"
+            ],
+            "states": 4,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 2,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
+      "witness": [],
+      "kind": "property",
+      "held": false,
+      "exitCode": 2,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\nfirewall.dw against firewall_bad_field.tla: 2 rule(s)\n\n  firewall_bad_field.tla COMPILED BUT DID NOT EVALUATE. TLC says:\n\n      Error: Attempted to select nonexistent field \"nosuchfield\" from the record\n      Error: The error occurred when TLC was evaluating the nested\n\nNothing was checked. No claim was decided either way, so there is no verdict\nabout the policy here -- the module needs fixing first.",
+      "error": ""
+    },
+    "firewall_ip.tla": {
+      "policy": "firewall_ip.dw",
+      "claims": {
+        "module": "firewall_ip.tla",
+        "states": [
+          "req = [src |-> (10, 0, 0, 0)]",
+          "req = [src |-> (10, 127, 255, 255)]",
+          "req = [src |-> (10, 255, 255, 255)]",
+          "req = [src |-> (11, 0, 0, 0)]",
+          "req = [src |-> (9, 255, 255, 255)]"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "BlockedRangeIsRefused",
+            "defined": true,
+            "says": "whenever D!InRange(req.src.v, <<10, 0, 0, 0>>, 8) holds, then the policy REFUSES it (Grants(req))",
+            "forbids": "D!InRange(req.src.v, <<10, 0, 0, 0>>, 8) holds, and yet the policy GRANTS it (Grants(req))",
+            "condition": "D!InRange(req.src.v, <<10, 0, 0, 0>>, 8)",
+            "appliesTo": [],
+            "states": 5,
+            "unknownIn": 5,
+            "settledWithoutThePolicy": 0,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
+      "witness": [],
+      "kind": "property",
+      "held": true,
+      "exitCode": 0,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\nfirewall_ip.dw against firewall_ip.tla: 2 rule(s)\n\n  every claim holds over every request the property names.\n\nThat is not a proof about requests it does not name. A property ranges over what it\nsays it ranges over, and nothing warns you when that is less than you meant.",
+      "error": ""
+    },
+    "firewall_unparseable.tla": {
+      "policy": "firewall.dw",
+      "claims": {
+        "module": "firewall_unparseable.tla",
+        "states": [
+          "req = [port |-> 22, origin |-> \"external\"]",
+          "req = [port |-> 22, origin |-> \"local\"]",
+          "req = [port |-> 2222, origin |-> \"external\"]",
+          "req = [port |-> 2222, origin |-> \"local\"]"
+        ],
+        "scope": "read from Init",
+        "claims": [
+          {
+            "name": "LocalSshIsAllowed",
+            "defined": true,
+            "says": "whenever req.port is 22 and req.origin is \"local\", then the policy GRANTS it (Grants(req))",
+            "forbids": "req.port is 22 and req.origin is \"local\", and yet the policy REFUSES it (Grants(req))",
+            "condition": "req.port = Num(22) /\\ req.origin = Str(\"local\")",
+            "appliesTo": [
+              "req = [port |-> 22, origin |-> \"local\"]"
+            ],
+            "states": 4,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 3,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          },
+          {
+            "name": "OutsideIsRefused",
+            "defined": true,
+            "says": "whenever req.origin is \"external\", then the policy REFUSES it (Grants(req))",
+            "forbids": "req.origin is \"external\", and yet the policy GRANTS it (Grants(req))",
+            "condition": "req.origin = Str(\"external\")",
+            "appliesTo": [
+              "req = [port |-> 22, origin |-> \"external\"]",
+              "req = [port |-> 2222, origin |-> \"external\"]"
+            ],
+            "states": 4,
+            "unknownIn": 0,
+            "settledWithoutThePolicy": 2,
+            "falseWithoutThePolicy": [],
+            "vacuous": false,
+            "notes": []
+          }
+        ],
+        "definedButNotChecked": [],
+        "vacuous": []
+      },
+      "witness": [],
+      "kind": "property",
+      "held": false,
+      "exitCode": 2,
+      "output": "no --event-schema given, so every answer below assumes the UNPINNED reading\n  (global trace). DOGWOOD'S OWN DEFAULT IS THE OPPOSITE: it pins callerPrincipal\n  on every kind, so a deployed rule sees only its own principal's events and one\n  reported live here may never fire. Pass --pinned to check that reading, or\n  --event-schema for a real one.\n\nfirewall.dw against firewall_unparseable.tla: 2 rule(s)\n\n  firewall_unparseable.tla DOES NOT COMPILE. SANY says:\n\n      ****** SANY2 Version 2.1 created 24 February 2014\n      \n      Parsing file C:\\Projects\\Anchor\\tests\\policies\\traces\\firewall-firewall_unparseable\\firewall_unparseable.tla\n      ***Parse Error***\n      Encountered \"Beginning of definition\" at line 31, column 1 and token \"*\" \n      \n      Residual stack trace follows:\n      ExtendableExpr starting at line 31, column 1.\n      ExtendableExpr starting at line 17, column 18.\n      Expression starting at line 17, column 18.\n      Definition starting at line 17, column 1.\n      Module body starting at line 15, column 1.\n      \n      \n      Fatal errors while parsing TLA+ spec in file firewall_unparseable.tla\n      \n      tla2sany.semantic.AbortException\n      *** Abort messages: 1\n      \n      In module firewall_unparseable\n      \n      Could not parse module firewall_unparseable from file firewall_unparseable.tla\n\nNothing was checked. A module that does not compile has no verdict to give,\nand the claims in it have not been tested.",
+      "error": ""
+    }
+  },
+  "smoke": null,
+  "unpaired": [
+    {
+      "module": "eval_join.tla",
+      "why": "its header names no policy in this directory -- add `<policy>.dw` to it"
+    },
+    {
+      "module": "tagged_session.tla",
+      "why": "its header names no policy in this directory -- add `<policy>.dw` to it"
+    }
+  ]
+}

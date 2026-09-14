@@ -1,7 +1,7 @@
 """Anchor's OWN property-authoring pipeline, as a Strands `Graph` — checked by Anchor.
 
 Every other graph in this directory is a shape chosen to isolate a failure class. This one is not
-chosen: it is the pipeline `src/agent/author.py` and `src/agent/auto.py` already run, wired as the
+chosen: it is the pipeline `src/agent/author.py` and `src/agent/audit.py` already run, wired as the
 `Graph` that would run it multi-agent, and put through the same two models.
 
     describe ──> draft ──> preflight ──> score ──> check ──> answer ──> report

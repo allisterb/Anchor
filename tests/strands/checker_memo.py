@@ -19,7 +19,7 @@ faster", which is measured elsewhere; it is whether the answer is the same one.
   4. `--keep` IS NEVER CACHED. Without it the checker's whole observable output is stdout; with it
      it writes the model, the .cfg and the raw TLC output to a directory the caller reads
      afterwards. Replaying that from memory would leave the directory unwritten or stale, and
-     `auto.py` passes it.
+     `audit.py` passes it.
   5. IT IS BOUNDED, and the counters are honest.
 
     python tests/strands/checker_memo.py

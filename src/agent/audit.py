@@ -1,7 +1,17 @@
-"""Check a whole directory of policies, unattended, and write the findings beside them.
+"""Audit a whole directory of policies against the intentions somebody else wrote down.
 
-    python src/agent/auto.py examples/aws1
-    python src/agent/auto.py policies/ --output-dir findings --no-model
+    python src/agent/audit.py examples/aws1
+    python src/agent/audit.py policies/ --output-dir findings --no-model
+
+AUDIT, AND IT USED TO BE CALLED `auto`. That name claimed the wrong thing. In this field "auto"
+means AUTOFORMALIZATION -- the agent doing the formalizing -- and nothing here formalizes anything:
+every intentional claim it checks is a `.tla` module a person wrote by hand, paired with the policy
+its header names. What was automated was the RUNNING, never the specifying, and a verb that reads
+as the second is an overclaim in the one place this project cannot afford one. `pipeline.py` is
+where a model drafts a property; this audits what it finds.
+
+An audit is exactly the right word for it: unattended, exhaustive, and checking against criteria it
+did not invent.
 
 WHAT IS AUTOMATED AND WHAT IS NOT, because the difference is the whole point of the project.
 
@@ -509,7 +519,7 @@ def main() -> int:
 
     if not args.directory.is_dir():
         print(f"{args.directory} is not a directory", file=sys.stderr)
-        return 2
+        return 3
 
     out = args.output_dir or args.directory
     out.mkdir(parents=True, exist_ok=True)
@@ -517,7 +527,7 @@ def main() -> int:
     plan = discover(args.directory)
     if not plan.policies:
         print(f"no .dw policies in {args.directory}", file=sys.stderr)
-        return 2
+        return 3
 
     print(f"{len(plan.policies)} polic(ies), {len(plan.properties)} stated intention(s), "
           f"{len(plan.questions)} question(s)\n", file=sys.stderr)
@@ -540,8 +550,9 @@ def main() -> int:
     for f in findings:
         print(f"  - {f}", file=sys.stderr)
 
-    # Non-zero when there is something to look at, so this can gate a pipeline. Distinct from 2,
-    # which means the run could not happen at all.
+    # Non-zero when there is something to look at, so this can gate a pipeline. Distinct from 3,
+    # which means the run could not happen at all -- the same contract the single-policy run
+    # uses, because `anchor check` now takes either shape and one number must mean one thing.
     return 1 if findings else 0
 
 

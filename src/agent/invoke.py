@@ -34,7 +34,7 @@ TWO THINGS IT WILL NOT DO.
                                observable output. With it the model, the `.cfg` and the raw TLC
                                output are written to a directory the caller reads afterwards --
                                and replaying that from memory would leave the directory unwritten,
-                               or worse, stale from an earlier run. `auto.py` passes it.
+                               or worse, stale from an earlier run. `audit.py` passes it.
 
     IT DOES NOT OUTLIVE THE PROCESS.  No disk cache. A stale answer that survives a checker change
                                is a verification tool reporting a verdict about code that no longer

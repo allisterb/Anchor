@@ -1,0 +1,39 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 119 and seed -5407651357964067838 with 1 worker on 8 cores with 16344MB heap and 64MB offheap memory [pid: 30608] (Windows 10 10.0 amd64, Microsoft 11.0.16.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\firewall_bad_field.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\Integers.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\Sequences.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\FiniteSets.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\PolicyUnderTest.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\Naturals.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\DogwoodSemantics.tla
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_bad_field\TLC.tla
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module PolicyUnderTest
+Semantic processing of module TLC
+Semantic processing of module DogwoodSemantics
+Semantic processing of module firewall_bad_field
+Starting... (2026-09-14 10:12:31)
+Computing initial states...
+Error: Attempted to select nonexistent field "nosuchfield" from the record
+[port |-> [k |-> "n", v |-> 22], origin |-> [k |-> "s", v |-> "external"]]
+line 49, col 6 to line 49, col 20 of module firewall_bad_field
+While working on the initial state:
+req = [port |-> [k |-> "n", v |-> 22], origin |-> [k |-> "s", v |-> "external"]]
+
+Error: The error occurred when TLC was evaluating the nested
+expressions at the following positions:
+0. Line 39, column 9 to line 39, column 24 in firewall_bad_field
+1. Line 49, column 5 to line 49, column 75 in firewall_bad_field
+2. Line 49, column 6 to line 49, column 59 in firewall_bad_field
+3. Line 49, column 6 to line 49, column 30 in firewall_bad_field
+4. Line 49, column 6 to line 49, column 20 in firewall_bad_field
+
+
+1 states generated, 1 distinct states found, 1 states left on queue.
+Finished in 01s at (2026-09-14 10:12:32)

@@ -97,11 +97,10 @@ public static class Program
         try
         {
             return await parser
-                .ParseArguments<ServerOptions, CheckOptions, AutoOptions, ExplainOptions>(args)
+                .ParseArguments<ServerOptions, CheckOptions, ExplainOptions>(args)
                 .MapResult(
                     (ServerOptions opts) => ServerAsync(opts),
                     (CheckOptions opts) => CheckAsync(opts),
-                    (AutoOptions opts) => AutoAsync(opts),
                     (ExplainOptions opts) => ExplainAsync(opts),
                     errs => Task.FromResult(ParseFailure(errs)));
         }
@@ -158,6 +157,31 @@ public static class Program
     /// </remarks>
     static async Task<int> CheckAsync(CheckOptions opts)
     {
+        // THE ARGUMENT'S SHAPE DECIDES, not a flag. A directory is audited; a file is checked rule
+        // by rule. `pipeline.sweep()` already reads a path both ways, and a flag would be a second
+        // thing to get wrong beside a path that already says which it is.
+        if (Directory.Exists(opts.Policy))
+        {
+            return await AuditAsync(opts);
+        }
+
+        // Refused rather than ignored. These do nothing for a single policy, and an option that
+        // silently does nothing is worse than one that is not there.
+        foreach (var (name, given) in new[]
+                 {
+                     ("--output-dir", !string.IsNullOrWhiteSpace(opts.OutputDir)),
+                     ("--no-model", opts.NoModel),
+                     ("--provider", !string.IsNullOrWhiteSpace(opts.Provider)),
+                     ("--model", !string.IsNullOrWhiteSpace(opts.Model))
+                 })
+        {
+            if (given)
+            {
+                Console.Error.WriteLine($"{name} applies to a directory, not a single policy.");
+                return BadUsage;
+            }
+        }
+
         // No containment unless asked for: a person running this on their own machine is not the
         // agent that the MCP server's project directory exists to fence in.
         var tools = new PolicyTools(Blank(opts.ProjectDir), Blank(opts.AnchorRoot));
@@ -205,17 +229,25 @@ public static class Program
     }
 
     /// <summary>
-    /// Check a directory of policies unattended, and write the findings into it.
+    /// Audit a directory of policies unattended, and write the findings into it.
     /// </summary>
     /// <remarks>
-    /// Shells out to <c>src/agent/auto.py</c> for the same reason <c>check</c> shells out to the
-    /// checker: the orchestration is Python because everything it orchestrates is. The exit code
-    /// is passed through unchanged — 1 means findings, 2 means the run could not happen, and
+    /// <para>
+    /// Shells out to <c>src/agent/audit.py</c> for the same reason <c>check</c> shells out to the
+    /// checker: the orchestration is Python because everything it orchestrates is. The exit code is
+    /// passed through unchanged — 1 means findings, 3 means the run could not happen, and
     /// collapsing those would make this useless in a pipeline.
+    /// </para>
+    /// <para>
+    /// <b>It answers to <c>check &lt;directory&gt;</c> rather than to a verb of its own.</b> It was
+    /// <c>auto</c>, and that name claimed the wrong thing: "auto" means autoformalization in this
+    /// field and nothing here formalizes anything — every intentional claim it checks is a
+    /// <c>.tla</c> module a person wrote by hand. What was automated was the running.
+    /// </para>
     /// </remarks>
-    static async Task<int> AutoAsync(AutoOptions opts)
+    static async Task<int> AuditAsync(CheckOptions opts)
     {
-        var args = new List<string> { opts.Directory };
+        var args = new List<string> { opts.Policy };
 
         if (!string.IsNullOrWhiteSpace(opts.OutputDir)) args.AddRange(["--output-dir", opts.OutputDir]);
         if (!string.IsNullOrWhiteSpace(opts.Provider)) args.AddRange(["--provider", opts.Provider]);
@@ -227,12 +259,12 @@ public static class Program
 
         // No timeout of our own: a directory of policies is minutes of TLC per policy, and a cap
         // here would kill a run that was working. The script bounds each check itself.
-        var r = await PythonProcess.RunAsync(PolicyTools.AutoScript, [.. args],
+        var r = await PythonProcess.RunAsync(PolicyTools.AuditScript, [.. args],
             root: Blank(opts.AnchorRoot), timeout: TimeSpan.FromHours(6));
 
         if (!r.IsSuccess)
         {
-            Console.Error.WriteLine(r.Message ?? "the directory check could not be run");
+            Console.Error.WriteLine(r.Message ?? "the directory audit could not be run");
             return CouldNotRun;
         }
 
@@ -302,7 +334,7 @@ public static class Program
     /// </summary>
     static readonly HashSet<string> Verbs = new(StringComparer.OrdinalIgnoreCase)
     {
-        "server", "check", "auto", "explain", "help", "version"
+        "server", "check", "explain", "help", "version"
     };
 
     /// <summary>
@@ -311,7 +343,7 @@ public static class Program
     /// </summary>
     static readonly HashSet<string> Reporting = new(StringComparer.OrdinalIgnoreCase)
     {
-        "check", "auto", "explain"
+        "check", "explain"
     };
 
     const int Ok = 0;

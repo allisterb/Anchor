@@ -45,51 +45,6 @@ public class ServerOptions : Options
 }
 
 /// <summary>Check a whole directory of policies, unattended.</summary>
-[Verb("auto", HelpText =
-    "Run every check over a directory of .dw policies and write findings.md, results.json and " +
-    "traces/ beside them. Answers a questions.md if one is there. Exit 1 when there is something " +
-    "to look at, so it can gate a pipeline; 2 when the run could not happen at all.")]
-public class AutoOptions : Options
-{
-    #region Properties
-
-    [Value(0, MetaName = "directory", Required = true, HelpText = "A directory of .dw policy files.")]
-    public string Directory { get; set; } = string.Empty;
-
-    [Option("output-dir", Required = false, MetaValue = "DIR",
-        HelpText = "Where to write findings.md, results.json and traces/ (default: the directory itself).")]
-    public string OutputDir { get; set; } = string.Empty;
-
-    [Option("no-model", Required = false,
-        HelpText = "Run the checks and write the report without asking a model anything. Most of " +
-                   "the value, none of the cost, and the part that belongs in CI.")]
-    public bool NoModel { get; set; }
-
-    [Option("provider", Required = false, HelpText = "auto, bedrock or gemini.")]
-    public string Provider { get; set; } = string.Empty;
-
-    [Option("model", Required = false, HelpText = "Model id; defaults to the provider's own.")]
-    public string Model { get; set; } = string.Empty;
-
-    [Option("attempts", Required = false, HelpText = "Session length bound (default 3).")]
-    public int? Attempts { get; set; }
-
-    [Option("smoke", Required = false, MetaValue = "N",
-        HelpText = "Explore each policy as a random walk of N behaviours (try 3000) instead of " +
-                   "exhaustively — for a set whose request space is too large to exhaust. Reports " +
-                   "only `live` or `unknown`, NEVER vacuous/redundant/dead: those are claims of " +
-                   "absence and a random walk cannot establish one. The report says so at the top.")]
-    public int? Smoke { get; set; }
-
-    [Option("max-fields", Required = false, MetaValue = "N",
-        HelpText = "Refuse a policy reading more than N input/output fields (default 4). The " +
-                   "request space is the product of their domains, so raising this trades runtime " +
-                   "for reach rather than soundness.")]
-    public int? MaxFields { get; set; }
-
-    #endregion
-}
-
 /// <summary>Say in English what a property module forbids, before anything is checked.</summary>
 /// <remarks>
 /// Its own verb rather than a flag on <c>check</c> because it is used at a different moment and by
@@ -124,13 +79,26 @@ public class ExplainOptions : Options
 /// <summary>Model-check a Dogwood policy.</summary>
 [Verb("check", HelpText =
     "Model-check a Dogwood policy, rule by rule: is each one load-bearing, or is it VACUOUS, " +
-    "REDUNDANT or DEAD? Runs TLC once per rule, so expect seconds. Exit codes are the checker's " +
-    "own: 0 answered, 1 a --property claim is BROKEN, 2 no verdict, 3 the checker could not be run.")]
+    "REDUNDANT or DEAD? Runs TLC once per rule, so expect seconds. GIVE IT A DIRECTORY instead " +
+    "and it audits every .dw in it, pairing each with the .tla module whose header names it, and " +
+    "writes findings.md, results.json and traces/ beside them. Exit: 0 answered or nothing to " +
+    "look at, 1 a --property claim is BROKEN or there are findings, 2 no verdict, 3 could not run.")]
 public class CheckOptions : Options
 {
     #region Properties
 
-    [Value(0, MetaName = "policy", Required = true, HelpText = "Path to the .dw policy file.")]
+    /// <summary>
+    /// A .dw file, or a DIRECTORY of them. The shape decides which run happens, rather than a flag:
+    /// one policy is checked rule by rule and printed; a directory is audited and written up.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a separate <c>auto</c> verb, and that name claimed the wrong thing — "auto"
+    /// means autoformalization in this field, and nothing there formalizes anything: every
+    /// intentional claim it checks is a <c>.tla</c> a person wrote. Branching on the argument
+    /// rather than on a flag follows <c>pipeline.sweep()</c>, which already reads a path both ways.
+    /// </remarks>
+    [Value(0, MetaName = "policy-or-directory", Required = true,
+        HelpText = "A .dw policy file, or a directory of them to audit.")]
     public string Policy { get; set; } = string.Empty;
 
     [Option("against", Required = false, MetaValue = "OTHER.dw",
@@ -176,6 +144,27 @@ public class CheckOptions : Options
 
     [Option("verbose", Required = false, HelpText = "Include the raw TLC output for each rule.")]
     public bool Verbose { get; set; }
+
+    // --- a DIRECTORY only -----------------------------------------------------------------------
+    // Refused with a message when the argument is a single policy, rather than ignored: an option
+    // that silently does nothing is worse than one that is not there.
+
+    [Option("output-dir", Required = false, MetaValue = "DIR",
+        HelpText = "DIRECTORY ONLY. Where to write findings.md, results.json and traces/ " +
+                   "(default: the directory itself).")]
+    public string OutputDir { get; set; } = string.Empty;
+
+    [Option("no-model", Required = false,
+        HelpText = "DIRECTORY ONLY. Run the checks and write the report without asking a model " +
+                   "anything. Most of the value, none of the cost, and the part that belongs in CI.")]
+    public bool NoModel { get; set; }
+
+    [Option("provider", Required = false, HelpText = "DIRECTORY ONLY. auto, bedrock or gemini.")]
+    public string Provider { get; set; } = string.Empty;
+
+    [Option("model", Required = false,
+        HelpText = "DIRECTORY ONLY. Model id; defaults to the provider's own.")]
+    public string Model { get; set; } = string.Empty;
 
     [Option("syntax", Required = false,
         HelpText = "Put the policy to the reference implementation (`dogwood check-parse`) before " +

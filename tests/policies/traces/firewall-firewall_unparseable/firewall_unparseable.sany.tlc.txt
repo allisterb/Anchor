@@ -1,0 +1,22 @@
+****** SANY2 Version 2.1 created 24 February 2014
+
+Parsing file C:\Projects\Anchor\tests\policies\traces\firewall-firewall_unparseable\firewall_unparseable.tla
+***Parse Error***
+Encountered "Beginning of definition" at line 31, column 1 and token "*" 
+
+Residual stack trace follows:
+ExtendableExpr starting at line 31, column 1.
+ExtendableExpr starting at line 17, column 18.
+Expression starting at line 17, column 18.
+Definition starting at line 17, column 1.
+Module body starting at line 15, column 1.
+
+
+Fatal errors while parsing TLA+ spec in file firewall_unparseable.tla
+
+tla2sany.semantic.AbortException
+*** Abort messages: 1
+
+In module firewall_unparseable
+
+Could not parse module firewall_unparseable from file firewall_unparseable.tla
