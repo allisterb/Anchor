@@ -45,16 +45,17 @@ Anchor allows developers and engineers and administrators to use the benefits of
 
 Anchor formal verification was able to find incorrectness in multiple policies posted in two AWS blog posts:
 
-Article: [Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/authoring-dogwood-policies-from-natural-language-in-amazon-bedrock-agentcore/)
-
-Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
-
-Article: [Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/authoring-dogwood-policies-from-natural-language-in-amazon-bedrock-agentcore/)
-Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
-
 Article: [*Securing AI agents with temporal policies in Amazon Bedrock
 AgentCore*](https://aws.amazon.com/blogs/machine-learning/securing-ai-agents-with-temporal-policies-in-amazon-bedrock-agentcore/)
+
 Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws1/findings.md)
+
+
+Article: [Authoring Dogwood policies from natural language in Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/machine-learning/authoring-dogwood-policies-from-natural-language-in-amazon-bedrock-agentcore/)
+
+Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
+
+An issue with the Anchor findings on the Dogwood project repo is [here](https://github.com/dogwood-policy/dogwood/issues/15).
 
 Anchor provides:
 
@@ -110,8 +111,6 @@ When an agent translates informal natural language requirements into formal spec
 Bounded Model Checking (BMC) like what the TLC checker does guarantees correctness only up to a fixed execution depth. If an autonomous agent relies solely on BMC to certify a loop or recursive policy rule, vulnerabilities lying at depth remain invisible, providing an incomplete
 guarantee of mathematical assurance. Anchor allows the user to explictly specify the bounds of BMC and the Anchor knowledge resources and each Anchor report always emphasizes the lack of a finding does not translate into a finding not existing.
 
-### Results
-
 ## How it works
 The Dogwood temporal policy formal verification in Anchor makes use of two main external toolsets:
 * The TLA+ language [tools](https://github.com/tlaplus/tlaplus)
@@ -137,8 +136,8 @@ The first `check` mode mechanically translates the Dogwood policy to TLA+ then r
 | `--against other.dw`: Does the difference between two policies cause a difference in policy decisions? | **THEY DIFFER** / no difference |
 
 ### Agentic Workflow
-`auto` and `hitl` are the same Strands `Graph` with one node's difference. A requirement written in
-English goes in; a property module, a verdict, and a report come out — and between them stand three
+Anchor's agentic `auto` and `hitl` modes use the Strands [Graph](https://strandsagents.com/docs/user-guide/concepts/multi-agent/graph/) multi-agent pattern. `auto` and `hitl` are the same Strands `Graph` with one node's difference. A requirement written in
+English goes in; a properties module, a verdict, and a report come out — and between them stand three
 **different** language models and four mechanical gates, any one of which can turn a draft away.
 
 ```
@@ -172,10 +171,6 @@ nothing else. A property drafted from a policy is a restatement of that policy a
 a property drafted from a *requirement* can disagree with the rules, which is the only way it can
 find anything.
 
-**A gate that rejects is not a failed node.** It completes, writes its verdict, and two `verdict()`
-edges route on it — declared as one decision, so the model checker that verifies this graph knows
-exactly one arm fires. Every exit writes a report, including the rejections.
-
 `hitl` inserts one more node, `confirm`, between `review` and `check`: before any model checker
 runs, the claim is read back to the person in plain English — what each invariant **forbids**, and
 how many of the states it ranges over its condition even applies to — and they say whether that is
@@ -200,8 +195,8 @@ Anchor is written in C# and Python.
 Anchor uses .NET to host the TLA+ language tools which are written in Java. The SANY parser the MCP tools use is an IKVM .NET [port](https://github.com/allisterb/Anchor/blob/master/src/Anchor.Verifiers.TLAPlus/Anchor.Verifiers.TLAPlus.csproj) of the Java tlatools library. This allows the parser to be used as an ordinary in-process .NET library this is repeatedly called by the MCP tool used by the agent for TLA+ code generation without having to launch an external JVM process everytime. The TLC model checker isn't compatible with IKVM however and must still be launched as a command-line subprocesses.
 
 ### `translator`
-The premise is that **a model written by reading something is a paraphrase, and nothing checks a
-paraphrase.** So the artifact itself is the input, in both directions:
+The premise is that a model written by reading something is a paraphrase, and nothing checks a
+paraphrase. So the artifact itself is the input, in both directions:
 
 ```
 .dw text ──> parse ──> policy dicts ──> emit ──> TLA+ records ──┐
@@ -218,15 +213,6 @@ GraphBuilder ──> Graph ──> strands_graph_to_tla ──> Workflow.tla ┘
 | `emit.py` | the TLA+ data. Every value carries its kind, so TLC refuses a cross-kind comparison instead of quietly answering one |
 | `trace.py` | an event log into trace records; `@N` is seconds |
 | `tlc.py` | finds the tools jar and runs TLC out of process, with a private `java.io.tmpdir` per run so concurrent runs cannot corrupt each other's unpacked standard modules |
-| `strands_graph_to_tla.py` | walks a **live** Strands `Graph` into `Workflow.tla` |
-
-That last row is the second translation and the one that verifies Anchor itself. `GraphBuilder` is
-the construction API, so the graph object **is** the workflow the runtime executes — walking it is
-translation rather than inference. An edge condition is an opaque Python callable, and the
-translator does not guess what one means: a combinator that carries its own TLA+ predicate is
-meaning by construction, a user's declared assertion is emitted as a **hole listed in the generated
-module's header** rather than absorbed silently, and an undeclared condition becomes a
-nondeterministic edge about which nothing is claimed.
 
 ### `check`
 `translator` decides what a policy *says*. `check` decides what *follows* from it, by asking TLC
@@ -239,21 +225,21 @@ questions the policy text cannot answer about itself.
 | `witness.py` | turns a counterexample back into the user's own language: the concrete session it stands for, rendered as a Dogwood `.log` trace |
 | `engine.py` | the reference engine, asked the two questions only it can answer |
 
-**The polarity is inverted, and that is the subtle part.** TLA+ is linear-time and has no `EF`, so
+The polarity is *inverted(), and that is the subtle part. TLA+ is linear-time and has no `EF`, so
 *can this rule ever grant anything* is asked by checking the negation and reading the violation as
-the witness. A TLC **violation** is therefore the good outcome, and the tool inverts it before
+the witness. A TLC *violation* is therefore the good outcome, and the tool inverts it before
 printing, because the raw reading is a trap. It also means `--smoke` is backwards from every other
-smoke test: a random walk that finds a witness is a **sound positive** — a witness is a witness
+smoke test: a random walk that finds a witness is a *sound positive* — a witness is a witness
 however it was reached — while finding none is not a verdict and never means the rule is inert.
 
 **`VACUOUS` is the answer that must never be wrong**, since it tells somebody a control is dead and
 the obvious response is to delete it. It is falsification-tested rather than merely observed, and
-anything that is not an answer — a parse error, an unsupported construct — raises rather than
+anything that is not an answer: a parse error, an unsupported construct,  raises rather than
 reporting vacuous.
 
 `engine.py` is where the real Dogwood binary comes in, and it settles two things our own parser
 cannot settle about itself. Our parser reads a subset, so a refusal has two meanings with one
-message — *this construct is outside the subset* versus *this policy is broken* — and `dogwood
+message: *this construct is outside the subset* versus *this policy is broken*, and `dogwood
 check-parse` distinguishes them for about 35 ms. And when a claim is `BROKEN`, the counterexample is
 carried back as a `.log` trace and put to `dogwood replay`, so the verdict shown beside the finding
 is **the reference engine's, not ours**. Everything here degrades to "not available" and says so

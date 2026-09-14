@@ -1,14 +1,22 @@
-# agent-policy.dw
+# 03-cumulative-cap.dw
 
-**Stated intention.** A refund over $500 requires a supervisor approval for that charge within the previous 30 minutes.
+**Stated intention.** Block a transfer if the total amount transferred in the past 12 hours would exceed $50,000.
 
-*Drafted in 2 of 3 attempt(s).*
+> **A budget cap fired during this run.**
+>
+> - draft round 1 was cut off by the limit_turns cap
+> - draft round 2 was cut off by the limit_turns cap
+> - draft round 3 was cut off by the limit_turns cap
+>
+> Raise `--turns` / `--total-tokens` / `--output-tokens`, or narrow the intention, and run it again.
 
-## No property was checked: the draft was rejected at `score`
+*Drafted in 3 of 3 attempt(s), and the allowance ran out -- what follows is the last attempt, judged by the same gates as any other.*
+
+## No property was checked: the draft was rejected at `preflight`
 
 The gate below is a criterion in code, not a judgement a model was asked to make. Nothing downstream ran, and nothing here was verified.
 
-- the property HOLDS, but it also holds of every broken version of this policy that was tried -- rules deleted, permits turned into forbids, conditions dropped. So it is not constraining this policy at all. It is probably ranging over requests the policy never sees, or asserting something trivially true. State the claim about concrete actions and values the policy actually names.
+- the draft did not contain both a module and a .cfg between the ===MODULE=== and ===CONFIG=== markers
 
 ---
 
@@ -18,19 +26,19 @@ The gate below is a criterion in code, not a judgement a model was asked to make
 
 | | tokens in | of which cached | out | total | seconds |
 |---|---:|---:|---:|---:|---:|
-| draft round 1 | 6,399 | 0 | 5,456 | 11,855 | 46.4 |
-| draft round 2 | 12,189 | 4,077 | 5,744 | 17,933 | 48.0 |
-| **2 model call(s)** | **18,588** | **4,077** | **11,200** | **29,788** | **94.4** |
+| draft round 1 (cut off) | 28,854 | 11,916 | 727 | 29,581 | 18.7 |
+| draft round 2 (cut off) | 35,496 | 15,758 | 941 | 36,437 | 20.0 |
+| draft round 3 (cut off) | 41,164 | 31,278 | 815 | 41,979 | 21.6 |
+| **3 model call(s)** | **105,514** | **58,952** | **2,483** | **107,997** | **60.3** |
 
 Time per stage, model calls and verification together:
 
 ```
-  describe          0.2s
-  draft           106.1s
+  describe          0.1s
+  draft            60.3s
   preflight         0.0s
-  score            19.5s
   report            0.0s
-  total           125.8s
+  total            60.4s
 ```
 
-Of which 94.4s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.
+Of which 60.3s was model calls; the rest is verification -- TLC runs in `score` and `check`, which cost no tokens.

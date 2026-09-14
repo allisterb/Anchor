@@ -67,8 +67,16 @@ which is exactly the population Amazon points at graphs for.
 python tests/strands/graph_to_tla.py
 ```
 
-The translator emits the graph; the properties live once, reviewed, in the specs that consume it. A
-new workflow is checked against them without anyone rewriting anything.
+| `strands_graph_to_tla.py` | walks a **live** Strands `Graph` into `Workflow.tla` |
+
+That last row is the second translation and the one that verifies Anchor itself. `GraphBuilder` is
+the construction API, so the graph object **is** the workflow the runtime executes — walking it is
+translation rather than inference. An edge condition is an opaque Python callable, and the
+translator does not guess what one means: a combinator that carries its own TLA+ predicate is
+meaning by construction, a user's declared assertion is emitted as a **hole listed in the generated
+module's header** rather than absorbed silently, and an undeclared condition becomes a
+nondeterministic edge about which nothing is claimed
+
 
 Three behaviours it surfaced, none of which shows up in a passing test run:
 
@@ -108,13 +116,3 @@ Worth stating plainly, because a framework like this invites overclaiming:
   spec here has an opinion about it.
 - **Nothing about code paths outside the graph.**
 
-## Python
-
-The Strands SDK is the target the Dafny workflows are translated to, and lives in a venv at
-`python/`, separate from the .NET build and installed by hand rather than by the build scripts.
-
-It is installed with pip in hash-checking mode and wheels-only: an install either reproduces exactly
-the artifacts that were reviewed, or fails outright, and no sdist ever runs a `setup.py` on the
-machine. `requirements/strands/install.cmd` and `requirements/strands/install.sh` are the entry points — run by a
-person, deliberately; nothing in the build or any agent invokes them. See
-[requirements/strands/README.md](requirements/strands/README.md) for the procedure.
