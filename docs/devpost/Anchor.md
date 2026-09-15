@@ -35,7 +35,7 @@ Agentic formal verification provides one answer to the velocity of AI-driven aut
 
 However agentic formal verification systems also have numerous failings and sources of incorrectness. Melding the inherently probalistic and improvisational and goal-driven nature of AI agents with the rigidity and critical correctness requirements of formal verification  require a careful design and gating to produce useful, valid results. A flawed formal verification result is worse than no result at all as it inspires a high-level of confidence in a policy where no such justification or even the inverse may exist.
 
-An agentic formal verification system that models temporal policy semantics and built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of temporal policy languages like Dogwood, and a valuable toolkit in the defensive arsenal of modern distributed systems against AI-driven attacks.
+An agentic formal verification system that models temporal policy semantics and built using an framework like Strands SDK that supports flexible workflow logic and gating is a possible solution to the problem of agentic formal verification of temporal policy languages like Dogwood, and a valuable toolkit in the defensive arsenal of AWS developers against AI-driven attacks.
 
 
 ## What it does
@@ -43,7 +43,7 @@ Anchor is a agentic formal verification framework that uses the [TLA+](https://l
 
 Anchor allows developers and engineers and administrators to use the benefits of formal verification without requiring the specialized knowledge and skills formal methods typically demands. It uses a graph-based Strands multi-agent workflow to try to address the [known issues](https://arxiv.org/html/2606.05792v1) in agentic formal verification.
 
-Anchor formal verification was able to find incorrectness in multiple policies posted in two AWS blog posts:
+Anchor is designed for AWS developers who would like stronger guarantees on the correctness of the Dogwood policies they write to secure their distributed systems. Using Anchor was able to find incorrectness in multiple policies posted in two AWS blog posts:
 
 Article: [*Securing AI agents with temporal policies in Amazon Bedrock
 AgentCore*](https://aws.amazon.com/blogs/machine-learning/securing-ai-agents-with-temporal-policies-in-amazon-bedrock-agentcore/)
@@ -56,6 +56,7 @@ Article: [Authoring Dogwood policies from natural language in Amazon Bedrock Age
 Findings: [link](https://github.com/allisterb/Anchor/blob/master/examples/aws2/findings.md)
 
 An issue with the Anchor findings on the Dogwood project repo is [here](https://github.com/dogwood-policy/dogwood/issues/15).
+
 
 Anchor provides:
 

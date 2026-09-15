@@ -93,6 +93,11 @@ COPY --from=build /out/tla2tools.jar     /app/lib/tla2tools-1.7.4.jar
 COPY src/translator                     /app/src/translator
 COPY src/checker                        /app/src/checker
 COPY src/agent                          /app/src/agent
+# NOT optional, and the omission is silent until something reaches the drafting pipeline:
+# pipeline.py does `from annotations import VERDICT_PASS, verdict` at import. server.py only
+# imports policy_agent today, so nothing has tripped over it -- which is exactly why it would
+# have gone unnoticed until the first attempt to serve `auto` or `hitl` from here.
+COPY src/annotations                    /app/src/annotations
 COPY specs/policy/TemporalPolicy        /app/specs/policy/TemporalPolicy
 COPY tests/policies                     /app/tests/policies
 
