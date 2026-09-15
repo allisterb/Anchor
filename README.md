@@ -283,3 +283,7 @@ approximated.
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
+
+Third-party code, the binaries this project fetches and redistributes, and what was read but not
+incorporated, are disclosed in [NOTICES.md](NOTICES.md).
+
